@@ -90,7 +90,7 @@
 
 # 概述
 
-这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)批量上报(定时节奏)、精确统计每次 Agent 调用的 input/output Token 与 LLM 思考时长、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)、以 WakaTime API Key 认证(Key 经本地小后端代理,仅覆盖写入不可查看)。
+这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)批量上报(定时节奏)、精确统计每次 Agent 调用的 input/output Token 与 LLM 思考时长、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话区分)、以 WakaTime API Key 认证(Key 经本地小后端代理,仅覆盖写入不可查看)。
 
 - 插件名称规范:`dsh-<核心名称>-plugin`,本项目核心名称为 `wakatime`,包名 `dsh-wakatime-plugin`
 - 插件入口导出 `name`(值 `wakatime`)与 `apply(ctx, config)`,配置经 Schemastery schema 校验
