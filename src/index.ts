@@ -19,9 +19,11 @@ import { HeartbeatEngineImpl } from './heartbeat'
 import { FetchHttpClient } from './http'
 import { OAuthModule } from './oauth'
 import { ProjectDetector } from './project'
+import { RuntimeConfig } from './runtime-config'
 import { StatsTracker } from './stats'
 import { WakatimeTools } from './tools'
 import { setLanguage } from './translation'
+import { attachWebUi } from './webui'
 
 export const name = 'wakatime'
 
@@ -39,6 +41,7 @@ export { FetchHttpClient } from './http'
 export { WakaTimeError } from './http'
 export { OAuthModule } from './oauth'
 export { ProjectDetector } from './project'
+export { RuntimeConfig } from './runtime-config'
 export { StatsTracker } from './stats'
 export { WakatimeTools } from './tools'
 export { translate, setLanguage, getLanguage } from './translation'
@@ -53,7 +56,8 @@ export function apply(ctx: Context, config: ConfigType) {
   const configManager = new ConfigManagerImpl()
   const http = new FetchHttpClient()
   const oauth = new OAuthModule(http)
-  const auth = new AuthManagerImpl(oauth, http, configManager, config.clientId, config.clientSecret)
+  const runtimeConfig = new RuntimeConfig(config, configManager)
+  const auth = new AuthManagerImpl(oauth, http, configManager, runtimeConfig)
   const heartbeat = new HeartbeatEngineImpl(http, () => auth.ensureValidToken(), {
     enabled: config.enabled,
     heartbeatInterval: config.heartbeatInterval,
@@ -64,13 +68,32 @@ export function apply(ctx: Context, config: ConfigType) {
   const stats = new StatsTracker()
   const project = new ProjectDetector()
   const collector = new SessionEventCollector({ heartbeat, stats, project })
-  const tools = new WakatimeTools({ auth, oauth, stats, callbackPort: config.callbackPort })
+  const tools = new WakatimeTools({ auth, oauth, stats, runtimeConfig })
 
   /* 事件采集:监听器为效果,卸载自动移除 */
   collector.attach(ctx)
 
   /* 工具注册:inject 保证 tools 服务就绪 */
   tools.register(ctx)
+
+  /* Web 配置变更即时生效(心跳选项与界面语言) */
+  ctx.effect(() => runtimeConfig.onChange((next) => {
+    heartbeat.updateOptions({
+      enabled: next.enabled,
+      heartbeatInterval: next.heartbeatInterval,
+      includeTokens: next.includeTokens,
+      includePrompts: next.includePrompts,
+    })
+    setLanguage(next.locale || DEFAULT_LANGUAGE)
+  }))
+
+  /* 启动时异步恢复 Web 设置页写入的配置(失败静默,保留 cordis 配置) */
+  void configManager.load().then((stored) => {
+    if (stored?.settings) void runtimeConfig.mergeStored(stored.settings)
+  })
+
+  /* Web UI 路由(web profile 提供 webserver 服务时挂载) */
+  attachWebUi(ctx, { runtimeConfig, auth, stats })
 
   /* 离线队列定时补报:手动定时器经 effect 管理,卸载自动清理 */
   ctx.effect(() => {

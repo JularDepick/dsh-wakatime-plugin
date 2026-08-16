@@ -17,6 +17,7 @@ import { OAUTH_CALLBACK_PATH } from '../constants'
 import { NotAuthenticatedError } from '../errors'
 import type { CallbackServerHandle, OAuthCallbackResult, OAuthService } from '../oauth'
 import { openBrowser } from '../oauth/browser'
+import type { RuntimeConfig } from '../runtime-config'
 import type { StatsTracker } from '../stats'
 import { translate } from '../translation'
 
@@ -24,8 +25,8 @@ export interface WakatimeToolsOptions {
   auth: AuthManager
   oauth: OAuthService
   stats: StatsTracker
-  /* OAuth 本地回调端口 */
-  callbackPort: number
+  /* 运行时配置:登录时读取最新回调端口 */
+  runtimeConfig: RuntimeConfig
 }
 
 export class WakatimeTools {
@@ -89,13 +90,14 @@ export class WakatimeTools {
 
   /* OAuth 登录:本地回调服务器 + 浏览器授权 + 换令牌 + 回填用户资料 */
   private async login(): Promise<string> {
-    const { auth, oauth, callbackPort } = this.options
+    const { auth, oauth, runtimeConfig } = this.options
     const credentials = auth.getCredentials()
     if (!credentials.clientId) {
       return translate('oauth.noClientId')
     }
 
     const state = randomUUID()
+    const callbackPort = runtimeConfig.get().callbackPort
     const redirectUri = `http://localhost:${callbackPort}${OAUTH_CALLBACK_PATH}`
     const handle = oauth.startCallbackServer(callbackPort)
     this.activeHandles.add(handle)

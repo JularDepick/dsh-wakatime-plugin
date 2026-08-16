@@ -115,4 +115,9 @@ export class StatsTracker {
     }
     return merged
   }
+
+  /* 全部会话统计列表(Web 数据面板用) */
+  listSessions(): SessionStats[] {
+    return [...this.sessions.values()]
+  }
 }

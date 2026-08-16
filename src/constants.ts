@@ -48,6 +48,10 @@ export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 export const HEARTBEAT_CATEGORY_AI = 'ai coding'
 export const HEARTBEAT_CATEGORY_TOOL = 'debugging'
 
+/* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
+export const WEB_STATUS_PATH = '/api/wakatime/status'
+export const WEB_CONFIG_PATH = '/api/wakatime/config'
+
 /* 环境变量 */
 export const ENV_CLIENT_ID = 'WAKATIME_CLIENT_ID'
 export const ENV_CLIENT_SECRET = 'WAKATIME_CLIENT_SECRET'

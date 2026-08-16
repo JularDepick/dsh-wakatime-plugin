@@ -11,35 +11,34 @@ import type { ConfigManager } from '../config-manager'
 import { NotAuthenticatedError, TokenRefreshError } from '../errors'
 import type { HttpClient } from '../http'
 import type { OAuthCredentials, OAuthService, TokenPair } from '../oauth'
+import type { RuntimeConfig } from '../runtime-config'
 import type { AuthManager, AuthStatus, UserProfile } from './types'
 
 export class AuthManagerImpl implements AuthManager {
   private readonly oauth: OAuthService
   private readonly http: HttpClient
   private readonly configManager: ConfigManager
-  /* 插件配置(凭证兜底来源) */
-  private readonly clientIdConfig: string
-  private readonly clientSecretConfig: string
+  /* 运行时配置:clientId/clientSecret 的兜底来源(可被 Web 覆盖) */
+  private readonly runtimeConfig: RuntimeConfig
 
   constructor(
     oauth: OAuthService,
     http: HttpClient,
     configManager: ConfigManager,
-    clientIdConfig: string,
-    clientSecretConfig: string,
+    runtimeConfig: RuntimeConfig,
   ) {
     this.oauth = oauth
     this.http = http
     this.configManager = configManager
-    this.clientIdConfig = clientIdConfig
-    this.clientSecretConfig = clientSecretConfig
+    this.runtimeConfig = runtimeConfig
   }
 
   getCredentials(): OAuthCredentials {
-    /* 环境变量优先,插件配置兜底 */
+    /* 环境变量优先,运行时配置(cordis 配置 + Web 覆盖)兜底 */
+    const config = this.runtimeConfig.get()
     return {
-      clientId: process.env[ENV_CLIENT_ID] || this.clientIdConfig,
-      clientSecret: process.env[ENV_CLIENT_SECRET] || this.clientSecretConfig,
+      clientId: process.env[ENV_CLIENT_ID] || config.clientId,
+      clientSecret: process.env[ENV_CLIENT_SECRET] || config.clientSecret,
     }
   }
 

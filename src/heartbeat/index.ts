@@ -43,7 +43,8 @@ interface QueuedHeartbeat {
 export class HeartbeatEngineImpl implements HeartbeatEngine {
   private readonly http: HttpClient
   private readonly tokenProvider: TokenProvider
-  private readonly options: HeartbeatEngineOptions
+  /* 可变选项:Web 设置页写入后经 updateOptions 即时生效 */
+  private options: HeartbeatEngineOptions
   /* 同实体最近成功上报时刻(Unix 毫秒) */
   private readonly lastSent = new Map<string, number>()
   /* 离线队列 */
@@ -53,6 +54,11 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.http = http
     this.tokenProvider = tokenProvider
     this.options = options
+  }
+
+  /* 更新运行选项(enabled/防抖窗口/字段裁剪),不替换 logger */
+  updateOptions(patch: Partial<HeartbeatEngineOptions>): void {
+    this.options = { ...this.options, ...patch }
   }
 
   async send(heartbeat: Heartbeat): Promise<void> {

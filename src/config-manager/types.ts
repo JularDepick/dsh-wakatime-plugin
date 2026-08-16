@@ -20,6 +20,10 @@ export interface StoredConfig {
     includeTokens: boolean
     includePrompts: boolean
     debug: boolean
+    /* Web 设置页可编辑项(经 /api/wakatime/config 写入,重启后合并恢复) */
+    locale?: string
+    clientId?: string
+    callbackPort?: number
   }
 }
 

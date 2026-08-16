@@ -1,0 +1,229 @@
+/* WakaTime 设置标签页样式:语义 token 见 docs/web-styling.md,不写死颜色 */
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  padding: 12px 16px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.refresh {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 22px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ok {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--dsw-alias-border-l);
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.statValue {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.statLabel {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: center;
+}
+
+.table th {
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  padding: 6px 8px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.table td {
+  border-bottom: 1px solid var(--dsw-alias-border-l);
+  padding: 5px 8px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sessionId {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.rowLabel {
+  flex: 0 0 160px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  padding: 0 8px;
+}
+
+.input:focus {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.select {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.saveRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.save {
+  border: 0;
+  border-radius: 6px;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-button-primary-dimmed);
+  font: inherit;
+  font-size: 13px;
+  line-height: 26px;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.save:hover {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.toastOk {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  border-radius: 6px;
+  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-button-primary-dimmed);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 8px 14px;
+}
+
+.toastError {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  border-radius: 6px;
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-button-primary-dimmed);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 8px 14px;
+}
