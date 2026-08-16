@@ -2,124 +2,96 @@
  * 认证管理模块实现
  * 作者: JularDepick
  *
- * ensureValidToken 在令牌临近过期时经刷新令牌自动续期并持久化;
- * 刷新失败抛出 TokenRefreshError,由上层提示重新登录。
+ * WakaTime API Key 认证:内存缓存 + 配置文件持久化(0600 权限)。
+ * Key 只允许覆盖写入,任何读取面均不回显明文;环境变量
+ * WAKATIME_API_KEY 优先于配置文件。配置时先经 /users/current 验证。
  */
 
-import { ENV_CLIENT_ID, ENV_CLIENT_SECRET, TOKEN_REFRESH_THRESHOLD_SECONDS, USER_INFO_PATH } from '../constants'
-import type { ConfigManager } from '../config-manager'
-import { NotAuthenticatedError, TokenRefreshError } from '../errors'
+import { DEFAULT_REPORT_INTERVAL_SECONDS, ENV_API_KEY, USER_INFO_PATH } from '../constants'
+import type { ConfigManager, StoredConfig } from '../config-manager'
+import { NotAuthenticatedError } from '../errors'
 import type { HttpClient } from '../http'
-import type { OAuthCredentials, OAuthService, TokenPair } from '../oauth'
-import type { RuntimeConfig } from '../runtime-config'
 import type { AuthManager, AuthStatus, UserProfile } from './types'
 
+/* API Key 的 HTTP Basic 认证值:base64(`${key}:`) */
+export function basicAuthOf(apiKey: string): string {
+  return Buffer.from(`${apiKey}:`).toString('base64')
+}
+
 export class AuthManagerImpl implements AuthManager {
-  private readonly oauth: OAuthService
-  private readonly http: HttpClient
-  private readonly configManager: ConfigManager
-  /* 运行时配置:clientId/clientSecret 的兜底来源(可被 Web 覆盖) */
-  private readonly runtimeConfig: RuntimeConfig
+  /* 内存缓存:避免每次请求读盘;覆盖写入后同步更新 */
+  private apiKeyCache: string | null = null
 
   constructor(
-    oauth: OAuthService,
-    http: HttpClient,
-    configManager: ConfigManager,
-    runtimeConfig: RuntimeConfig,
-  ) {
-    this.oauth = oauth
-    this.http = http
-    this.configManager = configManager
-    this.runtimeConfig = runtimeConfig
-  }
+    private readonly http: HttpClient,
+    private readonly configManager: ConfigManager,
+  ) {}
 
-  getCredentials(): OAuthCredentials {
-    /* 环境变量优先,运行时配置(cordis 配置 + Web 覆盖)兜底 */
-    const config = this.runtimeConfig.get()
-    return {
-      clientId: process.env[ENV_CLIENT_ID] || config.clientId,
-      clientSecret: process.env[ENV_CLIENT_SECRET] || config.clientSecret,
-    }
-  }
-
-  async ensureValidToken(): Promise<string> {
+  async getApiKey(): Promise<string> {
+    const fromEnv = process.env[ENV_API_KEY]
+    if (fromEnv) return fromEnv
+    if (this.apiKeyCache) return this.apiKeyCache
     const stored = await this.configManager.load()
-    if (!stored?.accessToken) throw new NotAuthenticatedError()
-
-    const nowSeconds = Math.floor(Date.now() / 1000)
-    const expiresAt = stored.expiresAt ?? nowSeconds + 1
-    /* 未到期:直接使用 */
-    if (nowSeconds < expiresAt - TOKEN_REFRESH_THRESHOLD_SECONDS) {
-      return stored.accessToken
-    }
-
-    /* 到期或临近:经刷新令牌续期 */
-    if (!stored.refreshToken) {
-      throw new TokenRefreshError('缺少刷新令牌,请重新登录')
-    }
-    try {
-      const pair = await this.oauth.refresh(this.getCredentials(), stored.refreshToken)
-      await this.saveToken(pair)
-      return pair.accessToken
-    } catch (error) {
-      throw new TokenRefreshError((error as Error).message)
-    }
+    if (!stored?.apiKey) throw new NotAuthenticatedError()
+    this.apiKeyCache = stored.apiKey
+    return stored.apiKey
   }
 
-  async saveToken(pair: TokenPair, profile?: UserProfile): Promise<void> {
-    const existing = await this.configManager.load()
+  async setApiKey(apiKey: string): Promise<UserProfile> {
+    const trimmed = apiKey.trim()
+    if (!trimmed) throw new Error('API Key 不能为空')
+    /* 先验证有效性,失败不落盘 */
+    const profile = await this.fetchUserProfile(trimmed)
+    const stored = await this.configManager.load()
     await this.configManager.save({
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
-      expiresAt: pair.expiresAt,
-      clientId: existing?.clientId,
-      userId: profile?.userId ?? existing?.userId,
-      username: profile?.username ?? existing?.username,
-      settings: existing?.settings ?? {
-        enabled: true,
-        heartbeatInterval: 120,
-        projectDetection: 'auto',
-        includeTokens: true,
-        includePrompts: true,
-        debug: false,
-      },
+      ...(stored ?? {}),
+      apiKey: trimmed,
+      userId: profile.userId,
+      username: profile.username,
+      settings: stored?.settings ?? defaultSettings(),
     })
+    this.apiKeyCache = trimmed
+    return profile
   }
 
   async getStatus(): Promise<AuthStatus> {
+    if (process.env[ENV_API_KEY]) return { configured: true }
     const stored = await this.configManager.load()
-    if (!stored?.accessToken) return { authenticated: false }
-    return {
-      authenticated: true,
-      username: stored.username,
-      userId: stored.userId,
-      expiresAt: stored.expiresAt,
-    }
+    if (!stored?.apiKey) return { configured: false }
+    return { configured: true, username: stored.username }
   }
 
-  async logout(): Promise<void> {
+  async clearApiKey(): Promise<void> {
     const stored = await this.configManager.load()
-    if (stored?.accessToken) {
-      try {
-        await this.oauth.revoke(this.getCredentials(), stored.accessToken)
-      } catch {
-        /* 撤销失败不阻断本地清除 */
-      }
+    if (stored) {
+      await this.configManager.save({ ...stored, apiKey: undefined })
     }
-    await this.configManager.clear()
+    this.apiKeyCache = null
   }
 
-  /* 拉取当前用户信息(登录成功后回填 userId/username) */
-  async fetchUserProfile(token: string): Promise<{ userId?: string; username?: string }> {
+  async fetchUserProfile(apiKey: string): Promise<UserProfile> {
     try {
       const data = await this.http.request<{ data?: { id?: string; username?: string; display_name?: string } }>(
         USER_INFO_PATH,
-        { method: 'GET', bearer: token, noRetry: true },
+        { method: 'GET', basicAuth: basicAuthOf(apiKey), noRetry: true },
       )
       return { userId: data?.data?.id, username: data?.data?.display_name || data?.data?.username }
     } catch {
+      /* 验证失败(Key 无效/网络异常)不阻断流程,由调用方决定如何处理 */
       return {}
     }
+  }
+}
+
+/* settings 缺省块(与 Config 默认值对齐) */
+function defaultSettings(): StoredConfig['settings'] {
+  return {
+    enabled: true,
+    reportInterval: DEFAULT_REPORT_INTERVAL_SECONDS,
+    reportEnabled: true,
+    includeTokens: true,
+    includePrompts: true,
+    debug: false,
   }
 }
 

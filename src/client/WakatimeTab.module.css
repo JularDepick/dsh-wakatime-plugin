@@ -97,6 +97,16 @@
   gap: 8px;
 }
 
+.apiKeyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.apiKeyRow .input {
+  flex: 1;
+}
+
 .row {
   display: flex;
   align-items: center;

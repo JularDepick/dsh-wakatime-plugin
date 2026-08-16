@@ -2,10 +2,9 @@
  * 认证管理模块类型定义
  * 作者: JularDepick
  *
- * 组合 OAuth 与配置管理:凭证解析、令牌获取/刷新/持久化、登出。
+ * 基于 WakaTime API Key 的认证管理:Key 只允许覆盖写入,
+ * 任何读取面(工具、Web 接口)均不返回明文。
  */
-
-import type { OAuthCredentials, TokenPair } from '../oauth'
 
 /* 已认证用户摘要 */
 export interface UserProfile {
@@ -13,27 +12,24 @@ export interface UserProfile {
   username?: string
 }
 
-/* 认证状态摘要(供 status 展示) */
+/* 认证状态摘要(供 status 展示,不含 Key 明文) */
 export interface AuthStatus {
-  authenticated: boolean
+  /* 是否已配置 API Key */
+  configured: boolean
+  /* 最近验证成功的用户名(如有) */
   username?: string
-  userId?: string
-  /* 令牌过期时刻(UNIX 秒) */
-  expiresAt?: number
 }
 
 /* 认证管理器对外能力 */
 export interface AuthManager {
-  /* 解析生效凭证:环境变量优先,配置兜底 */
-  getCredentials(): OAuthCredentials
-  /* 确保有效令牌:未认证或刷新失败时抛出对应错误 */
-  ensureValidToken(): Promise<string>
-  /* 持久化令牌对,可同时回填用户资料 */
-  saveToken(pair: TokenPair, profile?: UserProfile): Promise<void>
-  /* 当前认证状态 */
+  /* 读取 API Key(内存缓存;未配置或环境变量缺失时抛出 NotAuthenticatedError) */
+  getApiKey(): Promise<string>
+  /* 覆盖设置 API Key:先验证有效性,成功后才持久化并更新内存缓存 */
+  setApiKey(apiKey: string): Promise<UserProfile>
+  /* 当前认证状态(不回显 Key) */
   getStatus(): Promise<AuthStatus>
-  /* 登出:撤销令牌并清除本地配置 */
-  logout(): Promise<void>
-  /* 拉取当前用户资料(登录成功后回填) */
-  fetchUserProfile(token: string): Promise<UserProfile>
+  /* 清除本地 API Key(登出) */
+  clearApiKey(): Promise<void>
+  /* 用给定 Key 拉取用户资料(验证用) */
+  fetchUserProfile(apiKey: string): Promise<UserProfile>
 }

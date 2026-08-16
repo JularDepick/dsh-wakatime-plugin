@@ -4,17 +4,17 @@
  *
  * Web 设置页经 /api/wakatime/config 写入的配置项以内存为准即时生效,
  * 同时持久化到本地配置文件的 settings 块;插件启动时异步合并恢复,
- * 不阻塞激活。clientSecret 为敏感字段,不经 Web 编辑。
+ * 不阻塞激活。API Key 属凭证,不经此通道(见 auth 模块)。
  */
 
 import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
 
-/* Web 可编辑的配置子集(不含 clientSecret) */
+/* Web 可编辑的配置子集(不含 API Key 等凭证) */
 export type WebConfigPatch = Partial<Pick<
   Config,
-  'enabled' | 'locale' | 'clientId' | 'callbackPort'
-  | 'heartbeatInterval' | 'includeTokens' | 'includePrompts' | 'debug'
+  'enabled' | 'locale' | 'reportInterval' | 'reportEnabled'
+  | 'includeTokens' | 'includePrompts' | 'debug'
 >>
 
 /* settings 块中与 Config 字段一致的持久化形态(可缺省,缺失表示未覆盖) */
@@ -62,17 +62,15 @@ export class RuntimeConfig {
 
   private async persist(): Promise<void> {
     const stored = await this.configManager.load()
-    const previous = stored?.settings
     const settings: StoredSettings = {
+      ...(stored?.settings ?? {}),
       enabled: this.current.enabled,
-      heartbeatInterval: this.current.heartbeatInterval,
-      projectDetection: previous?.projectDetection ?? 'auto',
+      reportInterval: this.current.reportInterval,
+      reportEnabled: this.current.reportEnabled,
       includeTokens: this.current.includeTokens,
       includePrompts: this.current.includePrompts,
       debug: this.current.debug,
       locale: this.current.locale,
-      clientId: this.current.clientId,
-      callbackPort: this.current.callbackPort,
     }
     await this.configManager.save({ ...(stored ?? {}), settings })
   }

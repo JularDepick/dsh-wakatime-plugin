@@ -3,30 +3,46 @@
  * 作者: JularDepick
  *
  * 在会话区域的视图标签栏(对话/轨迹所在)注册 wakatime 标签页:
- * 全局统计面板与配置区一体,数据经 host 的 /api/wakatime/* 接口读写
- * (仅 web profile 提供)。注册模式与官方 ui-trajectory 相同。
+ * Agent 协作战绩、API Key 覆盖管理(小后端代理)与配置区。
+ * 语言跟随 dsh web UI 语言切换(zh/en 字典)。
+ * 注册模式与官方 ui-trajectory 相同。
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only:拉取 ui-conversation 的 SlotMap 合并(conversation.view 声明)。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only:拉取 locale 插件的 Context 合并(ctx.locale)。
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { WakatimeTab } from './WakatimeTab.tsx'
+import { en, zh, type WakatimeKey } from './locales.ts'
 
 export { WakatimeTab }
 
-/** 必需服务:slot 注册表 */
-export const inject = ['slots']
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** WakaTime 标签页文案 */
+    wakatime: WakatimeKey
+  }
+}
+
+/** 字典命名空间 */
+const NS = 'wakatime'
+
+/** 必需服务:slot 注册表与 locale 服务 */
+export const inject = ['slots', 'locale']
 
 /**
- * 浏览器端插件主体:等待 conversation.view 声明后注册 wakatime 标签页。
- * 标签页为全局统计(数据来自 host 全局聚合接口),不依赖会话座位。
+ * 浏览器端插件主体:注册字典并等待 conversation.view 声明后注册标签页。
  * @param ctx - 浏览器插件上下文。
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'wakatime: dictionaries')
+  const t = ctx.locale.bind(NS)
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view',
     id: 'wakatime',
     order: 20,
-    label: () => 'WakaTime',
+    locale: NS,
+    label: () => t('tab.label'),
   }, WakatimeTab))
 }

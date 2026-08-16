@@ -90,7 +90,7 @@
 
 # 概述
 
-这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)格式上报、精确统计每次 Agent 调用的 input/output Token、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)并自动识别当前项目、通过 WakaTime OAuth 2.0 官方流程完成账号授权。
+这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)批量上报(定时节奏)、精确统计每次 Agent 调用的 input/output Token 与 LLM 思考时长、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)、以 WakaTime API Key 认证(Key 经本地小后端代理,仅覆盖写入不可查看)。
 
 - 插件名称规范:`dsh-<核心名称>-plugin`,本项目核心名称为 `wakatime`,包名 `dsh-wakatime-plugin`
 - 插件入口导出 `name`(值 `wakatime`)与 `apply(ctx, config)`,配置经 Schemastery schema 校验
@@ -119,19 +119,18 @@
 插件运行于 DSH 宿主内,遵循 Cordis 生命周期(Fiber 状态机),注册的能力在卸载时自动清理,手动资源用 `ctx.effect()`。模块划分为:
 
 - `src/index.ts` 入口:导出 `name`/`inject`/`apply(ctx, config)`,装配各模块
-- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度、assistant/message 上报 AI 编码心跳(携带 Token 用量)、tool/call 上报调试心跳
-- `src/heartbeat/` 心跳引擎:同实体防抖、批量(bulk)上报、离线队列与定时补报,未认证心跳直接丢弃;选项可变(Web 写入后即时生效)
-- `src/oauth/` OAuth 2.0:授权 URL、本地回调服务器、授权码换令牌、刷新、撤销,浏览器打开助手
-- `src/auth/` 认证管理:凭证解析(环境变量优先、运行时配置兜底)、令牌临近过期自动刷新并持久化、登出
-- `src/http/` HTTP 层:fetch 封装、WakaTimeError 分类、429/5xx 指数退避重试
-- `src/config-manager/` 本地凭证与配置管理(用户目录 JSON,目录可用环境变量覆盖)
+- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度与 Token 估算、step/start+assistant/chunk fold LLM 思考时长、assistant/message 入队 AI 编码心跳(携带 Token 用量)、tool/call 入队调试心跳
+- `src/heartbeat/` 心跳引擎:本地缓冲 + 定时批量上报(启动一次 + 每 reportInterval 秒),未认证缓冲丢弃,失败入离线队列补报;选项可变(Web 写入后即时生效);维护上报记录日志(调试级)
+- `src/auth/` 认证管理:WakaTime API Key(环境变量优先、配置文件兜底),只允许覆盖写入,任何读取面不回显明文;配置时先经 /users/current 验证
+- `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试
+- `src/config-manager/` 本地凭证与配置管理(用户目录 JSON 0600,目录可用环境变量覆盖)
 - `src/runtime-config/` 运行时可变配置:Web 设置页写入项即时生效并持久化到 settings 块,重启合并恢复
-- `src/stats/` 会话战绩聚合(心跳、工具调用、Token 用量)
-- `src/tools/` 工具注册:wakatime_login/logout/status/stats
-- `src/webui/` Web UI 后端:在 dsh host webserver 上注册状态/配置路由(仅 web profile,服务可选跟随)
+- `src/stats/` 全局战绩聚合(心跳、工具调用、Token 用量、提示词估算、思考时长、API 有效消耗)
+- `src/tools/` 工具注册:wakatime_config/logout/status/stats(Agent 可覆盖修改配置与 API Key,不可查看 Key 明文)
+- `src/webui/` 小后端:在 dsh host webserver 上注册状态/配置/API Key 覆盖/上报日志路由(仅 web profile,服务可选跟随)
 - `src/project/` 项目与分支检测(cwd basename 与 .git/HEAD)
-- `src/translation/` 翻译加载器与 `xx-YY.ini` 文案
-- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,全局统计面板 + 配置区),经 `/api/wakatime/*` 与 host 通信
+- `src/translation/` 翻译加载器与 `xx-YY.ini` 文案(host 工具文案)
+- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + API Key 覆盖 + 上报日志 + 配置区),语言跟随 dsh web UI 语言切换(zh/en 字典),经 `/api/wakatime/*` 与小后端通信
 
 > 当项目架构发生变化时需要自主更新并告知用户
 
@@ -141,21 +140,20 @@
 src/
 ├── index.ts              # 插件入口:name/inject/apply(ctx, config),装配模块
 ├── config.ts             # Config 接口 + Schemastery Schema(默认值写入 schema)
-├── constants.ts          # 全局常量与设计细节(端点、心跳参数、环境变量名)
-├── errors.ts             # NotAuthenticatedError / TokenRefreshError
+├── constants.ts          # 全局常量与设计细节(端点、上报参数、环境变量名)
+├── errors.ts             # NotAuthenticatedError
 ├── translation/          # 翻译加载器(index.ts)与 xx-YY.ini 文案
 ├── http/                 # HTTP 层(types.ts + index.ts)
-├── oauth/                # OAuth 2.0(types.ts + index.ts + browser.ts)
-├── auth/                 # 认证管理(types.ts + index.ts)
-├── heartbeat/            # 心跳引擎(types.ts + index.ts)
+├── auth/                 # API Key 认证管理(types.ts + index.ts)
+├── heartbeat/            # 心跳引擎(缓冲+定时批量;types.ts + index.ts)
 ├── collector/            # 会话事件采集(types.ts + index.ts)
 ├── config-manager/       # 配置管理(types.ts + index.ts)
 ├── runtime-config.ts     # 运行时可变配置(Web 写入即时生效 + 持久化)
-├── stats/                # 会话战绩(index.ts)
+├── stats/                # 全局战绩(index.ts)
 ├── tools/                # 工具注册(index.ts)
 ├── project/              # 项目/分支检测(index.ts)
-├── webui/                # Web UI 后端路由(types.ts + index.ts)
-└── client/               # 浏览器端(apply + WakatimeTab 组件 + 样式)
+├── webui/                # 小后端路由(types.ts + index.ts)
+└── client/               # 浏览器端(apply + locales + WakatimeTab + 样式)
 docs/
 ├── dsh-dev-docs/         # 已收录的 dsh 插件开发文档(先读 index.agent.md 速查表)
 ├── repo-spec/            # Tag & Release 规范
@@ -171,11 +169,11 @@ docs/
 
 1. DSH 加载 profile,按 patch 层插入 `dsh-wakatime-plugin` 插件行
 2. Cordis 校验配置(Schemastery schema),填充默认值
-3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、离线补报定时器与 Web UI 路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
-4. 会话事件驱动:user/message 记录提示词长度;assistant/message 以 `ai coding` 类别上报心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别上报轻量心跳
-5. 心跳引擎按同实体防抖(默认 120 秒),上报前经认证管理器确保有效令牌(临近过期自动刷新);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未认证心跳直接丢弃
-6. 用户经 `wakatime_login` 工具完成 OAuth 授权(本地回调服务器),`wakatime_logout` 撤销并清除,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,全局统计 + 配置区,配置保存即时生效并持久化,重启合并恢复)
-7. 插件卸载时,所有注册(事件监听、定时器、工具、回调服务器、Web 路由)由框架与 effect 自动清理
+3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、定时上报与离线补报定时器、小后端路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
+4. 会话事件驱动:user/message 记录提示词长度与 Token 估算;step/start+assistant/chunk fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
+5. 心跳入本地缓冲,启动加载时批量上报一次、之后每 `reportInterval` 秒批量上报(bulk);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未配置 API Key 时缓冲丢弃
+6. API Key 经小后端管理:手动在 Web 标签页输入(仅覆盖、不回显)或 Agent 经 `wakatime_config` 工具覆盖写入;`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + API Key 覆盖 + 上报日志 + 配置区,语言跟随 dsh web)
+7. 插件卸载时,所有注册(事件监听、定时器、工具、Web 路由)由框架与 effect 自动清理
 
 # 开发时配置文件
 <!-- 主要指源码目录中影响项目核心功能的配置文件,例如 `package.json` `config.ini` (如果有),此处只需要给出具体文件列表和功能性说明即可,无需给出文件具体内容 -->
@@ -199,15 +197,16 @@ docs/
 -->
 
 - 插件名称:`dsh-wakatime-plugin`,入口 `name` 为 `wakatime`
-- 默认语言与回退语言:`zh-CN`;翻译文件目录 `src/translation/`
-- 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`(环境变量 `WAKATIME_CONFIG_DIR` 可覆盖目录)
-- OAuth 2.0:授权/令牌/撤销端点;本地回调端口默认 `5843`、回调路径 `/callback`;作用域 `write_heartbeats read_stats email`;默认 clientId 为用户已注册的 OAuth App(`UVjadZdHJNKHk417kz35oFNK`),client_secret 经配置或环境变量注入;令牌提前 `300` 秒刷新
-- 心跳:默认防抖间隔 `120` 秒;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh`(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)
-- 工具面:wakatime_login / wakatime_logout / wakatime_status / wakatime_stats
-- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示全局统计与配置区;host 经 webserver 服务挂载 `GET /api/wakatime/status` 与 `POST /api/wakatime/config`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
-- 环境变量:`WAKATIME_CLIENT_ID`/`WAKATIME_CLIENT_SECRET`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
+- 默认语言与回退语言:`zh-CN`;翻译文件目录 `src/translation/`(host 工具文案;Web UI 语言跟随 dsh web 的 zh/en 切换)
+- 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`(环境变量 `WAKATIME_CONFIG_DIR` 可覆盖目录);API Key 存于此文件(0600),只允许覆盖写入,任何读取面不回显明文
+- 认证:WakaTime API Key(HTTP Basic,username=api_key);环境变量 `WAKATIME_API_KEY` 优先于配置文件;配置时先经 `/users/current` 验证并缓存用户名
+- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
+- 量化指标:提示词 Token 估算(字符数 ÷ 系数 `1.5`)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法)、输出 TOKEN 总量、API 有效 TOKEN 消耗(输入+输出+缓存读写)、心跳数、工具调用数
+- 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
+- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示 Agent 协作战绩、API Key 覆盖区、上报记录日志与配置区;小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
+- 环境变量:`WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
 
-设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、OAuth 端点/回调路径/作用域/默认 clientId/刷新阈值、心跳防抖/批量/重试/离线队列/补报周期/心跳类别/AI 会话全局标识、Web UI 路由路径、环境变量名)。
+设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、WakaTime API 端点、定时上报间隔/批量/重试/离线队列/补报周期/日志上限/心跳类别/AI 会话全局标识/提示词估算系数、Web UI 路由路径、环境变量名)。
 
 > 当项目状态中的设计细节具体值与本段落设计细节值发生冲突时,需要向用户报告请求决策,不要自行决定
 

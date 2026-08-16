@@ -16,10 +16,10 @@
 ## 特性
 
 - 自动追踪、量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
-- 支持 WakaTime OAuth 2.0 官方登录流程,无需手动输入 API Key
-- 心跳上报:将 DSH 活动以 Heartbeat 格式上报至 WakaTime API
+- API Key 认证:仅需一个 WakaTime API Key,经本地小后端代理保管,前端永不接触明文
+- 定时批量上报:启动时上报一次,之后按可配置间隔(默认 60 秒)批量同步
 - Token 统计:精确记录每次 Agent 调用的 input/output Token 数量
-- 战绩面板:全局汇总心跳、Token、工具调用等表现指标,在 Web 界面随时查看你的 AI 生产力数据
+- Agent 协作战绩:全局汇总提示词总量、LLM 思考总时长、输出 Token、API 有效 Token 消耗等表现指标,在 Web 界面随时查看
 - 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别当前项目
 - 本地优先:凭证和配置数据默认存储在本地,用户完全掌控
 
@@ -35,14 +35,20 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 
 ## 使用
 
-安装并启用插件后,让 Agent 调用 `wakatime_login` 工具即可启动 WakaTime OAuth 授权流程(自动打开浏览器,授权后自动保存凭证);此后插件会自动追踪 DSH 中的 AI 交互并上报至 WakaTime。
+安装并启用插件后,配置 WakaTime API Key(在 wakatime.com/settings/api-key 生成):
+
+- **手动**:在 Web 界面会话区域的 WakaTime 标签页粘贴保存(仅覆盖、不回显);
+- **Agent 引导**:让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
+- **环境变量**:设置 `WAKATIME_API_KEY`(优先于文件配置)。
+
+此后插件会自动追踪 DSH 中的 AI 交互,按定时节奏批量上报至 WakaTime。
 
 | 工具 | 用途 |
 |:---:|:---|
-| `wakatime_login` | 启动 WakaTime OAuth 2.0 授权登录 |
-| `wakatime_logout` | 撤销授权并清除本地凭证 |
-| `wakatime_status` | 查看当前认证状态 |
-| `wakatime_stats` | 查看会话战绩(心跳、Token 用量、工具调用) |
+| `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入 API Key(op=set_apikey,仅覆盖不可查看) |
+| `wakatime_logout` | 清除本地 API Key |
+| `wakatime_status` | 查看认证状态(不回显 Key 明文) |
+| `wakatime_stats` | 查看 Agent 协作战绩(心跳、Token、思考时长等) |
 
 ## 配置
 
@@ -53,11 +59,9 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
   name: dsh-wakatime-plugin
   config:
     enabled: true          # 是否启用数据上报
-    locale: zh-CN          # 界面语言
-    clientId: ''           # OAuth App Client ID(默认已内置,留空使用默认)
-    clientSecret: ''       # OAuth App Client Secret(留空为 public client 模式)
-    callbackPort: 5843     # OAuth 本地回调端口
-    heartbeatInterval: 120 # 心跳上报最小间隔(秒)
+    locale: zh-CN          # 界面语言(host 工具文案;Web UI 语言跟随 dsh web)
+    reportInterval: 60     # 定时上报间隔(秒),启动时上报一次后循环
+    reportEnabled: true    # 是否开启定时上报
     includeTokens: true    # 是否上报 Token 用量
     includePrompts: true   # 是否上报提示词长度
     debug: false           # 调试日志开关
@@ -67,8 +71,7 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 
 | 变量名 | 描述 |
 |:---:|:---|
-| `WAKATIME_CLIENT_ID` | WakaTime OAuth App Client ID(优先于配置项) |
-| `WAKATIME_CLIENT_SECRET` | WakaTime OAuth App Client Secret(优先于配置项) |
+| `WAKATIME_API_KEY` | WakaTime API Key(优先于文件配置) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
 | `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `~/.dsh/plugins/wakatime`) |
 

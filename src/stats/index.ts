@@ -2,7 +2,9 @@
  * 会话战绩统计
  * 作者: JularDepick
  *
- * 按 DSH 会话聚合上报维度:心跳条数、工具调用、提示词长度与 Token 用量。
+ * 按 DSH 会话聚合上报维度:心跳条数、工具调用、提示词长度与 Token 用量;
+ * 另累计全局生产力指标:提示词 Token 估算总量、LLM 思考总时长、
+ * API 有效 Token 消耗(输入+输出+缓存读写)。
  */
 
 export interface SessionStats {
@@ -25,6 +27,10 @@ export interface SessionStats {
   reasoningTokens: number
   /* 最近一次提示词长度(字符) */
   lastPromptLength: number
+  /* 提示词 Token 估算总量(用户消息字符数 ÷ 估算系数) */
+  promptTokens: number
+  /* LLM 思考总时长(毫秒:步骤开始 → 首个输出 token) */
+  thinkingMs: number
 }
 
 export interface UsageLike {
@@ -53,6 +59,8 @@ export class StatsTracker {
         cacheWriteTokens: 0,
         reasoningTokens: 0,
         lastPromptLength: 0,
+        promptTokens: 0,
+        thinkingMs: 0,
       }
       this.sessions.set(sessionId, stats)
     }
@@ -81,15 +89,23 @@ export class StatsTracker {
     return stats
   }
 
-  /* 记录一次用户消息 */
-  recordUserMessage(sessionId: string, promptLength: number): SessionStats {
+  /* 记录一次用户消息:字符长度与 Token 估算(估算系数由常量提供) */
+  recordUserMessage(sessionId: string, promptLength: number, promptTokens: number): SessionStats {
     const stats = this.get(sessionId)
     stats.userMessages++
     stats.lastPromptLength = promptLength
+    stats.promptTokens += promptTokens
     return stats
   }
 
-  /* 聚合全部会话(战绩工具汇总用) */
+  /* 累计一次 LLM 思考时长(毫秒) */
+  recordThinking(sessionId: string, durationMs: number): SessionStats {
+    const stats = this.get(sessionId)
+    if (durationMs > 0) stats.thinkingMs += durationMs
+    return stats
+  }
+
+  /* 聚合全部会话(战绩工具/Web 汇总用) */
   aggregate(): SessionStats {
     const merged: SessionStats = {
       sessionId: '(aggregate)',
@@ -102,6 +118,8 @@ export class StatsTracker {
       cacheWriteTokens: 0,
       reasoningTokens: 0,
       lastPromptLength: 0,
+      promptTokens: 0,
+      thinkingMs: 0,
     }
     for (const stats of this.sessions.values()) {
       merged.heartbeats += stats.heartbeats
@@ -112,11 +130,13 @@ export class StatsTracker {
       merged.cacheReadTokens += stats.cacheReadTokens
       merged.cacheWriteTokens += stats.cacheWriteTokens
       merged.reasoningTokens += stats.reasoningTokens
+      merged.promptTokens += stats.promptTokens
+      merged.thinkingMs += stats.thinkingMs
     }
     return merged
   }
 
-  /* 全部会话统计列表(Web 数据面板用) */
+  /* 全部会话统计列表(Web 内部数据) */
   listSessions(): SessionStats[] {
     return [...this.sessions.values()]
   }
