@@ -27,12 +27,18 @@ export interface OAuthCallbackResult {
   state: string
 }
 
-/* OAuth 服务对外能力:初始化骨架阶段仅声明签名,实现待后续会话填充 */
+/* 本地回调服务器句柄:promise 等待授权码,close 主动关闭 */
+export interface CallbackServerHandle {
+  codePromise: Promise<OAuthCallbackResult>
+  close: () => void
+}
+
+/* OAuth 服务对外能力 */
 export interface OAuthService {
   /* 构建授权 URL,state 用于防 CSRF */
   buildAuthorizeUrl(credentials: OAuthCredentials, redirectUri: string, state: string): string
-  /* 启动本地回调服务器等待授权码 */
-  waitForCallback(port: number): Promise<OAuthCallbackResult>
+  /* 启动本地回调服务器等待授权码,超时或关闭时拒绝 */
+  startCallbackServer(port: number, timeoutMs?: number): CallbackServerHandle
   /* 用授权码换取令牌对 */
   exchangeCode(credentials: OAuthCredentials, redirectUri: string, code: string): Promise<TokenPair>
   /* 用刷新令牌续期,返回新令牌对 */

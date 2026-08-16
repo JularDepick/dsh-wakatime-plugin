@@ -2,7 +2,7 @@
  * 心跳上报模块类型定义
  * 作者: JularDepick
  *
- * 对齐 WakaTime Heartbeat API 的 AI 相关字段,上报维度见设计方案。
+ * 字段名直接对齐 WakaTime Heartbeat API(snake_case)。
  */
 
 /* 心跳分类:与 WakaTime category 枚举对齐 */
@@ -22,18 +22,18 @@ export interface Heartbeat {
   project?: string
   branch?: string
   /* AI Agent 专属字段 */
-  aiInputTokens?: number
-  aiOutputTokens?: number
-  aiPromptLength?: number
-  aiLineChanges?: number
-  aiSession?: string
+  ai_input_tokens?: number
+  ai_output_tokens?: number
+  ai_prompt_length?: number
+  ai_line_changes?: number
+  ai_session?: string
   /* 可选字段 */
   language?: string
   lines?: number
-  isWrite?: boolean
+  is_write?: boolean
 }
 
-/* 心跳引擎对外能力:初始化骨架阶段仅声明签名,实现待后续会话填充 */
+/* 心跳引擎对外能力 */
 export interface HeartbeatEngine {
   /* 发送单条心跳,含同实体防抖 */
   send(heartbeat: Heartbeat): Promise<void>

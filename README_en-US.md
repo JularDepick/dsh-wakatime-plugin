@@ -34,7 +34,14 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 
 ## Usage
 
-After installing and enabling the plugin, it automatically tracks AI interactions in DSH and reports them to WakaTime. First use requires completing WakaTime account authorization (see "Configuration" below).
+After installing and enabling the plugin, ask the Agent to call the `wakatime_login` tool to start the WakaTime OAuth authorization flow (a browser opens automatically and credentials are saved after authorization). The plugin then tracks AI interactions in DSH and reports them to WakaTime automatically.
+
+| Tool | Purpose |
+|:---:|:---|
+| `wakatime_login` | Start the WakaTime OAuth 2.0 authorization login |
+| `wakatime_logout` | Revoke the authorization and clear local credentials |
+| `wakatime_status` | Show the current authorization status |
+| `wakatime_stats` | Show session battle stats (heartbeats, token usage, tool calls) |
 
 ## Configuration
 
@@ -46,8 +53,9 @@ Plugin configuration is provided through the DSH `cordis.yml`:
   config:
     enabled: true          # Whether to enable data reporting
     locale: en-US          # UI language
-    clientId: ''           # WakaTime OAuth App Client ID (or use environment variable)
-    clientSecret: ''       # WakaTime OAuth App Client Secret (or use environment variable)
+    clientId: ''           # OAuth App Client ID (built-in default is used when empty)
+    clientSecret: ''       # OAuth App Client Secret (empty means public client mode)
+    callbackPort: 5843     # OAuth local callback port
     heartbeatInterval: 120 # Minimum heartbeat reporting interval (seconds)
     includeTokens: true    # Whether to report Token usage
     includePrompts: true   # Whether to report prompt length
@@ -61,6 +69,7 @@ Environment variables:
 | `WAKATIME_CLIENT_ID` | WakaTime OAuth App Client ID (takes precedence over config) |
 | `WAKATIME_CLIENT_SECRET` | WakaTime OAuth App Client Secret (takes precedence over config) |
 | `WAKATIME_DEBUG` | Enable debug logging |
+| `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `~/.dsh/plugins/wakatime`) |
 
 ## Related Links
 

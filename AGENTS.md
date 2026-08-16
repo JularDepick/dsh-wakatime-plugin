@@ -103,9 +103,11 @@
 | 语言 | TypeScript(ESM) |
 | 插件框架 | dsh 0.1.0-rc.6(基于 Cordis,`@deepseek-ai/cordis`) |
 | 配置校验 | `@deepseek-ai/schemastery` |
-| 工具注册 | `@deepseek-ai/dsh-tools`(功能实现阶段引入) |
+| 事件采集 | `@deepseek-ai/dsh-session`(`session/event` 类型与声明合并) |
+| 工具注册 | `@deepseek-ai/dsh-tools`(`defineTool`) |
+| 网络 | Node 内置 fetch(无第三方 HTTP 依赖) |
 | 包管理 | pnpm |
-| 构建 | tsdown(产物 `.mjs/.d.mts`) |
+| 构建 | tsdown(产物 `.mjs/.d.mts`,生态包外部化由宿主提供) |
 | 目标环境 | Node.js(dsh 宿主) |
 
 > 当项目技术栈发生变化时需要自主更新并告知用户
@@ -114,13 +116,17 @@
 
 插件运行于 DSH 宿主内,遵循 Cordis 生命周期(Fiber 状态机),注册的能力在卸载时自动清理,手动资源用 `ctx.effect()`。模块划分为:
 
-- `src/index.ts` 入口:导出 `name`/`apply(ctx, config)`,装配各模块
-- `src/oauth/` OAuth 2.0 授权模块(授权 URL、本地回调服务器、换令牌、刷新、撤销)
-- `src/heartbeat/` 心跳上报引擎(防抖、批量上报、离线队列补报、重试)
-- `src/config-manager/` 本地凭证与配置管理(用户目录 JSON)
+- `src/index.ts` 入口:导出 `name`/`inject`/`apply(ctx, config)`,装配各模块
+- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度、assistant/message 上报 AI 编码心跳(携带 Token 用量)、tool/call 上报调试心跳
+- `src/heartbeat/` 心跳引擎:同实体防抖、批量(bulk)上报、离线队列与定时补报,未认证心跳直接丢弃
+- `src/oauth/` OAuth 2.0:授权 URL、本地回调服务器、授权码换令牌、刷新、撤销,浏览器打开助手
+- `src/auth/` 认证管理:凭证解析(环境变量优先)、令牌临近过期自动刷新并持久化、登出
+- `src/http/` HTTP 层:fetch 封装、WakaTimeError 分类、429/5xx 指数退避重试
+- `src/config-manager/` 本地凭证与配置管理(用户目录 JSON,目录可用环境变量覆盖)
+- `src/stats/` 会话战绩聚合(心跳、工具调用、Token 用量)
+- `src/tools/` 工具注册:wakatime_login/logout/status/stats
+- `src/project/` 项目与分支检测(cwd basename 与 .git/HEAD)
 - `src/translation/` 翻译加载器与 `xx-YY.ini` 文案
-
-功能接入点(事件监听 `agent/step` 等、工具注册、OAuth 流程)目前为骨架占位,见 src/index.ts 内注释。
 
 > 当项目架构发生变化时需要自主更新并告知用户
 
@@ -128,14 +134,20 @@
 
 ```
 src/
-├── index.ts              # 插件入口:name/apply(ctx, config),装配模块
+├── index.ts              # 插件入口:name/inject/apply(ctx, config),装配模块
 ├── config.ts             # Config 接口 + Schemastery Schema(默认值写入 schema)
-├── constants.ts          # 全局常量与设计细节(翻译、凭证路径、OAuth 端点、心跳参数)
-├── errors.ts             # 占位错误 NotImplementedError
+├── constants.ts          # 全局常量与设计细节(端点、心跳参数、环境变量名)
+├── errors.ts             # NotAuthenticatedError / TokenRefreshError
 ├── translation/          # 翻译加载器(index.ts)与 xx-YY.ini 文案
-├── oauth/                # OAuth 2.0 模块(types.ts 类型 + index.ts 占位实现)
-├── heartbeat/            # 心跳上报模块(types.ts 类型 + index.ts 占位实现)
-└── config-manager/       # 配置管理模块(types.ts 类型 + index.ts 占位实现)
+├── http/                 # HTTP 层(types.ts + index.ts)
+├── oauth/                # OAuth 2.0(types.ts + index.ts + browser.ts)
+├── auth/                 # 认证管理(types.ts + index.ts)
+├── heartbeat/            # 心跳引擎(types.ts + index.ts)
+├── collector/            # 会话事件采集(types.ts + index.ts)
+├── config-manager/       # 配置管理(types.ts + index.ts)
+├── stats/                # 会话战绩(index.ts)
+├── tools/                # 工具注册(index.ts)
+└── project/              # 项目/分支检测(index.ts)
 docs/
 ├── dsh-dev-docs/         # 已收录的 dsh 插件开发文档(先读 index.agent.md 速查表)
 ├── repo-spec/            # Tag & Release 规范
@@ -147,18 +159,20 @@ docs/
 # 工作流程
 <!-- 指项目产物运行时的工作流程,一般只需要给出主要流程及其分支,如果有需要或用户指定时则可以补充次要流程或分支 -->
 
-插件在 DSH 宿主内的运行时流程(骨架阶段,功能实现后逐步细化):
+插件在 DSH 宿主内的运行时流程:
 
 1. DSH 加载 profile,按 patch 层插入 `dsh-wakatime-plugin` 插件行
 2. Cordis 校验配置(Schemastery schema),填充默认值
-3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配 OAuth/心跳/配置管理模块
-4. 功能实现后:授权后经 OAuth 换取并持久化令牌;监听 DSH 事件(`agent/step`、`tools/result`、`session/event`)采集 Token 与工具调用;心跳引擎防抖上报至 WakaTime;令牌过期前自动刷新;网络失败进入离线队列待恢复补报
-5. 插件卸载时,所有注册(事件监听、定时器、工具)由框架自动清理
+3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具与离线补报定时器
+4. 会话事件驱动:user/message 记录提示词长度;assistant/message 以 `ai coding` 类别上报心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别上报轻量心跳
+5. 心跳引擎按同实体防抖(默认 120 秒),上报前经认证管理器确保有效令牌(临近过期自动刷新);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未认证心跳直接丢弃
+6. 用户经 `wakatime_login` 工具完成 OAuth 授权(本地回调服务器),`wakatime_logout` 撤销并清除,`wakatime_status`/`wakatime_stats` 查看状态与战绩
+7. 插件卸载时,所有注册(事件监听、定时器、工具、回调服务器)由框架与 effect 自动清理
 
 # 开发时配置文件
 <!-- 主要指源码目录中影响项目核心功能的配置文件,例如 `package.json` `config.ini` (如果有),此处只需要给出具体文件列表和功能性说明即可,无需给出文件具体内容 -->
 
-- `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml)、依赖与脚本
+- `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml)、依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
 - `cordis.patch.yml` — patch 层:按包名插入插件行 `dsh-wakatime-plugin`
 - `tsconfig.json` — TypeScript 编译配置(严格模式、bundler 解析)
 - `tsdown.config.ts` — 构建配置:ESM 产物、类型声明、copy 翻译 ini 到产物
@@ -178,12 +192,13 @@ docs/
 
 - 插件名称:`dsh-wakatime-plugin`,入口 `name` 为 `wakatime`
 - 默认语言与回退语言:`zh-CN`;翻译文件目录 `src/translation/`
-- 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`
-- OAuth 2.0 端点:authorize/token/revoke;本地回调端口默认 `5843`;令牌提前 `300` 秒刷新
-- 心跳:默认防抖间隔 `120` 秒;批量上限 `25` 条;重试最多 `5` 次、指数退避;离线队列上限 `1000` 条
-- 环境变量:`WAKATIME_CLIENT_ID`/`WAKATIME_CLIENT_SECRET`/`WAKATIME_DEBUG`
+- 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`(环境变量 `WAKATIME_CONFIG_DIR` 可覆盖目录)
+- OAuth 2.0:授权/令牌/撤销端点;本地回调端口默认 `5843`、回调路径 `/callback`;作用域 `write_heartbeats read_stats email`;默认 clientId 为用户已注册的 OAuth App(`UVjadZdHJNKHk417kz35oFNK`),client_secret 经配置或环境变量注入;令牌提前 `300` 秒刷新
+- 心跳:默认防抖间隔 `120` 秒;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`
+- 工具面:wakatime_login / wakatime_logout / wakatime_status / wakatime_stats
+- 环境变量:`WAKATIME_CLIENT_ID`/`WAKATIME_CLIENT_SECRET`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
 
-设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、OAuth 端点/回调端口/刷新阈值、防抖间隔/批量上限/重试参数/离线队列上限、环境变量名)。
+设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、OAuth 端点/回调路径/作用域/默认 clientId/刷新阈值、心跳防抖/批量/重试/离线队列/补报周期/心跳类别、环境变量名)。
 
 > 当项目状态中的设计细节具体值与本段落设计细节值发生冲突时,需要向用户报告请求决策,不要自行决定
 

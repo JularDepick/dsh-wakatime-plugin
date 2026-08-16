@@ -34,7 +34,14 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 
 ## 使用
 
-安装并启用插件后,插件会自动追踪 DSH 中的 AI 交互并上报至 WakaTime。首次使用需要完成 WakaTime 账号授权(见下方"配置")。
+安装并启用插件后,让 Agent 调用 `wakatime_login` 工具即可启动 WakaTime OAuth 授权流程(自动打开浏览器,授权后自动保存凭证);此后插件会自动追踪 DSH 中的 AI 交互并上报至 WakaTime。
+
+| 工具 | 用途 |
+|:---:|:---|
+| `wakatime_login` | 启动 WakaTime OAuth 2.0 授权登录 |
+| `wakatime_logout` | 撤销授权并清除本地凭证 |
+| `wakatime_status` | 查看当前认证状态 |
+| `wakatime_stats` | 查看会话战绩(心跳、Token 用量、工具调用) |
 
 ## 配置
 
@@ -46,8 +53,9 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
   config:
     enabled: true          # 是否启用数据上报
     locale: zh-CN          # 界面语言
-    clientId: ''           # WakaTime OAuth App Client ID(或使用环境变量)
-    clientSecret: ''       # WakaTime OAuth App Client Secret(或使用环境变量)
+    clientId: ''           # OAuth App Client ID(默认已内置,留空使用默认)
+    clientSecret: ''       # OAuth App Client Secret(留空为 public client 模式)
+    callbackPort: 5843     # OAuth 本地回调端口
     heartbeatInterval: 120 # 心跳上报最小间隔(秒)
     includeTokens: true    # 是否上报 Token 用量
     includePrompts: true   # 是否上报提示词长度
@@ -61,6 +69,7 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 | `WAKATIME_CLIENT_ID` | WakaTime OAuth App Client ID(优先于配置项) |
 | `WAKATIME_CLIENT_SECRET` | WakaTime OAuth App Client Secret(优先于配置项) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
+| `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `~/.dsh/plugins/wakatime`) |
 
 ## 相关链接
 
