@@ -1,20 +1,20 @@
 /*
- * WakaTime 设置标签页组件
+ * WakaTime 会话区域标签页组件
  * 作者: JularDepick
  *
- * 数据面板:认证状态、汇总战绩与按会话统计;配置区:Web 可编辑项的
- * 表单与保存。数据经 host webserver 接口读写(仅 web profile 提供,
- * 接口缺失时展示加载失败提示)。
+ * 全局统计(非单会话):认证状态、全局汇总战绩与配置区。
+ * 数据经 host webserver 接口读写(仅 web profile 提供,接口缺失时展示
+ * 加载失败提示)。注册于 conversation.view 槽,会话座位不消费。
  */
 
 import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { WebConfigPayload, WebStatusResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
-/** 注册点推导的组件 props(settings.plugins.tab 无 owner props) */
-export type WakatimeTabProps = PropsRuntime<'settings.plugins.tab'>
+/** 注册点推导的组件 props(conversation.view 会话座位,本页不消费) */
+export type WakatimeTabProps = PropsRuntime<'conversation.view'>
 
 /** 配置草稿:status.config 的可编辑子集 */
 interface ConfigDraft {
@@ -141,7 +141,7 @@ export function WakatimeTab(_props: WakatimeTabProps) {
       </section>
 
       <section className={css.card}>
-        <h3 className={css.cardTitle}>会话战绩</h3>
+        <h3 className={css.cardTitle}>会话战绩(全局)</h3>
         <div className={css.grid}>
           <Stat label="心跳上报" value={aggregate.heartbeats} />
           <Stat label="工具调用" value={aggregate.toolCalls} />
@@ -152,36 +152,6 @@ export function WakatimeTab(_props: WakatimeTabProps) {
           <Stat label="缓存写入" value={aggregate.cacheWriteTokens} />
           <Stat label="推理 Token" value={aggregate.reasoningTokens} />
         </div>
-      </section>
-
-      <section className={css.card}>
-        <h3 className={css.cardTitle}>按会话统计</h3>
-        {data.stats.sessions.length === 0
-          ? <p className={css.muted}>暂无会话数据。</p>
-          : (
-            <table className={css.table}>
-              <thead>
-                <tr>
-                  <th>会话 ID</th>
-                  <th>心跳</th>
-                  <th>工具调用</th>
-                  <th>输入 Token</th>
-                  <th>输出 Token</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.stats.sessions.map((row) => (
-                  <tr key={row.sessionId}>
-                    <td className={css.sessionId}>{row.sessionId}</td>
-                    <td>{row.heartbeats}</td>
-                    <td>{row.toolCalls}</td>
-                    <td>{row.inputTokens}</td>
-                    <td>{row.outputTokens}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
       </section>
 
       <section className={css.card}>

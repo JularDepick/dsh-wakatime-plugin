@@ -90,7 +90,7 @@
 
 # 概述
 
-这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)格式上报、精确统计每次 Agent 调用的 input/output Token、按 DSH 会话维度组织数据并自动识别当前项目、通过 WakaTime OAuth 2.0 官方流程完成账号授权。
+这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)格式上报、精确统计每次 Agent 调用的 input/output Token、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)并自动识别当前项目、通过 WakaTime OAuth 2.0 官方流程完成账号授权。
 
 - 插件名称规范:`dsh-<核心名称>-plugin`,本项目核心名称为 `wakatime`,包名 `dsh-wakatime-plugin`
 - 插件入口导出 `name`(值 `wakatime`)与 `apply(ctx, config)`,配置经 Schemastery schema 校验
@@ -131,7 +131,7 @@
 - `src/webui/` Web UI 后端:在 dsh host webserver 上注册状态/配置路由(仅 web profile,服务可选跟随)
 - `src/project/` 项目与分支检测(cwd basename 与 .git/HEAD)
 - `src/translation/` 翻译加载器与 `xx-YY.ini` 文案
-- `src/client/` 浏览器端(Web UI):`apply` 注册「设置-插件」页 wakatime 标签页(数据面板 + 配置区),经 `/api/wakatime/*` 与 host 通信
+- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,全局统计面板 + 配置区),经 `/api/wakatime/*` 与 host 通信
 
 > 当项目架构发生变化时需要自主更新并告知用户
 
@@ -174,7 +174,7 @@ docs/
 3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、离线补报定时器与 Web UI 路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
 4. 会话事件驱动:user/message 记录提示词长度;assistant/message 以 `ai coding` 类别上报心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别上报轻量心跳
 5. 心跳引擎按同实体防抖(默认 120 秒),上报前经认证管理器确保有效令牌(临近过期自动刷新);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未认证心跳直接丢弃
-6. 用户经 `wakatime_login` 工具完成 OAuth 授权(本地回调服务器),`wakatime_logout` 撤销并清除,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册「设置-插件」页 wakatime 标签页(数据面板 + 配置区,配置保存即时生效并持久化,重启合并恢复)
+6. 用户经 `wakatime_login` 工具完成 OAuth 授权(本地回调服务器),`wakatime_logout` 撤销并清除,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,全局统计 + 配置区,配置保存即时生效并持久化,重启合并恢复)
 7. 插件卸载时,所有注册(事件监听、定时器、工具、回调服务器、Web 路由)由框架与 effect 自动清理
 
 # 开发时配置文件
@@ -202,12 +202,12 @@ docs/
 - 默认语言与回退语言:`zh-CN`;翻译文件目录 `src/translation/`
 - 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`(环境变量 `WAKATIME_CONFIG_DIR` 可覆盖目录)
 - OAuth 2.0:授权/令牌/撤销端点;本地回调端口默认 `5843`、回调路径 `/callback`;作用域 `write_heartbeats read_stats email`;默认 clientId 为用户已注册的 OAuth App(`UVjadZdHJNKHk417kz35oFNK`),client_secret 经配置或环境变量注入;令牌提前 `300` 秒刷新
-- 心跳:默认防抖间隔 `120` 秒;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`
+- 心跳:默认防抖间隔 `120` 秒;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh`(全部心跳归为一个整体 AI 会话,entity 按会话做防抖)
 - 工具面:wakatime_login / wakatime_logout / wakatime_status / wakatime_stats
-- Web UI:浏览器端在「设置-插件」页注册 wakatime 标签页(`settings.plugins.tab` 槽,id `wakatime`,order `20`);host 经 webserver 服务挂载 `GET /api/wakatime/status` 与 `POST /api/wakatime/config`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
+- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示全局统计与配置区;host 经 webserver 服务挂载 `GET /api/wakatime/status` 与 `POST /api/wakatime/config`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
 - 环境变量:`WAKATIME_CLIENT_ID`/`WAKATIME_CLIENT_SECRET`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
 
-设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、OAuth 端点/回调路径/作用域/默认 clientId/刷新阈值、心跳防抖/批量/重试/离线队列/补报周期/心跳类别、Web UI 路由路径、环境变量名)。
+设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、OAuth 端点/回调路径/作用域/默认 clientId/刷新阈值、心跳防抖/批量/重试/离线队列/补报周期/心跳类别/AI 会话全局标识、Web UI 路由路径、环境变量名)。
 
 > 当项目状态中的设计细节具体值与本段落设计细节值发生冲突时,需要向用户报告请求决策,不要自行决定
 

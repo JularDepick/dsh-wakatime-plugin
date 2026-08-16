@@ -11,7 +11,7 @@
 
 </div>
 
-Quantify every AI interaction of DeepSeek Harness (DSH) into visualized battle achievements, synchronize them to WakaTime automatically, and prove your Agent productivity with data.
+A plugin for dsh: quantify every dsh Agent interaction as a visualized performance metric and automatically sync it to WakaTime — use data to showcase your productivity with Agent.
 
 ## Features
 
@@ -19,7 +19,8 @@ Quantify every AI interaction of DeepSeek Harness (DSH) into visualized battle a
 - Support the official WakaTime OAuth 2.0 login flow, no manual API Key input required
 - Heartbeat reporting: report DSH activity to the WakaTime API in Heartbeat format
 - Token statistics: precisely record the input/output Token count of each Agent call
-- Session tracking: organize data by DSH session, automatically detect the current project
+- Performance metrics panel: globally aggregated heartbeats, tokens, and tool calls, viewable anytime in the Web interface
+- Global AI session tracking: all heartbeats unify into one overall AI session, with automatic project detection
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
 
 ## Installation

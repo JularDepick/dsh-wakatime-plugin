@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL } from '../constants'
+import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL } from '../constants'
 import type { Heartbeat } from '../heartbeat'
 import type { CollectorOptions } from './types'
 
@@ -62,7 +62,7 @@ export class SessionEventCollector {
           category: HEARTBEAT_CATEGORY_AI,
           project: this.options.project.project(),
           branch: this.options.project.branch(),
-          ai_session: session.id,
+          ai_session: AI_SESSION_GLOBAL_ID,
           ai_prompt_length: promptLength,
         }
         if (usage) {
@@ -81,7 +81,7 @@ export class SessionEventCollector {
           category: HEARTBEAT_CATEGORY_TOOL,
           project: this.options.project.project(),
           branch: this.options.project.branch(),
-          ai_session: session.id,
+          ai_session: AI_SESSION_GLOBAL_ID,
         }
         void this.options.heartbeat.send(heartbeat)
         break

@@ -11,7 +11,7 @@
 
 </div>
 
-将 DeepSeek Harness (DSH) 的每一次 AI 交互量化为可视化战绩,自动同步至 WakaTime,用数据证明你的 Agent 生产力。
+一个 dsh 插件:将 DSH 的每一次 Agent 交互量化为可视化表现指标,自动同步至 WakaTime——用数据展示你与 Agent 协作的生产力。
 
 ## 特性
 
@@ -19,7 +19,8 @@
 - 支持 WakaTime OAuth 2.0 官方登录流程,无需手动输入 API Key
 - 心跳上报:将 DSH 活动以 Heartbeat 格式上报至 WakaTime API
 - Token 统计:精确记录每次 Agent 调用的 input/output Token 数量
-- 会话追踪:按 DSH 会话(Session)维度组织数据,自动识别当前项目
+- 战绩面板:全局汇总心跳、Token、工具调用等表现指标,在 Web 界面随时查看你的 AI 生产力数据
+- 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别当前项目
 - 本地优先:凭证和配置数据默认存储在本地,用户完全掌控
 
 ## 安装

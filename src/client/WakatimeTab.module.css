@@ -91,34 +91,6 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  text-align: center;
-}
-
-.table th {
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  padding: 6px 8px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.table td {
-  border-bottom: 1px solid var(--dsw-alias-border-l);
-  padding: 5px 8px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.sessionId {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .fields {
   display: flex;
   flex-direction: column;

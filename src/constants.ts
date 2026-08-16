@@ -48,6 +48,9 @@ export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 export const HEARTBEAT_CATEGORY_AI = 'ai coding'
 export const HEARTBEAT_CATEGORY_TOOL = 'debugging'
 
+/* AI 会话全局标识:全部心跳归为一个整体 AI 会话,不再按 DSH 会话分开 */
+export const AI_SESSION_GLOBAL_ID = 'dsh'
+
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'
 export const WEB_CONFIG_PATH = '/api/wakatime/config'
