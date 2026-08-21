@@ -3,8 +3,9 @@
  * 作者: JularDepick
  *
  * 按 DSH 会话聚合上报维度:心跳条数、工具调用、提示词长度与 Token 用量;
- * 另累计全局生产力指标:提示词 Token 估算总量、LLM 思考总时长、
- * API 有效 Token 消耗(输入+输出+缓存读写)。
+ * 另累计全局生产力指标:提示词字符总量(官方 ai_prompt_length 口径)、
+ * 提示词 Token 估算(本地辅助)、LLM 思考总时长、API 有效 Token 消耗
+ * (输入+输出,官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens)。
  */
 
 export interface SessionStats {
@@ -27,7 +28,9 @@ export interface SessionStats {
   reasoningTokens: number
   /* 最近一次提示词长度(字符) */
   lastPromptLength: number
-  /* 提示词 Token 估算总量(用户消息字符数 ÷ 估算系数) */
+  /* 提示词字符总量(官方 ai_prompt_length 口径,与上报一致) */
+  promptChars: number
+  /* 提示词 Token 估算总量(用户消息字符数 ÷ 估算系数,本地辅助展示) */
   promptTokens: number
   /* LLM 思考总时长(毫秒:步骤开始 → 首个输出 token) */
   thinkingMs: number
@@ -59,6 +62,7 @@ export class StatsTracker {
         cacheWriteTokens: 0,
         reasoningTokens: 0,
         lastPromptLength: 0,
+        promptChars: 0,
         promptTokens: 0,
         thinkingMs: 0,
       }
@@ -89,11 +93,12 @@ export class StatsTracker {
     return stats
   }
 
-  /* 记录一次用户消息:字符长度与 Token 估算(估算系数由常量提供) */
+  /* 记录一次用户消息:字符长度(官方口径)与 Token 估算(估算系数由常量提供) */
   recordUserMessage(sessionId: string, promptLength: number, promptTokens: number): SessionStats {
     const stats = this.get(sessionId)
     stats.userMessages++
     stats.lastPromptLength = promptLength
+    stats.promptChars += promptLength
     stats.promptTokens += promptTokens
     return stats
   }
@@ -118,6 +123,7 @@ export class StatsTracker {
       cacheWriteTokens: 0,
       reasoningTokens: 0,
       lastPromptLength: 0,
+      promptChars: 0,
       promptTokens: 0,
       thinkingMs: 0,
     }
@@ -130,6 +136,7 @@ export class StatsTracker {
       merged.cacheReadTokens += stats.cacheReadTokens
       merged.cacheWriteTokens += stats.cacheWriteTokens
       merged.reasoningTokens += stats.reasoningTokens
+      merged.promptChars += stats.promptChars
       merged.promptTokens += stats.promptTokens
       merged.thinkingMs += stats.thinkingMs
     }

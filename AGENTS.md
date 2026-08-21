@@ -101,7 +101,7 @@
 | 类别 | 选型 |
 |:---:|:---:|
 | 语言 | TypeScript(ESM) |
-| 插件框架 | dsh 0.1.0-rc.6(基于 Cordis,`@deepseek-ai/cordis`) |
+| 插件框架 | dsh 0.1.1-rc.2(基于 Cordis,`@deepseek-ai/cordis`) |
 | 配置校验 | `@deepseek-ai/schemastery` |
 | 事件采集 | `@deepseek-ai/dsh-session`(`session/event` 类型与声明合并) |
 | 工具注册 | `@deepseek-ai/dsh-tools`(`defineTool`) |
@@ -125,7 +125,7 @@
 - `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试
 - `src/config-manager/` 本地凭证与配置管理(用户目录 JSON 0600,目录可用环境变量覆盖)
 - `src/runtime-config/` 运行时可变配置:Web 设置页写入项即时生效并持久化到 settings 块,重启合并恢复
-- `src/stats/` 全局战绩聚合(心跳、工具调用、Token 用量、提示词估算、思考时长、API 有效消耗)
+- `src/stats/` 全局战绩聚合(心跳、工具调用、Token 用量、提示词字符与估算、思考时长、API 有效消耗)
 - `src/tools/` 工具注册:wakatime_config/logout/status/stats(Agent 可覆盖修改配置与 API Key,不可查看 Key 明文)
 - `src/webui/` 小后端:在 dsh host webserver 上注册状态/配置/API Key 覆盖/上报日志路由(仅 web profile,服务可选跟随)
 - `src/project/` 项目与分支检测(cwd basename 与 .git/HEAD)
@@ -180,6 +180,7 @@ docs/
 
 - `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml)、依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
 - `cordis.patch.yml` — patch 层:按包名插入插件行 `dsh-wakatime-plugin`
+- `pnpm-workspace.yaml` — 声明独立 workspace(`packages: ['.']`),规避用户主目录同名文件被 pnpm 11 当作 workspace 根;并置 `minimumReleaseAge: 0` 放宽刚发布 rc 包的供应链策略
 - `tsconfig.json` — TypeScript 编译配置(严格模式、bundler 解析)
 - `tsdown.config.ts` — 构建配置:ESM 产物、类型声明、copy 翻译 ini 到产物
 - `.gitignore` — 忽略依赖/产物/临时目录
@@ -200,8 +201,8 @@ docs/
 - 默认语言与回退语言:`zh-CN`;翻译文件目录 `src/translation/`(host 工具文案;Web UI 语言跟随 dsh web 的 zh/en 切换)
 - 凭证与配置存放:用户目录下 `~/.dsh/plugins/wakatime/config.json`(环境变量 `WAKATIME_CONFIG_DIR` 可覆盖目录);API Key 存于此文件(0600),只允许覆盖写入,任何读取面不回显明文
 - 认证:WakaTime API Key(HTTP Basic,username=api_key);环境变量 `WAKATIME_API_KEY` 优先于配置文件;配置时先经 `/users/current` 验证并缓存用户名
-- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
-- 量化指标:提示词 Token 估算(字符数 ÷ 系数 `1.5`)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法)、输出 TOKEN 总量、API 有效 TOKEN 消耗(输入+输出+缓存读写)、心跳数、工具调用数
+- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh_waka_time_plugin`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
+- 量化指标(Agent 协作战绩,不统计/不展示/不上报心跳数与工具调用数):提示词总量(官方 `ai_prompt_length` 口径:字符数,与上报一致)、提示词 Token 估算(字符数 ÷ 系数 `1.5`,本地辅助展示)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法,官方无上报字段,仅本地展示)、输出 TOKEN 总量(官方 `ai_output_tokens`)、API 有效 TOKEN 消耗(输入+输出,官方仅 `ai_input_tokens`/`ai_output_tokens`,缓存命中 Token 无官方字段不并入)
 - 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
 - Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示 Agent 协作战绩、API Key 覆盖区、上报记录日志与配置区;小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
 - 环境变量:`WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
@@ -253,7 +254,8 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - 服务与依赖:服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
 - 事件:`ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
 - bundle 打包:包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
-- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 `@deepseek-ai/dsh-base`/`dsh-tools` 0.1.0-rc.6、`cordis` 4.0.1、`schemastery` 3.18.1);带 rc 的包需核对 registry 的 next 标签
+- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 `@deepseek-ai/dsh-base`/`dsh-tools` 0.1.1-rc.2、`cordis` 4.0.1、`schemastery` 3.18.1);带 rc 的包需核对 registry 的 next 标签;rc.7→0.1.1-rc.2 是次版本升级,`dsh-session`/`dsh-llm`/`dsh-client-runtime`/`dsh-client-ui-slots` 等的类型声明有改动,但本插件 typecheck/build/smoke 全过、业务代码无需调整(升级前先下载 tarball 哈希对比,脚本见 `.agent/compare-pkgs.mjs`)
+- pnpm 11 坑(升级依赖时踩过):(1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」——在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
 - 缓存重定向:npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agent/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
 - 产物后缀:tsdown 产物为 `.mjs`/`.d.mts`,`package.json` 的 `main`/`types` 必须与真实产物对齐
 - file:// import:Node 动态 import 绝对路径必须转 `file://`(Windows 报 ERR_UNSUPPORTED_ESM_URL_SCHEME)
@@ -261,6 +263,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - PowerShell 每次调用独立无状态,必要时传 `workdir`;控制台中文乱码不代表文件损坏(UTF-8 正常)
 - 维护规则:按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
 - Web UI 插件:给 dsh web 新增 tab/UI 的完整机制与踩坑见 `.agent/web-tab-experience.md`(client 产物格式、平台模块表、slot 纪律、数据通道选型)
+- 外部插件依赖纪律:宿主包(`@deepseek-ai/cordis`、`dsh-tools`、`dsh-session`、`dsh-llm`、`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**——否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
 
 <!--# 辅助脚本-->
 <!-- 主要指放在工作目录 `scripts?/` 文件夹内的脚本文件,是由Agent撰写并维护的,需要按需撰写,辅助脚本的存在主要是为了补充Agent技能/工具能力的不足、减轻批量工作时的上下文负担、供给GitHub工作流自动化调用,主要功能包括但不限于:

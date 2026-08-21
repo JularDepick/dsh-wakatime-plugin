@@ -1,0 +1,6 @@
+packages:
+  - '.'
+
+# pnpm 11 的供应链策略:禁用最低发布成熟期检查
+# (dsh 生态 rc 包常于发布当日被本插件依赖,按发布日成熟期会误拒)
+minimumReleaseAge: 0

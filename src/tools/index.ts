@@ -120,9 +120,8 @@ export class WakatimeTools {
         const minutes = Math.floor(stats.thinkingMs / 60000)
         return [
           `${translate('stats.title')}:`,
-          `${translate('stats.heartbeats')}: ${stats.heartbeats}`,
-          `${translate('stats.toolCalls')}: ${stats.toolCalls}`,
-          `${translate('stats.promptTokens')}: ${stats.promptTokens}`,
+          `${translate('stats.promptChars')}: ${stats.promptChars}`,
+          `${translate('stats.promptEstimate')}: ${stats.promptTokens}`,
           `${translate('stats.thinkingMs')}: ${minutes} 分钟 ${Math.round((stats.thinkingMs % 60000) / 1000)} 秒`,
           `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
           `${translate('stats.outputTokens')}: ${stats.outputTokens}`,
@@ -187,7 +186,8 @@ export class WakatimeTools {
   }
 }
 
-/* API 有效 Token 消耗:输入 + 输出 + 缓存读写 */
-export function effectiveTokens(stats: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): number {
-  return stats.inputTokens + stats.outputTokens + stats.cacheReadTokens + stats.cacheWriteTokens
+/* API 有效 Token 消耗:输入 + 输出(官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens,
+   缓存命中 Token 无官方字段,不并入,仅本地明细可见) */
+export function effectiveTokens(stats: { inputTokens: number; outputTokens: number }): number {
+  return stats.inputTokens + stats.outputTokens
 }

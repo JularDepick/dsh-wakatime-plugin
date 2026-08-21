@@ -2,8 +2,9 @@
  * WakaTime 会话区域标签页组件
  * 作者: JularDepick
  *
- * Agent 协作战绩(全局):提示词总量、LLM 思考总时长、输出 TOKEN、
- * API 有效 TOKEN 消耗等;API Key 覆盖管理(小后端代理,仅覆盖不可查看);
+ * Agent 协作战绩(全局):提示词总量(字符,官方 ai_prompt_length 口径)、
+ * LLM 思考总时长、输出 TOKEN、API 有效 TOKEN 消耗(输入+输出)等;
+ * API Key 覆盖管理(小后端代理,仅覆盖不可查看);
  * 上报记录日志(可展开/收起,调试级);配置区。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
@@ -20,10 +21,9 @@ export type WakatimeTabProps =
   PropsRuntime<'conversation.view'>
   & PropsLocale<'wakatime'>
 
-/** 配置草稿:status.config 的可编辑子集 */
+/** 配置草稿:status.config 的可编辑子集(语言跟随 dsh web,不在配置区) */
 interface ConfigDraft {
   enabled: boolean
-  locale: string
   reportInterval: number
   reportEnabled: boolean
   includeTokens: boolean
@@ -41,7 +41,6 @@ const STATUS_PATH = '/api/wakatime/status'
 const CONFIG_PATH = '/api/wakatime/config'
 const APIKEY_PATH = '/api/wakatime/apikey'
 const LOGS_PATH = '/api/wakatime/logs'
-const LOCALE_OPTIONS = ['zh-CN', 'en-US'] as const
 
 /**
  * 渲染 wakatime 标签页。
@@ -110,7 +109,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .finally(() => { setSaving(false) })
   }
 
-  /* API Key 覆盖写入:提交后清空输入框,不回显 */
+  /* API Key 覆盖写入:小后端先验证,失败不保存并回报;成功后清空输入框,
+     状态行经刷新展示「登录成功, 当前账号:xxx」(不弹成功飘窗) */
   const saveApiKey = (): void => {
     const key = apiKeyInput.trim()
     if (!key) return
@@ -121,13 +121,15 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: key }),
     })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<{ ok: boolean; username?: string | null }>
+      .then(async (response) => {
+        const result = await response.json() as { ok: boolean; username?: string | null; error?: string }
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error ?? `HTTP ${response.status}`)
+        }
+        return result
       })
-      .then((result) => {
+      .then(() => {
         setApiKeyInput('')
-        setNotice({ kind: 'ok', text: result.username ? `${t('apikey.saved')}: ${result.username}` : t('apikey.saved') })
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => { setNotice({ kind: 'error', text: `${t('apikey.invalid')} (${(error as Error).message})` }) })
@@ -168,7 +170,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         </div>
         {data.configured && data.username ? (
           <p className={css.ok} role="status">
-            {t('status.account')}:{data.username}
+            {t('status.loginSuccess')}{t('status.account')}:{data.username}
           </p>
         ) : null}
         <p className={css.muted}>{t('apikey.hint')}</p>
@@ -191,12 +193,14 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       <section className={css.card}>
         <h3 className={css.cardTitle}>{t('stats.title')}</h3>
         <div className={css.grid}>
-          <Stat label={t('stats.promptTokens')} value={`~${aggregate.promptTokens.toLocaleString()}`} />
+          <Stat
+            label={t('stats.promptChars')}
+            value={aggregate.promptChars.toLocaleString()}
+            sub={t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}
+          />
           <Stat label={t('stats.thinking')} value={`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`} />
           <Stat label={t('stats.outputTokens')} value={aggregate.outputTokens.toLocaleString()} />
           <Stat label={t('stats.apiEffective')} value={effectiveTokens(aggregate).toLocaleString()} />
-          <Stat label={t('stats.heartbeats')} value={aggregate.heartbeats.toLocaleString()} />
-          <Stat label={t('stats.toolCalls')} value={aggregate.toolCalls.toLocaleString()} />
         </div>
       </section>
 
@@ -244,16 +248,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
           <ToggleRow label={t('config.includeTokens')} checked={draft.includeTokens} onChange={(value) => { patch('includeTokens', value) }} />
           <ToggleRow label={t('config.includePrompts')} checked={draft.includePrompts} onChange={(value) => { patch('includePrompts', value) }} />
           <ToggleRow label={t('config.debug')} checked={draft.debug} onChange={(value) => { patch('debug', value) }} />
-          <div className={css.row}>
-            <span className={css.rowLabel}>{t('config.locale')}</span>
-            <select
-              className={css.select}
-              value={draft.locale}
-              onChange={(event) => { patch('locale', event.target.value) }}
-            >
-              {LOCALE_OPTIONS.map((locale) => <option key={locale} value={locale}>{locale}</option>)}
-            </select>
-          </div>
         </div>
         <div className={css.saveRow}>
           <button type="button" className={css.save} disabled={saving} onClick={save}>
@@ -271,12 +265,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   )
 }
 
-/** 汇总指标小卡片 */
-function Stat({ label, value }: { label: string; value: string }) {
+/** 汇总指标小卡片(sub 为可选的辅助说明行) */
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className={css.stat}>
       <span className={css.statValue}>{value}</span>
       <span className={css.statLabel}>{label}</span>
+      {sub ? <span className={css.statSub}>{sub}</span> : null}
     </div>
   )
 }
@@ -310,7 +305,6 @@ function NumberRow({ label, value, onChange }: { label: string; value: number; o
 function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
   return {
     enabled: config.enabled,
-    locale: config.locale,
     reportInterval: config.reportInterval,
     reportEnabled: config.reportEnabled,
     includeTokens: config.includeTokens,
@@ -322,7 +316,6 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
 function toPayload(draft: ConfigDraft): WebConfigPayload {
   return {
     enabled: draft.enabled,
-    locale: draft.locale,
     reportInterval: draft.reportInterval,
     reportEnabled: draft.reportEnabled,
     includeTokens: draft.includeTokens,
@@ -331,14 +324,13 @@ function toPayload(draft: ConfigDraft): WebConfigPayload {
   }
 }
 
-/* API 有效 TOKEN 消耗:输入 + 输出 + 缓存读写 */
+/* API 有效 TOKEN 消耗:输入 + 输出(官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens,
+   缓存命中 Token 无官方字段,不并入,仅本地明细可见) */
 function effectiveTokens(stats: {
   inputTokens: number
   outputTokens: number
-  cacheReadTokens: number
-  cacheWriteTokens: number
 }): number {
-  return stats.inputTokens + stats.outputTokens + stats.cacheReadTokens + stats.cacheWriteTokens
+  return stats.inputTokens + stats.outputTokens
 }
 
 /* 日期格式:yyyy-MM-dd HH:mm:ss+HH:mm(本地时区) */

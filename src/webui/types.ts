@@ -15,7 +15,6 @@ export interface WebStatusResponse {
   username?: string
   config: {
     enabled: boolean
-    locale: string
     reportInterval: number
     reportEnabled: boolean
     includeTokens: boolean
@@ -27,10 +26,9 @@ export interface WebStatusResponse {
   }
 }
 
-/* 配置写入请求:Web 可编辑字段子集(与 WebConfigPatch 对齐,不含凭证) */
+/* 配置写入请求:Web 可编辑字段子集(与 WebConfigPatch 对齐,不含凭证与语言) */
 export interface WebConfigPayload {
   enabled?: boolean
-  locale?: string
   reportInterval?: number
   reportEnabled?: boolean
   includeTokens?: boolean

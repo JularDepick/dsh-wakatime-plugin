@@ -48,7 +48,7 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 | `wakatime_config` | Read/update plugin config (op=get/set); overwrite the API key (op=set_apikey, overwrite only, never shown) |
 | `wakatime_logout` | Clear the local API key |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
-| `wakatime_stats` | Show Agent collaboration battle stats (heartbeats, tokens, thinking time) |
+| `wakatime_stats` | Show Agent collaboration battle stats (prompts, thinking time, token usage) |
 
 ## Configuration
 

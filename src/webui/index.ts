@@ -40,10 +40,9 @@ interface WebServerLike {
 /* 请求体读取上限(64 KiB,防滥用) */
 const BODY_LIMIT = 64 * 1024
 
-/* Web 可编辑字段白名单与类型约束(不含凭证) */
+/* Web 可编辑字段白名单与类型约束(不含凭证;语言跟随 dsh web,不提供配置项) */
 const PATCH_FIELDS: Record<keyof WebConfigPatch, 'boolean' | 'string' | 'number'> = {
   enabled: 'boolean',
-  locale: 'string',
   reportInterval: 'number',
   reportEnabled: 'boolean',
   includeTokens: 'boolean',
@@ -91,7 +90,6 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     ...(status.configured && status.username !== undefined ? { username: status.username } : {}),
     config: {
       enabled: config.enabled,
-      locale: config.locale,
       reportInterval: config.reportInterval,
       reportEnabled: config.reportEnabled,
       includeTokens: config.includeTokens,
@@ -150,8 +148,13 @@ async function handleApiKey(req: IncomingMessage, res: ServerResponse, deps: Web
     res.end('apiKey is required')
     return
   }
-  const profile = await deps.auth.setApiKey(payload.apiKey)
-  writeJson(res, 200, { ok: true, username: profile.username ?? null })
+  /* 小后端先验证 API Key 有效性:失败不保存并回报结果(不携带 Key) */
+  try {
+    const profile = await deps.auth.setApiKey(payload.apiKey)
+    writeJson(res, 200, { ok: true, username: profile.username ?? null })
+  } catch (error) {
+    writeJson(res, 400, { ok: false, error: (error as Error).message })
+  }
 }
 
 async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {

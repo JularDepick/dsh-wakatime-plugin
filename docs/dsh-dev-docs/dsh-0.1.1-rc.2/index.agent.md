@@ -1,10 +1,12 @@
-# Agent 阅读指南 —— dsh 插件开发文档（v0.1.0-rc.6）
+# Agent 阅读指南 —— dsh 插件开发文档（v0.1.1-rc.2）
 
 本文档是给 Agent（自动编程代理）看的使用索引：说明这份文档集装了什么、各篇回答什么问题、在涉及 dsh 插件开发的常见任务中该查哪篇。用户一般不读本文档。
 
 ## 这份文档集是什么
 
-本目录 `docs/dsh-dev-docs/dsh-0.1.0-rc.6/` 收录了 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 0.1.0-rc.6 时期的中文版插件开发文档（共 9 篇 + 本索引）。它只覆盖 `docs/user/develop/` 路径；原文档中指向仓其他位置的链接（`README.md`、`cookbook/`、`subsystems/`、`apps/cli/`、`packages/`、`capability-seams.md` 等）未随本目录下载，需要时回[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看。
+本目录 `docs/dsh-dev-docs/dsh-0.1.1-rc.2/` 收录了 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 0.1.1-rc.2 时期的中文版插件开发文档（共 9 篇 + 本索引，另有英文版 `.md` 与 `.i18n.yaml` 双语一致性记录）。它只覆盖 `docs/user/develop/` 路径；原文档中指向仓其他位置的链接（`README.md`、`cookbook/`、`subsystems/`、`apps/cli/`、`packages/`、`capability-seams.md` 等）未随本目录下载，需要时回[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看。
+
+> 内容说明：0.1.1-rc.2 与 0.1.0-rc.7 的 9 篇中文文档唯一实质变化是交叉链接的语言修正（内部互链与指向仓内的链接改为中文版 `.zh.md`），机制讲解、代码示例、API 语义零变化；`practice/llm-adapter.zh.md` 与 rc.7 完全一致。npm 上 `@deepseek-ai/*` 已发布 0.1.1-rc.2（next 标签）；本项目依赖已升级到 0.1.1-rc.2——该次版本在 `dsh-session`/`dsh-llm`/`dsh-client-runtime`/`dsh-client-ui-slots` 等包有类型声明改动（哈希对比确认），但本插件 typecheck/build/smoke 全过、业务代码零调整。本速查表内容沿用 rc.7 版，仅更新版本号与说明。
 
 ## 速查：什么任务查哪篇
 

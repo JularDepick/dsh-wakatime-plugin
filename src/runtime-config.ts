@@ -10,10 +10,10 @@
 import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
 
-/* Web 可编辑的配置子集(不含 API Key 等凭证) */
+/* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
 export type WebConfigPatch = Partial<Pick<
   Config,
-  'enabled' | 'locale' | 'reportInterval' | 'reportEnabled'
+  'enabled' | 'reportInterval' | 'reportEnabled'
   | 'includeTokens' | 'includePrompts' | 'debug'
 >>
 
@@ -70,7 +70,6 @@ export class RuntimeConfig {
       includeTokens: this.current.includeTokens,
       includePrompts: this.current.includePrompts,
       debug: this.current.debug,
-      locale: this.current.locale,
     }
     await this.configManager.save({ ...(stored ?? {}), settings })
   }

@@ -1,10 +1,12 @@
-# dsh 插件开发文档（v0.1.0-rc.6）
+# dsh 插件开发文档（v0.1.1-rc.2）
 
 > 面向 Agent 的利用指南与速查：请查看 `index.agent.md`。
 
 [dsh](https://github.com/deepseek-ai/deepseek-harness) 官方插件开发文档的**中文版**合集索引。
 
-本目录存放 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 **0.1.0-rc.6**（npm 发布包版本号）时期的中文版（`.zh.md`）文档。内容来源于官方仓库 master 分支，作为本项目开发 dsh 插件时的参考指引。
+本目录存放 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 **0.1.1-rc.2**（npm 发布包版本号）时期的中文版（`.zh.md`）文档。内容来源于官方仓库 master 分支，作为本项目开发 dsh 插件时的参考指引。
+
+> 版本说明：0.1.1-rc.2 与 0.1.0-rc.7 的中文文档唯一实质变化是交叉链接的语言修正（内部互链与指向仓内的链接改为中文版 `.zh.md`），机制讲解、代码示例、API 语义零变化；`practice/llm-adapter.zh.md` 与 rc.7 完全一致。npm 上 `@deepseek-ai/*` 已发布 0.1.1-rc.2（next 标签）；本项目依赖已升级到 0.1.1-rc.2——该次版本在 `dsh-session`/`dsh-llm`/`dsh-client-runtime`/`dsh-client-ui-slots` 等包有类型声明改动（哈希对比确认），但本插件 typecheck/build/smoke 全过、业务代码零调整。本目录为官方原始形态（中英双语 + `.i18n.yaml` 双语一致性记录），`index.agent.md` 速查表为项目整理件。
 
 | 分块 | 作用 |
 |:---:|:---|
@@ -12,7 +14,7 @@
 | [框架](framework/) | Cordis 插件模型：生命周期、事件、服务与依赖 |
 | [实战](practice/) | 能力三种角色设计与 LLM 适配器 |
 
-> 说明：本目录仅收录 `docs/user/develop/` 下的中文文档。原文档中指向仓其他路径的链接（如 `README.md`、`cordis-tutorial/`、`subsystems/`、`capability-seams.md`、`cookbook/`、`apps/cli/`、`packages/` 等）不在本次下载范围内，如需参考请前往[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看原路径。
+> 说明：本目录仅收录 `docs/user/develop/` 下的文档。原文档中指向仓其他路径的链接（如 `README.md`、`cordis-tutorial/`、`subsystems/`、`capability-seams.md`、`cookbook/`、`apps/cli/`、`packages/` 等）不在本次下载范围内，如需参考请前往[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看原路径。
 
 ## 基础（basic）
 

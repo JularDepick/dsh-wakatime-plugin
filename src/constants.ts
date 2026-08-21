@@ -40,8 +40,9 @@ export const REPORT_LOG_LIMIT = 50
 export const HEARTBEAT_CATEGORY_AI = 'ai coding'
 export const HEARTBEAT_CATEGORY_TOOL = 'debugging'
 
-/* AI 会话全局标识:全部心跳归为一个整体 AI 会话,不再按 DSH 会话分开 */
-export const AI_SESSION_GLOBAL_ID = 'dsh'
+/* AI 会话全局标识:全部心跳归为一个整体 AI 会话,不再按 DSH 会话分开;
+   取插件名称的合法标识(下划线形式,符合 WakaTime 字段约束) */
+export const AI_SESSION_GLOBAL_ID = 'dsh_waka_time_plugin'
 
 /* 提示词 Token 估算系数:字符数 ÷ 系数 ≈ Token 数(无官方 tokenizer 时的近似口径) */
 export const PROMPT_TOKEN_ESTIMATE_DIVISOR = 1.5

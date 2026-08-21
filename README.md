@@ -48,7 +48,7 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 | `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入 API Key(op=set_apikey,仅覆盖不可查看) |
 | `wakatime_logout` | 清除本地 API Key |
 | `wakatime_status` | 查看认证状态(不回显 Key 明文) |
-| `wakatime_stats` | 查看 Agent 协作战绩(心跳、Token、思考时长等) |
+| `wakatime_stats` | 查看 Agent 协作战绩(提示词、思考时长、Token 消耗) |
 
 ## 配置
 

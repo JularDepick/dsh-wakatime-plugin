@@ -40,7 +40,7 @@ export class AuthManagerImpl implements AuthManager {
   async setApiKey(apiKey: string): Promise<UserProfile> {
     const trimmed = apiKey.trim()
     if (!trimmed) throw new Error('API Key 不能为空')
-    /* 先验证有效性,失败不落盘 */
+    /* 先验证有效性:验证失败(Key 无效或网络异常)不落盘 */
     const profile = await this.fetchUserProfile(trimmed)
     const stored = await this.configManager.load()
     await this.configManager.save({
@@ -69,16 +69,20 @@ export class AuthManagerImpl implements AuthManager {
     this.apiKeyCache = null
   }
 
+  /* 用给定 Key 拉取用户资料并验证有效性:HTTP 非 2xx(如 401)或网络异常
+     视为 Key 无效,抛出 WakaTimeError;成功时尽力解析用户名 */
   async fetchUserProfile(apiKey: string): Promise<UserProfile> {
-    try {
-      const data = await this.http.request<{ data?: { id?: string; username?: string; display_name?: string } }>(
-        USER_INFO_PATH,
-        { method: 'GET', basicAuth: basicAuthOf(apiKey), noRetry: true },
-      )
-      return { userId: data?.data?.id, username: data?.data?.display_name || data?.data?.username }
-    } catch {
-      /* 验证失败(Key 无效/网络异常)不阻断流程,由调用方决定如何处理 */
-      return {}
+    const data = await this.http.request<{
+      data?: { id?: string; username?: string; display_name?: string; email?: string }
+    }>(
+      USER_INFO_PATH,
+      { method: 'GET', basicAuth: basicAuthOf(apiKey), noRetry: true },
+    )
+    const user = data?.data
+    if (!user) return {}
+    return {
+      userId: user.id,
+      username: user.display_name || user.username || user.email || user.id,
     }
   }
 }
