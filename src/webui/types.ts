@@ -53,3 +53,10 @@ export interface WebLogEntry {
   ok: boolean
   error?: string
 }
+
+/* 云端同步响应:ok=true 携带 CloudSummary;失败仅返回原因 */
+export interface WebSyncResponse {
+  ok: boolean
+  data?: import('../sync').CloudSummary
+  error?: string
+}

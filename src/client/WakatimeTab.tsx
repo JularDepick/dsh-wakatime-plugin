@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { WebConfigPayload, WebLogEntry, WebStatusResponse } from '../webui/types'
+import type { WebConfigPayload, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -41,6 +41,7 @@ const STATUS_PATH = '/api/wakatime/status'
 const CONFIG_PATH = '/api/wakatime/config'
 const APIKEY_PATH = '/api/wakatime/apikey'
 const LOGS_PATH = '/api/wakatime/logs'
+const SYNC_PATH = '/api/wakatime/sync'
 
 /**
  * 渲染 wakatime 标签页。
@@ -58,8 +59,27 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [saving, setSaving] = useState(false)
   const [keySaving, setKeySaving] = useState(false)
   const [tick, setTick] = useState(0)
+  /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合) */
+  const [cloud, setCloud] = useState<WebSyncResponse['data'] | null>(null)
+  const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
 
-  /* 拉取状态与上报日志 */
+  /* 云端同步:已配置时向小后端拉取 summaries AI 聚合;失败仅置错误态 */
+  const syncCloud = (): void => {
+    setCloudState('syncing')
+    fetch(SYNC_PATH, { cache: 'no-store' })
+      .then((response) => response.json() as Promise<WebSyncResponse>)
+      .then((result) => {
+        if (result.ok && result.data) {
+          setCloud(result.data)
+          setCloudState('idle')
+        } else {
+          setCloudState('error')
+        }
+      })
+      .catch(() => { setCloudState('error') })
+  }
+
+  /* 拉取状态与上报日志;已配置且有云数据需求时自动同步一次 */
   const reload = (): void => {
     setLoadError(undefined)
     fetch(STATUS_PATH, { cache: 'no-store' })
@@ -70,6 +90,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then((next) => {
         setData(next)
         setDraft(fromConfig(next.config))
+        if (next.configured && cloud === null) syncCloud()
       })
       .catch((error: unknown) => { setLoadError((error as Error).message) })
     fetch(LOGS_PATH, { cache: 'no-store' })
@@ -203,6 +224,35 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
           <Stat label={t('stats.apiEffective')} value={effectiveTokens(aggregate).toLocaleString()} />
         </div>
       </section>
+
+      {data.configured ? (
+        <section className={css.card}>
+          <div className={css.cardHead}>
+            <h3 className={css.cardTitle}>{t('cloud.title')}</h3>
+            <div className={css.cloudMeta}>
+              <span className={css.muted}>
+                {cloud
+                  ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
+                  : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))}
+                {' · '}{t('cloud.range')}
+              </span>
+              <button type="button" className={css.refresh} disabled={cloudState === 'syncing'} onClick={syncCloud}>
+                {cloudState === 'syncing' ? t('cloud.syncing') : t('cloud.sync')}
+              </button>
+            </div>
+          </div>
+          {cloud ? (
+            <div className={css.grid}>
+              <Stat label={t('cloud.inputTokens')} value={cloud.inputTokens.toLocaleString()} />
+              <Stat label={t('cloud.outputTokens')} value={cloud.outputTokens.toLocaleString()} />
+              <Stat label={t('cloud.promptChars')} value={cloud.promptChars.toLocaleString()} />
+              <Stat label={t('cloud.sessions')} value={cloud.sessions.toLocaleString()} />
+            </div>
+          ) : (
+            <p className={css.muted}>{cloudState === 'error' ? t('cloud.failed') : t('cloud.never')}</p>
+          )}
+        </section>
+      ) : null}
 
       <section className={css.card}>
         <div className={css.cardHead}>

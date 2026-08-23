@@ -12,3 +12,6 @@ temp/
 
 # 版本文档(占用规则 v*-*.md,见 AGENTS.md 守则)
 v*-*.md
+
+# Agent Runtime
+.skills/

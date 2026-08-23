@@ -20,6 +20,10 @@ export const WAKATIME_API_BASE = 'https://wakatime.com/api/v1'
 export const HEARTBEATS_PATH = '/users/current/heartbeats'
 export const HEARTBEATS_BULK_PATH = '/users/current/heartbeats.bulk'
 export const USER_INFO_PATH = '/users/current'
+export const SUMMARIES_PATH = '/users/current/summaries'
+
+/* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
+export const CLOUD_SUMMARY_RANGE = 'last_7_days'
 
 /* 定时上报 */
 /* 上报周期默认值(秒):启动加载时上报一次,之后按此间隔循环批量上报 */
@@ -52,6 +56,7 @@ export const WEB_STATUS_PATH = '/api/wakatime/status'
 export const WEB_CONFIG_PATH = '/api/wakatime/config'
 export const WEB_APIKEY_PATH = '/api/wakatime/apikey'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
+export const WEB_SYNC_PATH = '/api/wakatime/sync'
 
 /* 环境变量 */
 export const ENV_API_KEY = 'WAKATIME_API_KEY'

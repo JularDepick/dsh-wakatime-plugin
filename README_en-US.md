@@ -20,6 +20,7 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Scheduled batch reporting: reports once at startup, then batches by a configurable interval (default 60 seconds)
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt tokens, LLM thinking time, output tokens, API effective token usage, viewable anytime in the Web interface
+- Cloud sync: with an API key configured, pull the latest WakaTime cloud AI summary (last 7 days: input/output tokens, prompt chars, AI sessions) with one click, side by side with local stats
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic project detection
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
 

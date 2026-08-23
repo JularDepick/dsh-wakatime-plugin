@@ -22,6 +22,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+.cloudMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .cardTitle {
@@ -84,6 +91,25 @@
 .statValue {
   font-size: 16px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  text-align: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l);
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .statLabel {

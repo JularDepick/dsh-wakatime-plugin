@@ -70,7 +70,8 @@ export class AuthManagerImpl implements AuthManager {
   }
 
   /* 用给定 Key 拉取用户资料并验证有效性:HTTP 非 2xx(如 401)或网络异常
-     视为 Key 无效,抛出 WakaTimeError;成功时尽力解析用户名 */
+     视为 Key 无效,抛出 WakaTimeError;成功时用户名优先取公开 username
+     (display_name 匿名账户默认为 'Anonymous User',仅作兜底) */
   async fetchUserProfile(apiKey: string): Promise<UserProfile> {
     const data = await this.http.request<{
       data?: { id?: string; username?: string; display_name?: string; email?: string }
@@ -82,7 +83,7 @@ export class AuthManagerImpl implements AuthManager {
     if (!user) return {}
     return {
       userId: user.id,
-      username: user.display_name || user.username || user.email || user.id,
+      username: user.username || user.display_name || user.email || user.id,
     }
   }
 }

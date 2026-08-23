@@ -15,17 +15,19 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
-import { WEB_APIKEY_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_STATUS_PATH } from '../constants'
+import { WEB_APIKEY_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import type { HeartbeatEngine } from '../heartbeat'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import type { StatsTracker } from '../stats'
-import type { WebApiKeyPayload, WebConfigResponse, WebLogEntry, WebStatusResponse } from './types'
+import type { CloudSync } from '../sync'
+import type { WebApiKeyPayload, WebConfigResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from './types'
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
   auth: AuthManager
   stats: StatsTracker
   heartbeat: HeartbeatEngine
+  sync: CloudSync
 }
 
 /* webserver 服务最小面(避免引入 host 包类型依赖) */
@@ -62,6 +64,7 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
       webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: (req, res) => void handleConfig(req, res, deps) }),
       webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: (req, res) => void handleApiKey(req, res, deps) }),
       webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: (req, res) => void handleLogs(req, res, deps) }),
+      webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: (req, res) => void handleSync(req, res, deps) }),
     ]
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
@@ -165,6 +168,26 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
   }
   const body: WebLogEntry[] = [...deps.heartbeat.reportLogs()]
   writeJson(res, 200, body)
+}
+
+/* 云端同步:拉取 summaries AI 聚合;未配置 Key 或失败均返回可读原因 */
+async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'GET') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  const data = await deps.sync.sync()
+  if (data !== null) {
+    const body: WebSyncResponse = { ok: true, data }
+    writeJson(res, 200, body)
+    return
+  }
+  const status = await deps.auth.getStatus()
+  writeJson(res, 200, {
+    ok: false,
+    error: status.configured ? '同步失败(网络或云端异常)' : '未配置 API Key',
+  } satisfies WebSyncResponse)
 }
 
 /* 白名单校验:未知字段忽略,已知字段类型不符整体拒绝 */

@@ -21,6 +21,7 @@ import { FetchHttpClient } from './http'
 import { ProjectDetector } from './project'
 import { RuntimeConfig } from './runtime-config'
 import { StatsTracker } from './stats'
+import { CloudSync } from './sync'
 import { WakatimeTools } from './tools'
 import { setLanguage } from './translation'
 import { attachWebUi } from './webui'
@@ -42,6 +43,7 @@ export { WakaTimeError } from './http'
 export { ProjectDetector } from './project'
 export { RuntimeConfig } from './runtime-config'
 export { StatsTracker } from './stats'
+export { CloudSync } from './sync'
 export { WakatimeTools } from './tools'
 export { translate, setLanguage, getLanguage } from './translation'
 
@@ -65,6 +67,7 @@ export function apply(ctx: Context, config: ConfigType) {
   const stats = new StatsTracker()
   const project = new ProjectDetector()
   const collector = new SessionEventCollector({ heartbeat, stats, project })
+  const cloudSync = new CloudSync(http, auth)
   const tools = new WakatimeTools({ auth, stats, runtimeConfig })
 
   /* 事件采集:监听器为效果,卸载自动移除 */
@@ -111,7 +114,7 @@ export function apply(ctx: Context, config: ConfigType) {
   })
 
   /* Web UI 路由(小后端;web profile 提供 webserver 服务时挂载) */
-  attachWebUi(ctx, { runtimeConfig, auth, stats, heartbeat })
+  attachWebUi(ctx, { runtimeConfig, auth, stats, heartbeat, sync: cloudSync })
 
   const debug = config.debug || process.env[ENV_DEBUG] === '1'
   if (debug) {
