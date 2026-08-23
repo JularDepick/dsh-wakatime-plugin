@@ -7,7 +7,7 @@
  * client 面:浏览器 bundle(dist/client.js),格式为
  * window.__ModuleLoader__.load({ id, factory }) 的 CJS 包装,
  * 平台模块 external、其余内联,CSS Modules 经 lightningcss 内联注入。
- * 产物格式细节与机制说明见 .agent/web-tab-experience.md。
+ * 产物格式细节与机制说明见 docs/tech-spec/dsh-web-tab-experience.md。
  */
 
 import { readFile } from 'node:fs/promises'

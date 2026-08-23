@@ -23,12 +23,8 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   /* JSON 请求体 */
   body?: unknown
-  /* Bearer 令牌(用于 API 请求) */
-  bearer?: string
-  /* Basic 认证(OAuth 令牌端点使用,值为 base64(clientId:clientSecret)) */
+  /* Basic 认证值(API Key 认证:base64(`${apiKey}:`)) */
   basicAuth?: string
-  /* 表单体(OAuth 令牌端点使用) */
-  form?: URLSearchParams
   /* 关闭重试(默认开启,429/5xx 指数退避) */
   noRetry?: boolean
 }

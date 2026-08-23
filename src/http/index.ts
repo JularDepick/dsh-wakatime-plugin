@@ -32,14 +32,11 @@ export class FetchHttpClient implements HttpClient {
     const method = options.method ?? 'GET'
 
     const headers: Record<string, string> = {}
-    if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`
     if (options.basicAuth) headers.Authorization = `Basic ${options.basicAuth}`
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
-    if (options.form) headers['Content-Type'] = 'application/x-www-form-urlencoded'
 
     const init: RequestInit = { method, headers }
     if (options.body !== undefined) init.body = JSON.stringify(options.body)
-    if (options.form) init.body = options.form.toString()
 
     const maxRetries = options.noRetry ? 0 : RETRY_MAX_RETRIES
     let attempt = 0

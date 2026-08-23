@@ -34,6 +34,5 @@
 
 ## 语言切换机制
 
-- UI 预留翻译功能，提供翻译切换入口。
-- 切换目标语言时，加载 `src/translation/` 下对应的 `xx-YY.ini` 文件。
-- 未命中翻译的文案回退到默认语言（`zh-CN.ini`）。
+- 本套 ini 翻译服务于 host 侧工具文案,由插件配置 `locale`(zh-CN/en-US)选择,未命中回退默认语言 `zh-CN.ini`。
+- Web UI(浏览器端)文案不经 ini:由 `src/client/locales.ts` 的 zh/en 字典提供,语言跟随 dsh web UI 切换。
