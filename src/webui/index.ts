@@ -15,7 +15,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
-import { WEB_APIKEY_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { WEB_APIKEY_CLEAR_PATH, WEB_APIKEY_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import type { HeartbeatEngine } from '../heartbeat'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import type { StatsTracker } from '../stats'
@@ -65,6 +65,7 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
       webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: (req, res) => void handleApiKey(req, res, deps) }),
       webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: (req, res) => void handleLogs(req, res, deps) }),
       webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: (req, res) => void handleSync(req, res, deps) }),
+      webServer.register({ kind: 'exact', path: WEB_APIKEY_CLEAR_PATH, handler: (req, res) => void handleApiKeyClear(req, res, deps) }),
     ]
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
@@ -167,6 +168,18 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
     return
   }
   const body: WebLogEntry[] = [...deps.heartbeat.reportLogs()]
+  writeJson(res, 200, body)
+}
+
+/* 清除本地 API Key(回退未登录;成功不回显任何密钥信息) */
+async function handleApiKeyClear(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  await deps.auth.clearApiKey()
+  const body: WebConfigResponse = { ok: true }
   writeJson(res, 200, body)
 }
 

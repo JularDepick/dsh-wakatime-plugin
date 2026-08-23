@@ -4,6 +4,7 @@ node_modules/
 
 # 构建产物
 dist/
+release/
 *.tgz
 
 # 临时与缓存(Agent 临时脚本/报告、npm 缓存重定向等)

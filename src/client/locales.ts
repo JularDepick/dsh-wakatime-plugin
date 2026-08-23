@@ -15,6 +15,8 @@ export type WakatimeKey =
   | 'status.loginSuccess'
   | 'apikey.overwrite'
   | 'apikey.save'
+  | 'apikey.clear'
+  | 'apikey.clearConfirm'
   | 'apikey.invalid'
   | 'apikey.placeholder'
   | 'apikey.hint'
@@ -24,17 +26,12 @@ export type WakatimeKey =
   | 'stats.thinking'
   | 'stats.outputTokens'
   | 'stats.apiEffective'
-  | 'cloud.title'
   | 'cloud.sync'
   | 'cloud.syncing'
   | 'cloud.syncedAt'
   | 'cloud.never'
   | 'cloud.failed'
   | 'cloud.range'
-  | 'cloud.inputTokens'
-  | 'cloud.outputTokens'
-  | 'cloud.promptChars'
-  | 'cloud.sessions'
   | 'logs.title'
   | 'logs.expand'
   | 'logs.collapse'
@@ -67,6 +64,8 @@ export const zh: WakatimeDict = {
   'status.loginSuccess': '登录成功, ',
   'apikey.overwrite': '仅覆盖、不可查看。',
   'apikey.save': '保存 API Key',
+  'apikey.clear': '清除 API Key',
+  'apikey.clearConfirm': '确认清除?',
   'apikey.invalid': 'API Key 无效或验证失败',
   'apikey.placeholder': '粘贴新的 API Key…',
   'apikey.hint': '在 wakatime.com/settings/api-key 生成。',
@@ -76,17 +75,12 @@ export const zh: WakatimeDict = {
   'stats.thinking': 'LLM 思考总时长',
   'stats.outputTokens': '输出 TOKEN 总量',
   'stats.apiEffective': 'API 有效 TOKEN 消耗',
-  'cloud.title': '云端同步',
   'cloud.sync': '同步',
   'cloud.syncing': '同步中…',
   'cloud.syncedAt': '同步时间',
   'cloud.never': '尚未同步',
   'cloud.failed': '同步失败',
   'cloud.range': '近 7 天',
-  'cloud.inputTokens': '云端输入 TOKEN',
-  'cloud.outputTokens': '云端输出 TOKEN',
-  'cloud.promptChars': '云端提示词(字符)',
-  'cloud.sessions': '云端 AI 会话',
   'logs.title': '上报记录',
   'logs.expand': '展开上报记录',
   'logs.collapse': '收起上报记录',
@@ -118,6 +112,8 @@ export const en: WakatimeDict = {
   'status.loginSuccess': 'Logged in as ',
   'apikey.overwrite': 'Overwrite only, never shown.',
   'apikey.save': 'Save API key',
+  'apikey.clear': 'Clear API key',
+  'apikey.clearConfirm': 'Confirm clear?',
   'apikey.invalid': 'API key invalid or verification failed',
   'apikey.placeholder': 'Paste a new API key…',
   'apikey.hint': 'Generate one at wakatime.com/settings/api-key.',
@@ -127,17 +123,12 @@ export const en: WakatimeDict = {
   'stats.thinking': 'LLM thinking time',
   'stats.outputTokens': 'Output tokens',
   'stats.apiEffective': 'API effective token usage',
-  'cloud.title': 'Cloud sync',
   'cloud.sync': 'Sync',
   'cloud.syncing': 'Syncing…',
   'cloud.syncedAt': 'Synced at',
   'cloud.never': 'Not synced yet',
   'cloud.failed': 'Sync failed',
   'cloud.range': 'Last 7 days',
-  'cloud.inputTokens': 'Cloud input tokens',
-  'cloud.outputTokens': 'Cloud output tokens',
-  'cloud.promptChars': 'Cloud prompt (chars)',
-  'cloud.sessions': 'Cloud AI sessions',
   'logs.title': 'Report log',
   'logs.expand': 'Expand report log',
   'logs.collapse': 'Collapse report log',

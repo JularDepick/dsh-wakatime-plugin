@@ -42,6 +42,7 @@ const CONFIG_PATH = '/api/wakatime/config'
 const APIKEY_PATH = '/api/wakatime/apikey'
 const LOGS_PATH = '/api/wakatime/logs'
 const SYNC_PATH = '/api/wakatime/sync'
+const APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
 
 /**
  * 渲染 wakatime 标签页。
@@ -62,6 +63,32 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合) */
   const [cloud, setCloud] = useState<WebSyncResponse['data'] | null>(null)
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
+  /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
+  const [clearConfirm, setClearConfirm] = useState(false)
+
+  /* 清除确认超时回归 */
+  useEffect(() => {
+    if (!clearConfirm) return
+    const timer = setTimeout(() => { setClearConfirm(false) }, 3000)
+    return () => clearTimeout(timer)
+  }, [clearConfirm])
+
+  /* 清除本地 API Key(回退未登录)并刷新状态 */
+  const clearApiKey = (): void => {
+    if (!clearConfirm) {
+      setClearConfirm(true)
+      return
+    }
+    setClearConfirm(false)
+    fetch(APIKEY_CLEAR_PATH, { method: 'POST' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        setCloud(null)
+        setCloudState('idle')
+        setTick((value) => value + 1)
+      })
+      .catch(() => { setNotice({ kind: 'error', text: t('state.loadFailed') }) })
+  }
 
   /* 云端同步:已配置时向小后端拉取 summaries AI 聚合;失败仅置错误态 */
   const syncCloud = (): void => {
@@ -177,6 +204,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const aggregate = data.stats.aggregate
   const thinkingMinutes = Math.floor(aggregate.thinkingMs / 60000)
   const thinkingSeconds = Math.round((aggregate.thinkingMs % 60000) / 1000)
+  /* 云端与本地合并:可对应指标取最大值,保证云端与本地一致性 */
+  const cloudInput = cloud?.inputTokens ?? 0
+  const cloudOutput = cloud?.outputTokens ?? 0
+  const cloudPrompt = cloud?.promptChars ?? 0
+  const mergedPromptChars = Math.max(aggregate.promptChars, cloudPrompt)
+  const mergedOutputTokens = Math.max(aggregate.outputTokens, cloudOutput)
+  const mergedApiEffective = Math.max(effectiveTokens(aggregate), cloudInput + cloudOutput)
 
   return (
     <div className={css.tab}>
@@ -185,9 +219,20 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
           <h3 className={css.cardTitle}>
             {data.configured ? t('status.configured') : t('status.notConfigured')}
           </h3>
-          <button type="button" className={css.refresh} onClick={() => { setTick((value) => value + 1) }}>
-            {t('action.refresh')}
-          </button>
+          <div className={css.cloudMeta}>
+            {data.configured ? (
+              <button
+                type="button"
+                className={clearConfirm ? css.save : css.refresh}
+                onClick={clearApiKey}
+              >
+                {clearConfirm ? t('apikey.clearConfirm') : t('apikey.clear')}
+              </button>
+            ) : null}
+            <button type="button" className={css.refresh} onClick={() => { setTick((value) => value + 1) }}>
+              {t('action.refresh')}
+            </button>
+          </div>
         </div>
         {data.configured && data.username ? (
           <p className={css.ok} role="status">
@@ -212,47 +257,31 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       </section>
 
       <section className={css.card}>
-        <h3 className={css.cardTitle}>{t('stats.title')}</h3>
+        <div className={css.cardHead}>
+          <h3 className={css.cardTitle}>{t('stats.title')}</h3>
+          <div className={css.cloudMeta}>
+            <span className={css.muted}>
+              {cloud
+                ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
+                : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))}
+              {' · '}{t('cloud.range')}
+            </span>
+            <button type="button" className={css.refresh} disabled={cloudState === 'syncing'} onClick={syncCloud}>
+              {cloudState === 'syncing' ? t('cloud.syncing') : t('cloud.sync')}
+            </button>
+          </div>
+        </div>
         <div className={css.grid}>
           <Stat
             label={t('stats.promptChars')}
-            value={aggregate.promptChars.toLocaleString()}
+            value={mergedPromptChars.toLocaleString()}
             sub={t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}
           />
           <Stat label={t('stats.thinking')} value={`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`} />
-          <Stat label={t('stats.outputTokens')} value={aggregate.outputTokens.toLocaleString()} />
-          <Stat label={t('stats.apiEffective')} value={effectiveTokens(aggregate).toLocaleString()} />
+          <Stat label={t('stats.outputTokens')} value={mergedOutputTokens.toLocaleString()} />
+          <Stat label={t('stats.apiEffective')} value={mergedApiEffective.toLocaleString()} />
         </div>
       </section>
-
-      {data.configured ? (
-        <section className={css.card}>
-          <div className={css.cardHead}>
-            <h3 className={css.cardTitle}>{t('cloud.title')}</h3>
-            <div className={css.cloudMeta}>
-              <span className={css.muted}>
-                {cloud
-                  ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
-                  : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))}
-                {' · '}{t('cloud.range')}
-              </span>
-              <button type="button" className={css.refresh} disabled={cloudState === 'syncing'} onClick={syncCloud}>
-                {cloudState === 'syncing' ? t('cloud.syncing') : t('cloud.sync')}
-              </button>
-            </div>
-          </div>
-          {cloud ? (
-            <div className={css.grid}>
-              <Stat label={t('cloud.inputTokens')} value={cloud.inputTokens.toLocaleString()} />
-              <Stat label={t('cloud.outputTokens')} value={cloud.outputTokens.toLocaleString()} />
-              <Stat label={t('cloud.promptChars')} value={cloud.promptChars.toLocaleString()} />
-              <Stat label={t('cloud.sessions')} value={cloud.sessions.toLocaleString()} />
-            </div>
-          ) : (
-            <p className={css.muted}>{cloudState === 'error' ? t('cloud.failed') : t('cloud.never')}</p>
-          )}
-        </section>
-      ) : null}
 
       <section className={css.card}>
         <div className={css.cardHead}>

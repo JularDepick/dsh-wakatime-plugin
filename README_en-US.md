@@ -20,7 +20,7 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Scheduled batch reporting: reports once at startup, then batches by a configurable interval (default 60 seconds)
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt tokens, LLM thinking time, output tokens, API effective token usage, viewable anytime in the Web interface
-- Cloud sync: with an API key configured, pull the latest WakaTime cloud AI summary (last 7 days: input/output tokens, prompt chars, AI sessions) with one click, side by side with local stats
+- Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic project detection
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
 
@@ -41,6 +41,8 @@ After installing and enabling the plugin, configure a WakaTime API key (generate
 - **Manually**: paste it into the WakaTime tab of the Web interface (overwrite only, never echoed back);
 - **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_apikey) to configure it for you;
 - **Environment variable**: set `WAKATIME_API_KEY` (takes precedence over the file).
+
+After configuring an API key, you can clear it in the tab to return to the logged-out state.
 
 The plugin then tracks AI interactions in DSH and reports them to WakaTime on a scheduled basis.
 

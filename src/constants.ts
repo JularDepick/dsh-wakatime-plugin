@@ -57,6 +57,7 @@ export const WEB_CONFIG_PATH = '/api/wakatime/config'
 export const WEB_APIKEY_PATH = '/api/wakatime/apikey'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
+export const WEB_APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
 
 /* 环境变量 */
 export const ENV_API_KEY = 'WAKATIME_API_KEY'

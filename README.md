@@ -20,7 +20,7 @@
 - 定时批量上报:启动时上报一次,之后按可配置间隔(默认 60 秒)批量同步
 - Token 统计:精确记录每次 Agent 调用的 input/output Token 数量
 - Agent 协作战绩:全局汇总提示词总量、LLM 思考总时长、输出 Token、API 有效 Token 消耗等表现指标,在 Web 界面随时查看
-- 云端同步:配置 API Key 后,一键拉取 WakaTime 云端最近 7 天的 AI 汇总(输入/输出 Token、提示词字符、AI 会话),与本地战绩对照
+- 云端同步合并:配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致
 - 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别当前项目
 - 本地优先:凭证和配置数据默认存储在本地,用户完全掌控
 
@@ -41,6 +41,8 @@ dsh plugin --profile <name> add github:JularDepick/dsh-waka-time-plugin
 - **手动**:在 Web 界面会话区域的 WakaTime 标签页粘贴保存(仅覆盖、不回显);
 - **Agent 引导**:让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
 - **环境变量**:设置 `WAKATIME_API_KEY`(优先于文件配置)。
+
+已配置 API Key 后,可在标签页执行「清除 API Key」回退到未登录状态。
 
 此后插件会自动追踪 DSH 中的 AI 交互,按定时节奏批量上报至 WakaTime。
 
