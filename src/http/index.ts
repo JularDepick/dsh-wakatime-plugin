@@ -48,7 +48,7 @@ export class FetchHttpClient implements HttpClient {
       } catch (error) {
         /* 网络层失败:按服务器错误对待,进入重试 */
         const last = attempt > maxRetries
-        if (last) throw new WakaTimeError(0, `网络请求失败: ${(error as Error).message}`)
+        if (last) throw new WakaTimeError(0, `Network request failed: ${(error as Error).message}`)
         await this.backoff(attempt)
         continue
       }
@@ -72,7 +72,7 @@ export class FetchHttpClient implements HttpClient {
       }
 
       /* 不可重试或重试耗尽:解析错误体后抛出 */
-      let message = `WakaTime API 返回 ${response.status}`
+      let message = `WakaTime API responded with status ${response.status}`
       let code: string | undefined
       try {
         const text = await response.text()

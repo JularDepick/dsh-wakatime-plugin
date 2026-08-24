@@ -128,6 +128,12 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   useEffect(() => { reload() }, [tick])
 
+  /* 上报记录失败原因:稳定标识映射为字典文案,其余(如网络错误细节)原样展示 */
+  const describeLogError = (error: string | undefined): string => {
+    if (error === 'auth-missing') return t('logs.errNotConfigured')
+    return error ?? ''
+  }
+
   /* 提示 3 秒后自动消失 */
   useEffect(() => {
     if (!notice) return
@@ -297,10 +303,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               <table className={css.table}>
                 <thead>
                   <tr>
-                    <th>时间</th>
-                    <th>条数</th>
-                    <th>结果</th>
-                    <th>详情</th>
+                    <th>{t('logs.time')}</th>
+                    <th>{t('logs.records')}</th>
+                    <th>{t('logs.result')}</th>
+                    <th>{t('logs.detail')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -309,7 +315,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
                       <td>{formatTime(entry.time)}</td>
                       <td>{entry.count} {t('logs.count')}</td>
                       <td className={entry.ok ? css.ok : css.error}>{entry.ok ? t('logs.success') : t('logs.failed')}</td>
-                      <td className={css.muted}>{entry.error ?? ''}</td>
+                      <td className={css.muted}>{describeLogError(entry.error)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -355,20 +361,20 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   )
 }
 
-/** 开关行 */
+/** 开关行:label 关联控件,点击文本亦可切换 */
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <div className={css.row}>
+    <label className={css.row}>
       <span className={css.rowLabel}>{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => { onChange(event.target.checked) }} />
-    </div>
+    </label>
   )
 }
 
-/** 数字输入行 */
+/** 数字输入行:label 关联控件,点击文本亦可聚焦 */
 function NumberRow({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
   return (
-    <div className={css.row}>
+    <label className={css.row}>
       <span className={css.rowLabel}>{label}</span>
       <input
         className={css.input}
@@ -377,7 +383,7 @@ function NumberRow({ label, value, onChange }: { label: string; value: number; o
         value={Number.isFinite(value) ? value : ''}
         onChange={(event) => { onChange(Number(event.target.value)) }}
       />
-    </div>
+    </label>
   )
 }
 

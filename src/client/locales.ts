@@ -37,8 +37,13 @@ export type WakatimeKey =
   | 'logs.collapse'
   | 'logs.empty'
   | 'logs.count'
+  | 'logs.time'
+  | 'logs.records'
+  | 'logs.result'
+  | 'logs.detail'
   | 'logs.success'
   | 'logs.failed'
+  | 'logs.errNotConfigured'
   | 'config.title'
   | 'config.enabled'
   | 'config.reportInterval'
@@ -86,8 +91,13 @@ export const zh: WakatimeDict = {
   'logs.collapse': '收起上报记录',
   'logs.empty': '暂无上报记录',
   'logs.count': '条',
+  'logs.time': '时间',
+  'logs.records': '条数',
+  'logs.result': '结果',
+  'logs.detail': '详情',
   'logs.success': '成功',
   'logs.failed': '失败',
+  'logs.errNotConfigured': '未配置 API Key',
   'config.title': '配置',
   'config.enabled': '启用上报',
   'config.reportInterval': '上报间隔(秒)',
@@ -134,8 +144,13 @@ export const en: WakatimeDict = {
   'logs.collapse': 'Collapse report log',
   'logs.empty': 'No report records yet',
   'logs.count': 'items',
+  'logs.time': 'Time',
+  'logs.records': 'Records',
+  'logs.result': 'Result',
+  'logs.detail': 'Detail',
   'logs.success': 'OK',
   'logs.failed': 'Failed',
+  'logs.errNotConfigured': 'API key not configured',
   'config.title': 'Configuration',
   'config.enabled': 'Enable reporting',
   'config.reportInterval': 'Report interval (seconds)',

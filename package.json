@@ -1,6 +1,6 @@
 {
   "name": "dsh-wakatime-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "将 DSH 的 AI 交互量化并上报至 WakaTime",
   "type": "module",
   "main": "./dist/index.mjs",
@@ -15,7 +15,10 @@
   },
   "files": [
     "dist",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md",
+    "README_en-US.md",
+    "COPYRIGHT"
   ],
   "license": "MIT",
   "author": "JularDepick",

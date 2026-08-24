@@ -300,7 +300,7 @@ docs/
 └── tech-spec/            # 项目技术规范与经验(translation-ini 规范、dsh web tab 经验等)
 .agents/                  # Agent 工作目录:交接文档/经验文档/临时脚本/包管理器缓存重定向(已 gitignore)
 temp/                     # 研究材料与临时产物(已 gitignore)
-release/                  # 发布产物(已 gitignore):npmjs/ 与 tarball/ 两个分发渠道,同为标准 npm tarball
+release/                  # 发布产物(已 gitignore):标准 npm tarball 单产物 dsh-wakatime-plugin-<版本>.tgz
 ```
 
 > 当目录结构发生变化时需要自主更新并告知用户
@@ -319,7 +319,7 @@ release/                  # 发布产物(已 gitignore):npmjs/ 与 tarball/ 两�
 
 ### 开发时配置文件
 
-- `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml)、依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
+- `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml + LICENSE/COPYRIGHT/中英 README,LICENSE 由 npm 自动附加而 COPYRIGHT 需显式列出)、依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
 - `cordis.patch.yml` — patch 层:按包名插入插件行 `dsh-wakatime-plugin`
 - `pnpm-workspace.yaml` — 声明独立 workspace(`packages: ['.']`),规避用户主目录同名文件被 pnpm 11 当作 workspace 根;并置 `minimumReleaseAge: 0` 放宽刚发布 rc 包的供应链策略
 - `tsconfig.json` — TypeScript 编译配置(严格模式、bundler 解析)
@@ -346,7 +346,7 @@ release/                  # 发布产物(已 gitignore):npmjs/ 与 tarball/ 两�
 
 ### 版本号索引
 
-- 当前版本:v0.1.0
+- 当前版本:v0.1.1
 
 > 版本号中 x 表示十进制数,不限制位数,无前导 0
 
@@ -362,12 +362,8 @@ pnpm install
 pnpm typecheck
 # 构建产物(tsdown,输出 dist/)
 pnpm build
-# 打包 tarball
-pnpm pack
-# 分发(发布与分发完整流程见 README「发布与分发」章节)
-# PowerShell: New-Item -ItemType Directory -Force -Path release\npmjs, release\tarball | Out-Null
-#             Move-Item -Force dsh-wakatime-plugin-0.1.0.tgz release\npmjs\
-#             Copy-Item release\npmjs\dsh-wakatime-plugin-0.1.0.tgz release\tarball\
+# 打包 tarball 并输出到 release/(构建产物在 dist/,完整流程见 README「发布与分发」章节)
+pnpm pack --pack-destination release
 ```
 
 ### 项目启动
