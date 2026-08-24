@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.1.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.0)
+[![Version](https://img.shields.io/badge/Version-0.1.1-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.1)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
@@ -34,7 +34,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # Or install from the released tarball locally (prebuilt, no build required)
-dsh plugin --profile <name> add release/tarball/dsh-wakatime-plugin-0.1.0.tgz
+dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.1.tgz
 ```
 
 > Installing from the GitHub source fetches source code rather than build artifacts, and pnpm runs the package's `prepare` build script on install. pnpm 10+ refuses to run git dependencies' build scripts until explicitly allowed, so the first `add` will fail: add the package key printed by pnpm (like `dsh-wakatime-plugin`) to that profile's `pnpm-workspace.yaml`, then re-run:
@@ -99,30 +99,17 @@ Standard distribution workflow (run manually at the repository root):
 pnpm typecheck
 pnpm build
 
-# 2. Pack the standard npm tarball (contains dist and cordis.patch.yml, no node_modules or source)
-pnpm pack
-
-# 3. Distribute to the release directories (Windows PowerShell)
-New-Item -ItemType Directory -Force -Path release\npmjs, release\tarball | Out-Null
-Move-Item -Force dsh-wakatime-plugin-0.1.0.tgz release\npmjs\
-Copy-Item release\npmjs\dsh-wakatime-plugin-0.1.0.tgz release\tarball\
-```
-
-```bash
-# 3. Distribute to the release directories (bash)
-# mkdir -p release/npmjs release/tarball
-# mv -f dsh-wakatime-plugin-0.1.0.tgz release/npmjs/
-# cp release/npmjs/dsh-wakatime-plugin-0.1.0.tgz release/tarball/
+# 2. Pack the standard npm tarball directly into release/ (contains dist and cordis.patch.yml, no node_modules or source)
+pnpm pack --pack-destination release
 ```
 
 Artifacts and purposes:
 
-| Directory | Artifact | Purpose |
-|:---:|:---|:---|
-| `release/npmjs/` | Standard npm package tarball | Material for publishing to the npm registry (future `npm publish`) |
-| `release/tarball/` | The same standard tarball | Local/offline install: `dsh plugin --profile <name> add <tgz path>` |
+| Artifact | Purpose |
+|:---:|:---|
+| `release/dsh-wakatime-plugin-<version>.tgz` | Local/offline install: `dsh plugin --profile <name> add <tgz path>`; also serves as material for publishing to the npm registry (future `npm publish`) |
 
-> The two directories hold the same standard npm tarball for two distribution channels; the artifact is prebuilt, so installation requires no build permission. The repository does not commit `dist/` or `release/` (see .gitignore): installing from the GitHub source relies on the `prepare` build, while installing from the tarball works offline.
+> The artifact is prebuilt, so installation requires no build permission. The repository does not commit `dist/` or `release/` (see .gitignore): installing from the GitHub source relies on the `prepare` build, while installing from the tarball works offline.
 
 ## Related Links
 

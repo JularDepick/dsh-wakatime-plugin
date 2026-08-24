@@ -122,7 +122,7 @@ export class WakatimeTools {
           `${translate('stats.title')}:`,
           `${translate('stats.promptChars')}: ${stats.promptChars}`,
           `${translate('stats.promptEstimate')}: ${stats.promptTokens}`,
-          `${translate('stats.thinkingMs')}: ${minutes} 分钟 ${Math.round((stats.thinkingMs % 60000) / 1000)} 秒`,
+          `${translate('stats.thinkingMs')}: ${minutes} ${translate('stats.minutes')} ${Math.round((stats.thinkingMs % 60000) / 1000)} ${translate('stats.seconds')}`,
           `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
           `${translate('stats.outputTokens')}: ${stats.outputTokens}`,
           `${translate('stats.apiEffectiveTokens')}: ${effectiveTokens(stats)}`,
@@ -137,7 +137,7 @@ export class WakatimeTools {
     if (op === 'get') return this.describeConfig()
     if (op === 'set') return this.setConfig(args)
     if (op === 'set_apikey') return this.setApiKey(String(args.apiKey ?? ''))
-    return `${translate('config.writeError')}: 未知 op`
+    return `${translate('config.writeError')}: ${translate('config.unknownOp')}`
   }
 
   /* get:返回全部配置;apiKey 仅显示是否配置,不回显明文 */
@@ -166,7 +166,7 @@ export class WakatimeTools {
     }
     const type = KEY_TYPES[key as (typeof CONFIG_KEYS)[number]]
     if (typeof value !== type) {
-      return `${translate('config.invalidValue')}: ${key} 需要 ${type}`
+      return `${translate('config.invalidValue')}: ${key} ${translate('config.typeRequired').replace('{type}', type)}`
     }
     await this.options.runtimeConfig.update({ [key]: value } as never)
     return `${key}=${String(value)}`

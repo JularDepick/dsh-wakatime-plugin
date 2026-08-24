@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.1.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.0)
+[![Version](https://img.shields.io/badge/Version-0.1.1-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.1)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
@@ -34,7 +34,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # 或使用发布 tarball 本地安装(预构建产物,无需构建)
-dsh plugin --profile <name> add release/tarball/dsh-wakatime-plugin-0.1.0.tgz
+dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.1.tgz
 ```
 
 > 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本。pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败:把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
@@ -99,30 +99,17 @@ dsh plugin --profile <name> add release/tarball/dsh-wakatime-plugin-0.1.0.tgz
 pnpm typecheck
 pnpm build
 
-# 2. 打包标准 npm tarball(含 dist 与 cordis.patch.yml,不含 node_modules 与源码)
-pnpm pack
-
-# 3. 分发到发布目录(Windows PowerShell)
-New-Item -ItemType Directory -Force -Path release\npmjs, release\tarball | Out-Null
-Move-Item -Force dsh-wakatime-plugin-0.1.0.tgz release\npmjs\
-Copy-Item release\npmjs\dsh-wakatime-plugin-0.1.0.tgz release\tarball\
-```
-
-```bash
-# 3. 分发到发布目录(bash)
-# mkdir -p release/npmjs release/tarball
-# mv -f dsh-wakatime-plugin-0.1.0.tgz release/npmjs/
-# cp release/npmjs/dsh-wakatime-plugin-0.1.0.tgz release/tarball/
+# 2. 打包标准 npm tarball 并直接输出到 release/(含 dist 与 cordis.patch.yml,不含 node_modules 与源码)
+pnpm pack --pack-destination release
 ```
 
 产物与用途:
 
-| 目录 | 产物 | 用途 |
-|:---:|:---|:---|
-| `release/npmjs/` | 标准 npm 包 tarball | 发布到 npm registry 的素材(将来执行 `npm publish`) |
-| `release/tarball/` | 同一标准 tarball | 本地/离线安装:`dsh plugin --profile <name> add <tgz 路径>` |
+| 产物 | 用途 |
+|:---:|:---|
+| `release/dsh-wakatime-plugin-<版本>.tgz` | 本地/离线安装:`dsh plugin --profile <name> add <tgz 路径>`;亦可作为发布到 npm registry 的素材(将来执行 `npm publish`) |
 
-> 两个目录存放同一标准 npm tarball 的两种分发渠道;产物为预构建形态,安装无需构建权限。仓库未提交 `dist/` 与 `release/`(见 .gitignore),从 GitHub 源码安装依赖 `prepare` 构建,从 tarball 安装则可离线使用。
+> 产物为预构建形态,安装无需构建权限。仓库未提交 `dist/` 与 `release/`(见 .gitignore):从 GitHub 源码安装依赖 `prepare` 构建,从 tarball 安装则可离线使用。
 
 ## 相关链接
 

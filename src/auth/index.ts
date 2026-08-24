@@ -39,7 +39,7 @@ export class AuthManagerImpl implements AuthManager {
 
   async setApiKey(apiKey: string): Promise<UserProfile> {
     const trimmed = apiKey.trim()
-    if (!trimmed) throw new Error('API Key 不能为空')
+    if (!trimmed) throw new Error('API key must not be empty')
     /* 先验证有效性:验证失败(Key 无效或网络异常)不落盘 */
     const profile = await this.fetchUserProfile(trimmed)
     const stored = await this.configManager.load()

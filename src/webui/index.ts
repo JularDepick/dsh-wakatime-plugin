@@ -199,7 +199,7 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
   const status = await deps.auth.getStatus()
   writeJson(res, 200, {
     ok: false,
-    error: status.configured ? '同步失败(网络或云端异常)' : '未配置 API Key',
+    error: status.configured ? 'sync failed (network or upstream error)' : 'API key not configured',
   } satisfies WebSyncResponse)
 }
 

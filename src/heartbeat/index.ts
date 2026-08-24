@@ -78,12 +78,12 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     try {
       await this.deliver(pending)
       this.recordLog({ time: Date.now(), count: pending.length, ok: true })
-      this.log('info', `[wakatime] 定时上报 ${pending.length} 条心跳`)
+      this.log('info', `[wakatime] scheduled report of ${pending.length} heartbeats`)
     } catch (error) {
       /* 未认证:缓冲不积压,登录后自然恢复 */
       if (error instanceof NotAuthenticatedError) {
-        this.recordLog({ time: Date.now(), count: pending.length, ok: false, error: '未配置 API Key' })
-        this.log('info', '[wakatime] 未认证,心跳丢弃')
+        this.recordLog({ time: Date.now(), count: pending.length, ok: false, error: 'auth-missing' })
+        this.log('info', '[wakatime] not authenticated, heartbeat dropped')
         return
       }
       /* 其余失败入离线队列补报 */
@@ -103,7 +103,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       } catch (error) {
         /* 未认证时丢弃补报,其余仍失败则重新入队(可能已满,超限丢最旧) */
         if (error instanceof NotAuthenticatedError) continue
-        this.enqueueOffline(entry.heartbeat, '补报仍失败')
+        this.enqueueOffline(entry.heartbeat, 'requeue still failing')
       }
     }
   }
@@ -163,9 +163,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.queue.push({ heartbeat, enqueuedAt: Date.now() })
     if (this.queue.length > OFFLINE_QUEUE_LIMIT) {
       this.queue.shift()
-      this.log('warn', '[wakatime] 离线队列已满,丢弃最旧心跳')
+      this.log('warn', '[wakatime] offline queue full, dropping oldest heartbeat')
     }
-    this.log('warn', `[wakatime] 心跳入队待补报(${reason})`)
+    this.log('warn', `[wakatime] heartbeat queued for requeue (${reason})`)
   }
 
   private recordLog(entry: ReportLogEntry): void {
