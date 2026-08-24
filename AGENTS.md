@@ -300,6 +300,7 @@ docs/
 └── tech-spec/            # 项目技术规范与经验(translation-ini 规范、dsh web tab 经验等)
 .agents/                  # Agent 工作目录:交接文档/经验文档/临时脚本/包管理器缓存重定向(已 gitignore)
 temp/                     # 研究材料与临时产物(已 gitignore)
+release/                  # 发布产物(已 gitignore):npmjs/ 与 tarball/ 两个分发渠道,同为标准 npm tarball
 ```
 
 > 当目录结构发生变化时需要自主更新并告知用户
@@ -363,6 +364,10 @@ pnpm typecheck
 pnpm build
 # 打包 tarball
 pnpm pack
+# 分发(发布与分发完整流程见 README「发布与分发」章节)
+# PowerShell: New-Item -ItemType Directory -Force -Path release\npmjs, release\tarball | Out-Null
+#             Move-Item -Force dsh-wakatime-plugin-0.1.0.tgz release\npmjs\
+#             Copy-Item release\npmjs\dsh-wakatime-plugin-0.1.0.tgz release\tarball\
 ```
 
 ### 项目启动
@@ -388,6 +393,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - bundle 打包:包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
 - 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 `@deepseek-ai/dsh-base`/`dsh-tools` 0.1.1-rc.2、`cordis` 4.0.1、`schemastery` 3.18.1);带 rc 的包需核对 registry 的 next 标签;rc.7→0.1.1-rc.2 是次版本升级,`dsh-session`/`dsh-llm`/`dsh-client-runtime`/`dsh-client-ui-slots` 等的类型声明有改动,但本插件 typecheck/build/smoke 全过、业务代码无需调整(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
 - pnpm 11 坑(升级依赖时踩过):(1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」——在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
+- pnpm 11.22 构建/打包沙箱经验:(1) `pnpm run <script>` 执行前自动做依赖状态检查(runDepsStatusCheck),即使依赖 up-to-date 也会内部执行一次 `pnpm install` 并触发 root 的 `prepare`(递归 build),prepare 的 pipe-spawn 被沙箱 EPERM 拦截导致外层命令失败——用 `pnpm --config.verify-deps-before-run=false run <script>` 跳过检查(CLI 配置项,环境变量 `npm_config_verify_deps_before_run=false` 实测不生效);(2) `pnpm pack` 不触发 prepare,沙箱内可直接运行,但 pack 不支持 `--ignore-scripts` 选项;(3) pack 产物内 package.json 的 scripts 会被 pnpm 混淆(移除 prepare 等发布生命周期脚本),属正常行为,不影响 tarball 安装(git 源码安装读仓库自身清单)
 - 缓存重定向:npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agents/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
 - 产物后缀:tsdown 产物为 `.mjs`/`.d.mts`,`package.json` 的 `main`/`types` 必须与真实产物对齐
 - file:// import:Node 动态 import 绝对路径必须转 `file://`(Windows 报 ERR_UNSUPPORTED_ESM_URL_SCHEME)
