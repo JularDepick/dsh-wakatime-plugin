@@ -4,7 +4,8 @@
  *
  * 监听 session/event:
  * - user/message:记录提示词长度与 Token 估算(计入会话战绩)
- * - step/start + assistant/chunk:fold 每步思考时长(步骤开始 → 首个输出 token)
+ * - step/start + assistant/message(携带计时流 stream):fold 每步思考时长
+ *   (步骤开始 → 首个输出 token,经 assistantStreamFirstTokenTime 读取)
  * - assistant/message:以 AI 编码类别入队主心跳(携带 Token 用量与提示词长度),
  *   并结算该步思考时长
  * - tool/call:以调试类别入队轻量心跳
@@ -13,7 +14,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { isTokenDelta } from '@deepseek-ai/dsh-llm/message'
+import { assistantStreamFirstTokenTime } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR } from '../constants'
 import type { Heartbeat } from '../heartbeat'
 import type { CollectorOptions } from './types'
@@ -34,10 +35,10 @@ function estimateTokens(chars: number): number {
   return Math.round(chars / PROMPT_TOKEN_ESTIMATE_DIVISOR)
 }
 
-/* 一步的思考计时:步骤开始与首个输出 token 时刻 */
+/* 一步的思考计时:步骤开始时刻(首 token 时刻改由 assistant/message
+   的计时流 stream 读取,见 assistantStreamFirstTokenTime) */
 interface StepTiming {
   stepStartTime: number | null
-  firstTokenTime: number | null
 }
 
 /* 会话 id + turn/step 组合键 */
@@ -76,30 +77,22 @@ export class SessionEventCollector {
         /* 打开该步计时:步骤开始时刻 */
         this.stepTimings.set(stepKey(session.id, event.data.turn, event.data.step), {
           stepStartTime: event.time,
-          firstTokenTime: null,
         })
-        break
-      }
-      case 'assistant/chunk': {
-        /* 首个非空文本/推理 delta 即首 token 时刻(只记一次) */
-        if (!isTokenDelta(event.data.chunk)) return
-        const key = stepKey(session.id, event.data.turn, event.data.step)
-        const current = this.stepTimings.get(key) ?? { stepStartTime: null, firstTokenTime: null }
-        if (current.firstTokenTime === null) {
-          this.stepTimings.set(key, { ...current, firstTokenTime: event.time })
-        }
         break
       }
       case 'assistant/message': {
         const usage = event.data.usage
         const promptLength = this.promptLengths.get(session.id) ?? 0
         this.options.stats.recordAssistant(session.id, usage, promptLength)
-        /* 结算该步思考时长(首 token − 步骤开始),并清理计时 */
+        /* 结算该步思考时长(首 token − 步骤开始):0.1.5 起 assistant/chunk
+           事件移除,assistant/message 自带计时流 stream,官方
+           assistantStreamFirstTokenTime 读取首个输出 token 时刻 */
         const key = stepKey(session.id, event.data.turn, event.data.step)
         const timing = this.stepTimings.get(key)
         this.stepTimings.delete(key)
-        if (timing?.stepStartTime != null && timing.firstTokenTime != null) {
-          this.options.stats.recordThinking(session.id, timing.firstTokenTime - timing.stepStartTime)
+        const firstTokenTime = assistantStreamFirstTokenTime(event.data.stream)
+        if (timing?.stepStartTime != null && firstTokenTime != null) {
+          this.options.stats.recordThinking(session.id, firstTokenTime - timing.stepStartTime)
         }
         const heartbeat: Heartbeat = {
           entity: session.id,

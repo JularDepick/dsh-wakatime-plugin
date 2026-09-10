@@ -6,11 +6,15 @@
  * Agent 协作战绩、API Key 覆盖管理(小后端代理)与配置区。
  * 语言跟随 dsh web UI 语言切换(zh/en 字典)。
  * 注册模式与官方 ui-trajectory 相同。
+ * (0.1.5 起 dsh-client-runtime 拆分,client 上下文即 cordis Context,
+ * slots 声明来自 dsh-client-ui-renderer)
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 // Type-only:拉取 ui-conversation 的 SlotMap 合并(conversation.view 声明)。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only:拉取 ui-renderer 的 Context 合并(ctx.slots = SlotRegistry)。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only:拉取 locale 插件的 Context 合并(ctx.locale)。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { WakatimeTab } from './WakatimeTab.tsx'
@@ -33,9 +37,9 @@ export const inject = ['slots', 'locale']
 
 /**
  * 浏览器端插件主体:注册字典并等待 conversation.view 声明后注册标签页。
- * @param ctx - 浏览器插件上下文。
+ * @param ctx - 浏览器插件上下文(cordis Context,slots/locale 经声明合并)。
  */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'wakatime: dictionaries')
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('conversation.view', () => ctx.slots.register({

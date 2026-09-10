@@ -241,11 +241,11 @@
 | 类别 | 选型 |
 |:---:|:---:|
 | 语言 | TypeScript(ESM) |
-| 插件框架 | dsh 0.1.1-rc.2(基于 Cordis,`@deepseek-ai/cordis`) |
-| 配置校验 | `@deepseek-ai/schemastery` |
-| 事件采集 | `@deepseek-ai/dsh-session`(`session/event` 类型与声明合并) |
-| 工具注册 | `@deepseek-ai/dsh-tools`(`defineTool`) |
-| Web UI(浏览器端) | React 18 + `@deepseek-ai/dsh-client-ui-slots` slot 系统(平台模块由宿主提供) |
+| 插件框架 | dsh 0.1.5-rc.1(基于 Cordis,`@deepseek-ai/cordis` ^4.0.2) |
+| 配置校验 | `@deepseek-ai/schemastery` ^3.18.2 |
+| 事件采集 | `@deepseek-ai/dsh-session` ^0.1.5-rc.1(`session/event` 类型与声明合并) |
+| 工具注册 | `@deepseek-ai/dsh-tools` ^0.1.5-rc.1(`defineTool`) |
+| Web UI(浏览器端) | React 18 + `@deepseek-ai/dsh-client-ui-slots` slot 核心 + `@deepseek-ai/dsh-client-ui-renderer` 运行时(平台模块由宿主提供) |
 | 样式 | CSS Modules(lightningcss 内联编译,`--dsw-alias-*` 语义 token) |
 | 网络 | Node 内置 fetch(无第三方 HTTP 依赖) |
 | 包管理 | pnpm |
@@ -259,7 +259,7 @@
 插件运行于 DSH 宿主内,遵循 Cordis 生命周期(Fiber 状态机),注册的能力在卸载时自动清理,手动资源用 `ctx.effect()`。模块划分为:
 
 - `src/index.ts` 入口:导出 `name`/`inject`/`apply(ctx, config)`,装配各模块
-- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度与 Token 估算、step/start+assistant/chunk fold LLM 思考时长、assistant/message 入队 AI 编码心跳(携带 Token 用量)、tool/call 入队调试心跳
+- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度与 Token 估算、step/start 开启计时 + assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold LLM 思考时长、assistant/message 入队 AI 编码心跳(携带 Token 用量)、tool/call 入队调试心跳
 - `src/heartbeat/` 心跳引擎:本地缓冲 + 定时批量上报(启动一次 + 每 reportInterval 秒),未认证缓冲丢弃,失败入离线队列补报;选项可变(Web 写入后即时生效);维护上报记录日志(调试级)
 - `src/auth/` 认证管理:WakaTime API Key(环境变量优先、配置文件兜底),只允许覆盖写入,任何读取面不回显明文;配置时先经 /users/current 验证
 - `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试
@@ -297,7 +297,8 @@ src/
 docs/
 ├── dsh-dev-docs/         # 已收录的 dsh 插件开发文档(先读 index.agent.md 速查表)
 ├── repo-spec/            # Tag & Release 规范
-└── tech-spec/            # 项目技术规范与经验(translation-ini 规范、dsh web tab 经验等)
+├── tech-spec/            # 项目技术规范与经验(translation-ini 规范、dsh web tab 经验等)
+└── wsl-deploy-testing.md # WSL 部署测试经验(基线/部署流程/验证清单/常见问题排查)
 .agents/                  # Agent 工作目录:交接文档/经验文档/临时脚本/包管理器缓存重定向(已 gitignore)
 temp/                     # 研究材料与临时产物(已 gitignore)
 release/                  # 发布产物(已 gitignore):标准 npm tarball 单产物 dsh-wakatime-plugin-<版本>.tgz
@@ -312,7 +313,7 @@ release/                  # 发布产物(已 gitignore):标准 npm tarball 单�
 1. DSH 加载 profile,按 patch 层插入 `dsh-wakatime-plugin` 插件行
 2. Cordis 校验配置(Schemastery schema),填充默认值
 3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、定时上报与离线补报定时器、小后端路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
-4. 会话事件驱动:user/message 记录提示词长度与 Token 估算;step/start+assistant/chunk fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
+4. 会话事件驱动:user/message 记录提示词长度与 Token 估算;step/start 开启每步计时,assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
 5. 心跳入本地缓冲,启动加载时批量上报一次、之后每 `reportInterval` 秒批量上报(bulk);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未配置 API Key 时缓冲丢弃
 6. API Key 经小后端管理:手动在 Web 标签页输入(仅覆盖、不回显)或 Agent 经 `wakatime_config` 工具覆盖写入,已配置后可在标签页清除(二次确认,回退未登录);`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + 云端同步合并 + API Key 覆盖与清除 + 上报日志 + 配置区,语言跟随 dsh web)
 7. 插件卸载时,所有注册(事件监听、定时器、工具、Web 路由)由框架与 effect 自动清理
@@ -387,7 +388,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - 服务与依赖:服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
 - 事件:`ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
 - bundle 打包:包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
-- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 `@deepseek-ai/dsh-base`/`dsh-tools` 0.1.1-rc.2、`cordis` 4.0.1、`schemastery` 3.18.1);带 rc 的包需核对 registry 的 next 标签;rc.7→0.1.1-rc.2 是次版本升级,`dsh-session`/`dsh-llm`/`dsh-client-runtime`/`dsh-client-ui-slots` 等的类型声明有改动,但本插件 typecheck/build/smoke 全过、业务代码无需调整(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
+- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 0.1.5-rc.1 系列:`dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-ui-*` 均 0.1.5-rc.1、`cordis` 4.0.2、`schemastery` 3.18.2);带 rc 的包需核对 registry 的 next 标签;0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除、`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`、`dsh-client-runtime` 拆分消失、`dsh-client-ui-slots` 变纯类型核心、`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`),本插件已对应适配(typecheck/build/smoke 全过;升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
 - pnpm 11 坑(升级依赖时踩过):(1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」——在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
 - pnpm 11.22 构建/打包沙箱经验:(1) `pnpm run <script>` 执行前自动做依赖状态检查(runDepsStatusCheck),即使依赖 up-to-date 也会内部执行一次 `pnpm install` 并触发 root 的 `prepare`(递归 build),prepare 的 pipe-spawn 被沙箱 EPERM 拦截导致外层命令失败——用 `pnpm --config.verify-deps-before-run=false run <script>` 跳过检查(CLI 配置项,环境变量 `npm_config_verify_deps_before_run=false` 实测不生效);(2) `pnpm pack` 不触发 prepare,沙箱内可直接运行,但 pack 不支持 `--ignore-scripts` 选项;(3) pack 产物内 package.json 的 scripts 会被 pnpm 混淆(移除 prepare 等发布生命周期脚本),属正常行为,不影响 tarball 安装(git 源码安装读仓库自身清单)
 - 缓存重定向:npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agents/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
@@ -397,7 +398,8 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - PowerShell 每次调用独立无状态,必要时传 `workdir`;控制台中文乱码不代表文件损坏(UTF-8 正常)
 - 维护规则:按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
 - Web UI 插件:给 dsh web 新增 tab/UI 的完整机制与踩坑见 `docs/tech-spec/dsh-web-tab-experience.md`(client 产物格式、平台模块表、slot 纪律、数据通道选型);项目实例细节另见 `.agents/web-tab-experience.md`
-- Agent 工作目录 `.agents/`:交接提示词(`NEXT-SESSION.md`)、经验文档(`web-tab-experience.md`)、临时脚本(`smoke.mjs`/`compare-pkgs.mjs`/`pkce-probe.mjs`)与 npm/pnpm 缓存重定向(`npm-cache`/`pnpm-*`)均置于 `.agents/`(守则第 5/14 章:临时与工作文档优先 `temp/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
+- WSL 部署测试:基线环境、两种部署流程、启动命令、服务端与浏览器端验证清单、常见问题排查见 `docs/wsl-deploy-testing.md`;部署与启动由用户人工执行(Agent 不发起 WSL 操作,不请求权限升级),复验结论按该文档第八节回写
+- Agent 工作目录 `.agents/`:交接提示词(`NEXT-SESSION.md`)、经验文档(`web-tab-experience.md`)、临时脚本(`smoke.mjs`/`compare-pkgs.mjs`)与 npm/pnpm 缓存重定向(`npm-cache`/`pnpm-*`)均置于 `.agents/`(守则第 5/14 章:临时与工作文档优先 `temp/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
 - 外部插件依赖纪律:宿主包(`@deepseek-ai/cordis`、`dsh-tools`、`dsh-session`、`dsh-llm`、`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**——否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
 
 ### 辅助脚本（默认未启用扩展项）

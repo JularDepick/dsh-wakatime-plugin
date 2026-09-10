@@ -15,20 +15,20 @@ import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
-/* 浏览器平台模块:宿主冻结模块表中的 seed 词,client 产物以此为 external */
+/* 浏览器平台模块:宿主冻结模块表中的 seed 词(0.1.5-rc.1 实测自 web-frontend
+   bundle:新增 dsh-client-store/dsh-client-ui-dockkit,移除 web-react/
+   ui-attachment/schema-form),client 产物以此为 external */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
+  '@deepseek-ai/dsh-client-ui-dockkit',
 ] as const
 
-/* runtime store 引擎的官方外部豁免 */
-const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
-
-const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
+/* 0.1.5 起 dsh-client-runtime 拆分(dsh-client-connection/resources/modules),
+   不再有官方 client 外部豁免词 */
+const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES]
 
 /* CSS Modules 虚拟 id 包装:后缀不能是 .css,否则被 tsdown 自带 css 管线接管 */
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'

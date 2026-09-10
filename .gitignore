@@ -16,3 +16,4 @@ v*-*.md
 
 # Agent Runtime
 .skills/
+.agent*/
