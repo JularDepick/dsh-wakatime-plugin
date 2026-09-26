@@ -15,9 +15,9 @@ import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
-/* 浏览器平台模块:宿主冻结模块表中的 seed 词(0.1.5-rc.1 实测自 web-frontend
-   bundle:新增 dsh-client-store/dsh-client-ui-dockkit,移除 web-react/
-   ui-attachment/schema-form),client 产物以此为 external */
+/* 浏览器平台模块:宿主冻结模块表中的 seed 词(0.1.7-rc.2 实测自 web-frontend
+   bundle,自 0.1.5-rc.1 起未变:新增 dsh-client-store/dsh-client-ui-dockkit,
+   移除 web-react/ui-attachment/schema-form),client 产物以此为 external */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-store',
