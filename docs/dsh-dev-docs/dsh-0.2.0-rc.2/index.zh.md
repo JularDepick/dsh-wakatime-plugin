@@ -1,10 +1,10 @@
-# dsh 插件开发文档（v0.1.7-rc.2）
+# dsh 插件开发文档（v0.2.0-rc.2）
 
 > 面向 Agent 的利用指南与速查：请查看 `index.agent.md`。
 
 [dsh](https://github.com/deepseek-ai/deepseek-harness) 官方插件开发文档的**中文版**合集索引。
 
-本目录存放 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 **0.1.7-rc.2**（npm 发布包版本号）时期的中文版（`.zh.md`）文档（英文原版见各 `.md`）。内容来源于官方仓库 master 分支，作为本项目开发 dsh 插件时的参考指引。
+本目录存放 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 **0.2.0-rc.2**（npm 发布包版本号）时期的中文版（`.zh.md`）文档（英文原版见各 `.md`）。内容来源于官方仓库 master 分支，作为本项目开发 dsh 插件时的参考指引。
 
 | 分块 | 作用 |
 |:---:|:---|
@@ -64,17 +64,10 @@ flowchart LR
 
 建议从 **basic/index**（第一个插件）进入，沿「基础 → 框架 → 实战」逐篇推进；框架与实战依赖基础部分的示例项目。
 
-## 与上一收录版本（0.1.5-rc.1）的差异
+## 与上一收录版本（0.1.7-rc.2）的差异
 
-本目录取代 `docs/dsh-dev-docs/dsh-0.1.5-rc.1/`。20 篇正文中仅 4 个主题有实质内容变化：
+本目录取代 `docs/dsh-dev-docs/dsh-0.1.7-rc.2/`。两版**逐字节完全相同，无任何实质内容变化**：30 个同名文件的 SHA256 全部一致；用 `git hash-object` 校验本地文件的 blob 哈希与上游 `dsh-v0.2.0-rc.2` tag 的对应 blob 一致（确认本地内容确为该 tag 的官方文档）；对比上游 `dsh-v0.1.7-rc.2` 与 `dsh-v0.2.0-rc.2` 两个 tag，`basic`/`framework`/`practice` 三个子树 SHA 相同。
 
-| 文档 | 变化 |
-|:---:|:---|
-| [basic/publish.zh.md](basic/publish.zh.md) | 新增 `dsh.bundle.patch` 可接受有序文件列表（按序作为同一层应用，各文件内相对插件路径相对该文件解析）；新增 peer 解析契约（与宿主共享实例的 dsh 包须同时声明于 `peerDependencies` 与 `devDependencies`，无状态 dsh 工具包与需独立版本的第三方依赖放 `dependencies`；不校验 peer 版本范围）；移除 `turtle-ui` 具体示例（规则文本保留并泛化） |
-| [framework/index.zh.md](framework/index.zh.md) | HMR 包名由 `@deepseek-ai/cordis-plugin-hmr` 变更为 `@deepseek-ai/dsh-hmr` |
-| [practice/dynamic-cordis.zh.md](practice/dynamic-cordis.zh.md) | 整篇主题替换：由「在内存中挂载/卸载模型编写的临时插件」改为「经提示词配置持久化插件」（Plugin Manager + 只读运行时检查 + MCP 实战） |
-| [practice/llm-adapter.zh.md](practice/llm-adapter.zh.md) | 仅仓库布局措辞（`llm-deepseek` 改为使用 Messages API 的 DeepSeek 适配器），API 与签名无变化 |
+因此本次收录不涉及章节增删、结论改写或代码片段变化，阅读顺序与此前一致。但「文档未变」不能推断插件无升级风险，理由见下节。
 
-其余主题（插件入口与三形态、`defineTool` DSL、Schemastery 配置、服务与 inject、事件四模式、能力三角色）逐行一致。全部 `*.i18n.yaml` 的哈希记录格式由「每文件 git blob 哈希」改为「按标题分节的 `en:`/`zh:` 双键哈希」，属工具层变化。
-
-> 本目录仅覆盖 `docs/user/develop/` 路径，**不包含** `dsh.client` 清单、`exports["./client"]`、client 构建产物格式、slot 注册表与 webserver 挂载等浏览器端机制；这部分以项目 `docs/tech-spec/dsh-web-tab-experience.md` 与对应发布包类型声明为准。
+> 本目录仅覆盖 `docs/user/develop/` 路径，**不包含** `dsh.client` 清单、`exports["./client"]`、client 构建产物格式、slot 注册表与 webserver 挂载等浏览器端机制；这部分以项目 `docs/tech-spec/dsh-web-tab-experience.md` 与对应发布包类型声明为准。故本目录的内容变化不可作为插件升级安全性的依据：换 dsh 版本时，须逐文件比对发布包 `lib/types` 的类型声明，并配以类型检查、构建与冒烟测试验证。

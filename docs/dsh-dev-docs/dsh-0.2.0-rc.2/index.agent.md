@@ -1,10 +1,10 @@
-# Agent 阅读指南 —— dsh 插件开发文档（v0.1.7-rc.2）
+# Agent 阅读指南 —— dsh 插件开发文档（v0.2.0-rc.2）
 
 本文档是给 Agent（自动编程代理）看的使用索引：说明这份文档集装了什么、各篇回答什么问题、在涉及 dsh 插件开发的常见任务中该查哪篇。用户一般不读本文档。
 
 ## 这份文档集是什么
 
-本目录 `docs/dsh-dev-docs/dsh-0.1.7-rc.2/` 收录了 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 0.1.7-rc.2 时期的中文版插件开发文档（共 10 篇 + 本索引；英文原版见各 `.md`，中文见 `.zh.md`）。它只覆盖 `docs/user/develop/` 路径；原文档中指向仓其他位置的链接（根 `README.zh.md`、`cordis-tutorial/`、`subsystems/`、`capability-seams.md`、`cookbook/`、`apps/cli/`、`packages/`、`.agents/notes/` 等）未随本目录下载，需要时回[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看。
+本目录 `docs/dsh-dev-docs/dsh-0.2.0-rc.2/` 收录了 DeepSeek-Harness 官方仓库 `docs/user/develop/` 在版本 0.2.0-rc.2 时期的中文版插件开发文档（共 10 篇 + 本索引；英文原版见各 `.md`，中文见 `.zh.md`）。它只覆盖 `docs/user/develop/` 路径；原文档中指向仓其他位置的链接（根 `README.zh.md`、`cordis-tutorial/`、`subsystems/`、`capability-seams.md`、`cookbook/`、`apps/cli/`、`packages/`、`.agents/notes/` 等）未随本目录下载，需要时回[官方仓库](https://github.com/deepseek-ai/deepseek-harness)查看。本目录 30 个文件与 `dsh-0.1.7-rc.2/` 逐字节相同（详见 `index.zh.md` 差异节）。
 
 ## 速查：什么任务查哪篇
 
@@ -53,4 +53,4 @@
 
 ## 同类目录
 
-本目录取代 `docs/dsh-dev-docs/dsh-0.1.5-rc.1/`（已随本次收录删除）；两版的差异清单见 `index.zh.md` 末节。本目录**不覆盖**浏览器端（`dsh.client`、client 产物、slot 注册表、webserver 路由）机制，该部分见项目 `docs/tech-spec/dsh-web-tab-experience.md`。
+本目录取代 `docs/dsh-dev-docs/dsh-0.1.7-rc.2/`（已随本次收录删除）；两版的差异清单见 `index.zh.md` 末节（结论：逐字节相同）。本目录**不覆盖**浏览器端（`dsh.client`、client 产物、slot 注册表、webserver 路由）机制，该部分见项目 `docs/tech-spec/dsh-web-tab-experience.md`；判断升级是否安全时，不要以本目录内容是否变化为依据，须比对发布包类型声明并跑类型检查、构建与冒烟测试。

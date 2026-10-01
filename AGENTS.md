@@ -241,10 +241,10 @@
 | 类别 | 选型 |
 |:---:|:---:|
 | 语言 | TypeScript(ESM) |
-| 插件框架 | dsh 0.1.7-rc.2(基于 Cordis,`@deepseek-ai/cordis` ^4.0.4) |
+| 插件框架 | dsh 0.2.0-rc.2(基于 Cordis,`@deepseek-ai/cordis` ^4.0.4) |
 | 配置校验 | `@deepseek-ai/schemastery` ^3.18.4 |
-| 事件采集 | `@deepseek-ai/dsh-session` ^0.1.7-rc.2(`session/event` 类型与声明合并) |
-| 工具注册 | `@deepseek-ai/dsh-tools` ^0.1.7-rc.2(`defineTool`) |
+| 事件采集 | `@deepseek-ai/dsh-session` ^0.2.0-rc.2(`session/event` 类型与声明合并) |
+| 工具注册 | `@deepseek-ai/dsh-tools` ^0.2.0-rc.2(`defineTool`) |
 | Web UI(浏览器端) | React 18 + `@deepseek-ai/dsh-client-ui-slots` slot 核心 + `@deepseek-ai/dsh-client-ui-renderer` 运行时(平台模块由宿主提供) |
 | 样式 | CSS Modules(lightningcss 内联编译,`--dsw-alias-*` 语义 token) |
 | 网络 | Node 内置 fetch(无第三方 HTTP 依赖) |
@@ -350,7 +350,7 @@ release/                  # 发布产物(已 gitignore):标准 npm tarball 单�
 
 ### 版本号索引
 
-- 当前版本:v0.1.2
+- 当前版本:v0.1.3
 
 > 版本号中 x 表示十进制数,不限制位数,无前导 0
 
@@ -391,8 +391,9 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - 服务与依赖:服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
 - 事件:`ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
 - bundle 打包:包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
-- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 0.1.7-rc.2 系列:`dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 0.1.7-rc.2、`cordis` 4.0.4、`schemastery` 3.18.4);带 rc 的包需核对 registry 的 next 标签;0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除、`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`、`dsh-client-runtime` 拆分消失、`dsh-client-ui-slots` 变纯类型核心、`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件、`assistantStreamFirstTokenTime`、`defineTool`、`ctx.slots.register/inject`、`ctx.locale.register/bind`、`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费)、webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
+- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 0.2.0-rc.2 系列:`dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 0.2.0-rc.2、`cordis` 4.0.4、`schemastery` 3.18.4);带 rc 的包需核对 registry 的 next 标签;三次历史升级的破坏性判定:0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除、`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`、`dsh-client-runtime` 拆分消失、`dsh-client-ui-slots` 变纯类型核心、`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件、`assistantStreamFirstTokenTime`、`defineTool`、`ctx.slots.register/inject`、`ctx.locale.register/bind`、`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费)、webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响);0.1.7-rc.2→0.2.0-rc.2 同样**无破坏性改动**(官方 `docs/user/develop/` 两版逐字节相同,`git hash-object` 校验与上游两个 tag 的 blob 一致,故该文档集不能作为安全依据,结论以发布包 `lib/types` 逐文件哈希对比为准:`dsh-tools`/`dsh-llm`/`dsh-client-ui-slots`/`dsh-client-ui-renderer`/`dsh-client-locale`/`dsh-client-ui-settings` 声明层零改动;`dsh-session` 仅新增导出 `ToolCallRecovery`;`dsh-client-ui-conversation` 新增 `input/submission-analytics` 与 composer/input 面若干声明,`conversation.view` 槽声明逐行未变;平台模块表与 `/client` 子路径契约未变),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
 - pnpm 11 坑(升级依赖时踩过):(1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」——在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
+- pnpm 12 沙箱不可用(0.2.0-rc.2 升级实测):pnpm 12.6 的 install 固定要在 `%LOCALAPPDATA%\pnpm-store-operation-locks\all-stores.lock` 开 store 操作锁,沙箱拒绝写入(`ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK`,os error 5),`--store-dir`/`--state-dir`/重定向 `LOCALAPPDATA` 均无法改道该路径;改用 `$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 安装(无该锁机制),并显式带 `--store-dir <ws>\.pnpm-store`、`CI=true`、`--no-frozen-lockfile`(改依赖后 frozen 会报 `ERR_PNPM_OUTDATED_LOCKFILE`;`CI=true` 亦用于免交互确认删除旧 `node_modules`,`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`)
 - pnpm 11.22 构建/打包沙箱经验:(1) `pnpm run <script>` 执行前自动做依赖状态检查(runDepsStatusCheck),即使依赖 up-to-date 也会内部执行一次 `pnpm install` 并触发 root 的 `prepare`(递归 build),prepare 的 pipe-spawn 被沙箱 EPERM 拦截导致外层命令失败——用 `pnpm --config.verify-deps-before-run=false run <script>` 跳过检查(CLI 配置项,环境变量 `npm_config_verify_deps_before_run=false` 实测不生效);(2) `pnpm pack` 不触发 prepare,沙箱内可直接运行,但 pack 不支持 `--ignore-scripts` 选项;(3) pack 产物内 package.json 的 scripts 会被 pnpm 混淆(移除 prepare 等发布生命周期脚本),属正常行为,不影响 tarball 安装(git 源码安装读仓库自身清单)
 - 缓存重定向:npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agents/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
 - 工作区内 junction 无法被 Node 模块解析(本机环境实测,务必先读):在工作区内创建的任何目录联接(junction)其重解析点目标被写成 `Global\<绝对路径>` 前缀形式,Node 的 `fs.realpathSync`(模块解析实际走的实现)无法跟随该目标,而 `fs.realpathSync.native` 与直接文件读写均正常——故现象具有欺骗性。后果:pnpm 默认 `isolated` nodeLinker 产出的 `node_modules/<包>` 与 `.pnpm/<包>@<版本>/node_modules/<依赖>` 全部解析失败(build 报 `ERR_MODULE_NOT_FOUND`,例如 tsdown 找不到自身依赖 ansis),而 `tsc` 走自带解析器可能仍通过,表现为「typecheck 过、build 挂」。规避:安装时显式改用扁平布局 `pnpm install --config.node-linker=hoisted --ignore-scripts`(只改本地 `node_modules` 布局,不改项目配置、不影响发布产物);Node 22/24/26 与 pnpm 11/12 均复现,与本项目代码无关。另注:本机默认 pnpm 已是 12.x,其 `pnpm install --force` 会栈溢出崩溃(`STATUS_STACK_OVERFLOW`)并清空 `node_modules`;`$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 留有 pnpm 11 可直接调用,恢复布局时可先删 `node_modules\.pnpm-workspace-state-v1.json` 或整目录后重装

@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.1.2-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.2)
+[![Version](https://img.shields.io/badge/Version-0.1.3-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.3)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
@@ -34,7 +34,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # 或使用发布 tarball 本地安装(预构建产物,无需构建)
-dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.2.tgz
+dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 ```
 
 > 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本。pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败:把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
