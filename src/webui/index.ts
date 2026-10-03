@@ -8,6 +8,8 @@
  * - POST /api/wakatime/config   写入 Web 可编辑配置项
  * - POST /api/wakatime/apikey   覆盖写入 API Key(验证后存储,不回显)
  * - GET  /api/wakatime/logs     上报记录日志(调试级)
+ * - GET  /api/wakatime/sync     云端 AI 聚合(带缓存,?force=1 强制刷新)
+ * - POST /api/wakatime/apikey/clear 清除本地 API Key(回退未登录)
  * 服务缺失(CLI profile)时自动跳过,不阻塞插件;服务出现/销毁经
  * internal/service 事件跟随,注册随插件卸载自动清理。
  */
@@ -183,14 +185,15 @@ async function handleApiKeyClear(req: IncomingMessage, res: ServerResponse, deps
   writeJson(res, 200, body)
 }
 
-/* 云端同步:拉取 summaries AI 聚合;未配置 Key 或失败均返回可读原因 */
+/* 云端同步:拉取 summaries AI 聚合(结果带缓存,?force=1 强制刷新);未配置 Key 或失败均返回可读原因 */
 async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
     res.writeHead(405)
     res.end()
     return
   }
-  const data = await deps.sync.sync()
+  const force = isForceRequest(req.url)
+  const data = await deps.sync.sync({ force })
   if (data !== null) {
     const body: WebSyncResponse = { ok: true, data }
     writeJson(res, 200, body)
@@ -201,6 +204,14 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
     ok: false,
     error: status.configured ? 'sync failed (network or upstream error)' : 'API key not configured',
   } satisfies WebSyncResponse)
+}
+
+/* 手动同步:URL 携带 force=1 时跳过缓存 */
+function isForceRequest(url: string | undefined): boolean {
+  if (url === undefined) return false
+  const query = url.indexOf('?')
+  if (query < 0) return false
+  return new URLSearchParams(url.slice(query + 1)).get('force') === '1'
 }
 
 /* 白名单校验:未知字段忽略,已知字段类型不符整体拒绝 */

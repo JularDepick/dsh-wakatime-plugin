@@ -53,6 +53,23 @@ const APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
 const CONFIRM_MS = 3000
 const NOTICE_MS = 3000
 
+/** 云端同步本地缓存时长(与服务端 SYNC_CACHE_TTL_MS 对齐):
+ *  切换标签页会重新挂载组件,缓存命中时直接用上次结果,不再请求云端 */
+const CLOUD_CACHE_MS = 5 * 60 * 1000
+
+/* 模块级云端缓存:同一页面会话内跨挂载复用;清空/更换 API Key 时失效 */
+let cloudCache: { at: number; data: WebSyncResponse['data'] } | undefined
+
+function readCloudCache(): WebSyncResponse['data'] | undefined {
+  if (cloudCache === undefined) return undefined
+  if (Date.now() - cloudCache.at >= CLOUD_CACHE_MS) return undefined
+  return cloudCache.data
+}
+
+function clearCloudCache(): void {
+  cloudCache = undefined
+}
+
 /** 紧凑次级按钮类名(官方 Button sm + outline) */
 const compactButton = `${css.button} ${css.buttonSm} ${css.buttonOutline}`
 
@@ -74,8 +91,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [notice, setNotice] = useState<Notice>()
   const [keySaving, setKeySaving] = useState(false)
   const [tick, setTick] = useState(0)
-  /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合) */
-  const [cloud, setCloud] = useState<WebSyncResponse['data'] | null>(null)
+  /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合;命中本地缓存则直接复用) */
+  const [cloud, setCloud] = useState<WebSyncResponse['data'] | null>(() => readCloudCache() ?? null)
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
   const [clearConfirm, setClearConfirm] = useState(false)
@@ -122,6 +139,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     fetch(APIKEY_CLEAR_PATH, { method: 'POST' })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        clearCloudCache()
         setCloud(null)
         setCloudState('idle')
         setTick((value) => value + 1)
@@ -129,13 +147,15 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .catch(() => { setNotice({ kind: 'error', text: t('state.loadFailed') }) })
   }
 
-  /* 云端同步:已配置时向小后端拉取 summaries AI 聚合;失败仅置错误态 */
-  const syncCloud = (): void => {
+  /* 云端同步:已配置时向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
+     成功写入本地缓存,失败仅置错误态并保留上次结果 */
+  const syncCloud = (force = false): void => {
     setCloudState('syncing')
-    fetch(SYNC_PATH, { cache: 'no-store' })
+    fetch(force ? `${SYNC_PATH}?force=1` : SYNC_PATH, { cache: 'no-store' })
       .then((response) => response.json() as Promise<WebSyncResponse>)
       .then((result) => {
         if (result.ok && result.data) {
+          cloudCache = { at: Date.now(), data: result.data }
           setCloud(result.data)
           setCloudState('idle')
         } else {
@@ -145,7 +165,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .catch(() => { setCloudState('error') })
   }
 
-  /* 拉取状态与上报日志;已配置且有云数据需求时自动同步一次 */
+  /* 拉取状态与上报日志;已配置且本地无云端缓存时才同步 */
   const reload = (): void => {
     setLoadError(undefined)
     fetch(STATUS_PATH, { cache: 'no-store' })
@@ -156,7 +176,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then((next) => {
         setData(next)
         setDraft(fromConfig(next.config))
-        if (next.configured && cloud === null) syncCloud()
+        if (next.configured && readCloudCache() === undefined) syncCloud()
       })
       .catch((error: unknown) => { setLoadError((error as Error).message) })
     fetch(LOGS_PATH, { cache: 'no-store' })
@@ -227,6 +247,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .then(() => {
         setApiKeyInput('')
+        /* 换了账号:云端缓存(前端与服务端各一份)一律失效,下次按新 Key 重新同步 */
+        clearCloudCache()
+        setCloud(null)
+        setCloudState('idle')
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => { setNotice({ kind: 'error', text: `${t('apikey.invalid')} (${(error as Error).message})` }) })
@@ -262,7 +286,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             onToggleLogs={() => { setLogsOpen(!logsOpen) }}
             onToggleConfig={() => { setConfigOpen(!configOpen) }}
             onRefresh={() => { setTick((value) => value + 1) }}
-            onSync={syncCloud}
+            onSync={() => { syncCloud(true) }}
             onClearApiKey={clearApiKey}
             onApiKeyInput={setApiKeyInput}
             onSaveApiKey={saveApiKey}

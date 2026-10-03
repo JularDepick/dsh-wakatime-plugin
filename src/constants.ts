@@ -33,6 +33,9 @@ export const ANONYMOUS_DISPLAY_NAME = 'Anonymous User'
 
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
+/* 云端同步结果缓存时长(毫秒):窗口内重复请求(切换标签页、刷新页面)直接复用,
+   不重复请求 WakaTime;缓存按 API Key 归属,换 Key 自动失效 */
+export const SYNC_CACHE_TTL_MS = 5 * 60 * 1000
 
 /* 定时上报 */
 /* 上报周期默认值(秒):启动加载时上报一次,之后按此间隔循环批量上报 */
