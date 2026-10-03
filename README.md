@@ -108,8 +108,9 @@ dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 pnpm typecheck
 pnpm build
 
-# 2. 打包标准 npm tarball 并直接输出到 release/(含 dist、cordis.patch.yml 与 LICENSE/COPYRIGHT/中英 README,不含 node_modules 与源码)
-pnpm pack --pack-destination release
+# 2. 打包标准 npm tarball 并自动收拢到 release/(含 dist、cordis.patch.yml 与 LICENSE/COPYRIGHT/中英 README,不含 node_modules 与源码)
+#    pnpm pack 会触发 prepare 再次构建;直接执行 pnpm pack 时,产出的 tarball 也会被自动收拢到 release/
+pnpm run pack
 ```
 
 产物与用途:

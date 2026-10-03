@@ -120,6 +120,8 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 1. **随页面滚(照官方 chat tab)**:根元素自备 `padding:16px calc(var(--dsh-composer-side-clearance) + 16px)`,内容列 `width:100%;max-width:var(--dsh-chat-content-width);margin:0 auto`,不设 `data-conversation-composer-overlay`;
 2. **整页盒 + 内部滚动(照官方 trajectory tab)**:根元素加 `data-conversation-composer-overlay` 属性,自备 `width/height:100%` + `background:var(--dsw-alias-bg-layer-1)` + `overflow:hidden`,滚动容器底部留 `calc(var(--dsh-composer-height,152px) + 16px)`。
 
+> 变体:不需要阅读型版心时,路线 1 可再放宽为**铺满** —— 不设内容列 `max-width`,只留 `padding:12px var(--dsh-composer-side-clearance) 24px` 让内容铺满 viewArea;信息层级改由分区标题 + `0.5px` 分隔线组织,不再自建卡片材质(本仓库 wakatime 标签页即此路线,战绩区用独立表格呈现)。放弃内容列宽后要注意窄窗口下列宽的收敛:表格用 `table-layout:fixed` + `colgroup` 比例,长文本列允许换行,避免出现横向滚动。
+
 ### 官方控件与版式范式(可照抄)
 
 平台模块表内的 `@deepseek-ai/dsh-client-ui-primitives` 虽是官方组件库,但官方插件开发守则**明文禁止外部插件 require 任何 Harness Client 包**(否则宿主实现变更即失效,且抛错组件会黑掉整个槽条目)。正确做法是**复制其标记、样式与行为到插件内**,只保留 `--dsw-alias-*` token 依赖,并改名到自己的类名前缀下:
@@ -186,4 +188,4 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 | `packages/client/ui-chat/src/client/*`、`ui-trajectory/src/client/*` | 非 overlay 与 overlay 两条 tab 版式路线的官方实现 |
 | `packages/host/webserver/src/index.ts` | webserver 服务(register 路由扩展点) |
 
-> 本项目实例:dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线,控件形态按第四节表格自行复制官方 primitives;相关项目细节见根目录 `AGENTS.md` 设计细节段。
+> 本项目实例:dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线的铺满变体(不设内容列最大宽度、不自建卡片,分区靠 `0.5px` 分隔线,战绩为指标/数值/说明三列表格),字设与配色取 profile 的 `--dsw-font-*`(strong 变体为 `<字号>-strong-<px>`)与 `--dsw-alias-*` 令牌,控件形态按第四节表格自行复制官方 primitives;相关项目细节见根目录 `AGENTS.md` 设计细节段。

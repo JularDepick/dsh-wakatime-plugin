@@ -27,6 +27,12 @@ export type WakatimeKey =
   | 'stats.thinking'
   | 'stats.outputTokens'
   | 'stats.apiEffective'
+  | 'stats.colMetric'
+  | 'stats.colValue'
+  | 'stats.colNote'
+  | 'stats.noteThinking'
+  | 'stats.noteOutput'
+  | 'stats.noteApiEffective'
   | 'cloud.sync'
   | 'cloud.syncing'
   | 'cloud.syncedAt'
@@ -82,6 +88,12 @@ export const zh: WakatimeDict = {
   'stats.thinking': 'LLM 思考总时长',
   'stats.outputTokens': '输出 TOKEN 总量',
   'stats.apiEffective': 'API 有效 TOKEN 消耗',
+  'stats.colMetric': '指标',
+  'stats.colValue': '数值',
+  'stats.colNote': '说明',
+  'stats.noteThinking': '步骤开始至首个输出 token',
+  'stats.noteOutput': '官方 ai_output_tokens',
+  'stats.noteApiEffective': '输入 + 输出,缓存命中不计入',
   'cloud.sync': '同步',
   'cloud.syncing': '同步中…',
   'cloud.syncedAt': '同步时间',
@@ -136,6 +148,12 @@ export const en: WakatimeDict = {
   'stats.thinking': 'LLM thinking time',
   'stats.outputTokens': 'Output tokens',
   'stats.apiEffective': 'API effective token usage',
+  'stats.colMetric': 'Metric',
+  'stats.colValue': 'Value',
+  'stats.colNote': 'Note',
+  'stats.noteThinking': 'From step start to the first output token',
+  'stats.noteOutput': 'Official ai_output_tokens',
+  'stats.noteApiEffective': 'Input + output; cache hits excluded',
   'cloud.sync': 'Sync',
   'cloud.syncing': 'Syncing…',
   'cloud.syncedAt': 'Synced at',

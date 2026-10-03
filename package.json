@@ -25,7 +25,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "pack": "pnpm pack",
+    "pack": "node scripts/pack.mjs",
+    "postpack": "node scripts/pack.mjs --move-only",
     "prepare": "pnpm build"
   },
   "devDependencies": {

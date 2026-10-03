@@ -2,45 +2,50 @@
  * WakaTime 标签页样式
  * 作者: JularDepick
  *
- * 视觉基准为 dsh web 官方界面:标签页根元素自备内边距与内容列宽
- * (宿主 viewArea 只给 flex 容器,不给内边距/滚动/最大宽度/背景),
- * 卡片/表格/表单/控件形态照抄官方 dsh-client-ui-primitives 的标记与样式
- * (官方守则禁止外部插件 value-import 该包),只依赖语义 token,不写死颜色。
- * 间距按官方页面字面 px(设计系统没有间距刻度 token)。
+ * 视觉基准为 dsh web 官方界面:内容直接铺在 tab 根元素下,不再自建卡片,
+ * 左右只留宿主 composer 侧边留白,不做内容列最大宽度约束;
+ * 分区之间用 0.5px 分隔线区分。
+ * 字设与配色继承 profile:字号/行高/字重取 --dsw-font-* 令牌,
+ * 颜色取 --dsw-alias-* 语义令牌,不写死颜色与像素字号。
+ * 控件形态照抄官方 dsh-client-ui-primitives 的标记与样式
+ * (官方守则禁止外部插件 value-import 该包),间距按官方页面字面 px。
  */
 
-/* ---------- 根容器与内容列 ---------- */
+/* ---------- 根容器与分区列 ---------- */
 
 .tab {
   box-sizing: border-box;
   width: 100%;
-  padding: 16px calc(var(--dsh-composer-side-clearance, 16px) + 16px);
+  padding: 12px var(--dsh-composer-side-clearance, 16px) 24px;
   color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-14);
 }
 
-/* 内容列与官方 chat tab 同宽(--dsh-chat-content-width 由宿主 .body 定义) */
 .column {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   width: 100%;
-  max-width: var(--dsh-chat-content-width, 760px);
-  margin: 0 auto;
+  min-width: 0;
 }
 
-/* ---------- 卡片(官方 settings 卡片材质) ---------- */
-
-.card {
+/* 分区:无卡片材质,靠分隔线与间距区分 */
+.section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 16px;
-  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
-  border-radius: var(--dsw-radius-xl);
-  background: var(--dsw-alias-settings-card-fill);
+  min-width: 0;
+  padding: 14px 0;
 }
 
-.cardHead {
+.section:first-child {
+  padding-top: 0;
+}
+
+.section + .section {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.sectionHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -48,11 +53,10 @@
   min-width: 0;
 }
 
-.cardTitle {
+.sectionTitle {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
+  font: var(--dsw-font-s-strong-14);
+  color: var(--dsw-alias-label-primary);
 }
 
 .actions {
@@ -70,9 +74,7 @@
   border-radius: 999px;
   corner-shape: round;
   padding: 1px 8px;
-  font-size: 11px;
-  line-height: 17px;
-  font-weight: 500;
+  font: var(--dsw-font-xxxs-strong-11);
   white-space: nowrap;
 }
 
@@ -90,22 +92,19 @@
 
 .muted {
   margin: 0;
-  font-size: 12px;
-  line-height: 18px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-tertiary);
 }
 
 .ok {
   margin: 0;
-  font-size: 12px;
-  line-height: 18px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-state-success-primary);
 }
 
 .error {
   margin: 0;
-  font-size: 12px;
-  line-height: 18px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-state-error-primary);
 }
 
@@ -120,9 +119,7 @@
   border: none;
   border-radius: var(--dsw-radius-md);
   cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  line-height: 22px;
+  font: var(--dsw-font-s-14);
   color: var(--dsw-alias-label-primary);
   background: transparent;
   padding: 0 14px;
@@ -142,8 +139,7 @@
 /* 紧凑控件在实心与描边两种形态下尺寸一致 */
 .buttonSm {
   height: 28px;
-  font-size: 12px;
-  line-height: 18px;
+  font: var(--dsw-font-xxs-12);
   padding: 0 10px;
   border-radius: var(--dsw-radius-sm);
 }
@@ -175,70 +171,23 @@
   opacity: 0.9;
 }
 
-/* ---------- 战绩指标(官方 usage 面板 dl 范式) ---------- */
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 6px 24px;
-  margin: 0;
-}
-
-.stat {
-  display: grid;
-  grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
-  gap: 6px 16px;
-  align-items: baseline;
-  min-width: 0;
-}
-
-.statLabel {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.statValue {
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-}
-
-.statSub {
-  grid-column: 1 / -1;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-/* ---------- 上报记录表格(照抄官方 trajectory 表格) ---------- */
+/* ---------- 表格(照抄官方 trajectory 表格,文本按项目规范居中) ---------- */
 
 .table {
   width: 100%;
   min-width: 0;
   border-spacing: 0;
-  table-layout: fixed;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
 }
 
 .table th {
   box-sizing: border-box;
-  position: sticky;
-  top: 0;
-  z-index: 3;
   height: 30px;
   padding: 0 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-specific-sidebar-fill);
+  font: var(--dsw-font-xxs-strong-12);
   color: var(--dsw-alias-label-tertiary);
-  font: var(--dsw-font-xxs-12);
-  font-weight: 500;
-  /* 项目前端规范:表格文本水平居中 */
   text-align: center;
   white-space: nowrap;
 }
@@ -258,28 +207,87 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 战绩表格:指标 / 数值 / 说明 三列;数值列用较强字设与等宽数字 */
+.statsTable {
+  table-layout: fixed;
+}
+
+.statsTable col:nth-child(1) {
+  width: 34%;
+}
+
+.statsTable col:nth-child(2) {
+  width: 26%;
+}
+
+.statsTable col:nth-child(3) {
+  width: 40%;
+}
+
+.statsTable td {
+  height: auto;
+  padding: 7px 8px;
+  vertical-align: middle;
+}
+
+.statsTable td[data-column='metric'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.statsTable td[data-column='value'] {
+  font: var(--dsw-font-s-strong-14);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.statsTable td[data-column='note'] {
+  color: var(--dsw-alias-label-tertiary);
+  white-space: normal;
+}
+
+/* 上报记录表格:固定布局,列宽由 colgroup 比例决定 */
+.logsTable {
+  table-layout: fixed;
+}
+
+.logsTable col:nth-child(1) {
+  width: 34%;
+}
+
+.logsTable col:nth-child(2) {
+  width: 14%;
+}
+
+.logsTable col:nth-child(3) {
+  width: 14%;
+}
+
+.logsTable col:nth-child(4) {
+  width: 38%;
+}
+
 /* ---------- 表单字段(官方 settings-form fields 范式) ---------- */
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 0;
+  min-width: 0;
 }
 
+/* 字段之间才画分隔线,释放首个字段的额外纵向留白 */
 .field + .field {
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-/* 卡片内首个字段:去掉顶部内边距,避免与卡片标题的间距叠加 */
-.fieldFirst {
-  padding-top: 0;
-}
-
 .fieldLabel {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.5;
+  font: var(--dsw-font-xs-strong-13);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -296,9 +304,7 @@
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-3);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+  font: var(--dsw-font-xs-13);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -388,7 +394,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 16px;
+  padding-top: 4px;
 }
 
 /* ---------- 可折叠区块(官方 DisclosureRow 形态) ---------- */
@@ -466,8 +472,7 @@
   border-radius: var(--dsw-radius-lg);
   background: var(--dsw-alias-toast-bg);
   color: var(--dsw-alias-toast-label);
-  font-size: 14px;
-  line-height: 22px;
+  font: var(--dsw-font-s-14);
   box-shadow: var(--dsw-shadow-lv3);
   transform: translateX(-50%);
   animation:

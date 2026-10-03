@@ -108,8 +108,9 @@ Standard distribution workflow (run manually at the repository root):
 pnpm typecheck
 pnpm build
 
-# 2. Pack the standard npm tarball directly into release/ (contains dist, cordis.patch.yml, LICENSE/COPYRIGHT, and the zh/en READMEs; no node_modules or source)
-pnpm pack --pack-destination release
+# 2. Pack the standard npm tarball and collect it into release/ automatically (contains dist, cordis.patch.yml, LICENSE/COPYRIGHT, and the zh/en READMEs; no node_modules or source)
+#    pnpm pack triggers the prepare build again; a tarball produced by a direct pnpm pack is collected into release/ as well
+pnpm run pack
 ```
 
 Artifacts and purposes:

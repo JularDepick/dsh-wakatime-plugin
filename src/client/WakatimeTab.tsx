@@ -8,8 +8,9 @@
  * 上报记录日志(可展开/收起,调试级);配置区。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
- * 版式与视觉以 dsh web 官方界面为基准:官方控件形态自行复制
- * (官方守则禁止外部插件 value-import Harness Client 包),只用语义 token。
+ * 版式:内容直接铺在 tab 下,不再自建卡片(分区之间用分隔线区分),
+ * 战绩为独立表格;字设与配色继承 profile 的 --dsw-font-* 与 --dsw-alias-* 令牌。
+ * 官方控件形态自行复制(官方守则禁止外部插件 value-import Harness Client 包)。
  */
 
 import { useEffect, useState } from 'react'
@@ -52,9 +53,6 @@ const NOTICE_MS = 3000
 
 /** 紧凑次级按钮类名(官方 Button sm + outline) */
 const compactButton = `${css.button} ${css.buttonSm} ${css.buttonOutline}`
-
-/** 卡片内首个字段类名(去掉顶部内边距,避免与卡片标题间距叠加) */
-const firstField = `${css.field} ${css.fieldFirst}`
 
 /**
  * 渲染 wakatime 标签页。
@@ -273,9 +271,10 @@ interface PanelsProps {
 }
 
 /**
- * 渲染四张卡片(顺序:战绩 → API Key → 上报记录 → 配置)。
+ * 渲染四个分区(顺序:战绩 → API Key → 上报记录 → 配置)。
+ * 战绩为独立表格;分区之间用分隔线区分,不再自建卡片。
  * @param props - 数据、草稿与回调集合。
- * @returns 卡片列内容。
+ * @returns 分区列内容。
  */
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloud, cloudState } = props
@@ -298,9 +297,9 @@ function WakatimePanels(props: PanelsProps) {
 
   return (
     <>
-      <section className={css.card}>
-        <div className={css.cardHead}>
-          <h3 className={css.cardTitle}>{t('stats.title')}</h3>
+      <section className={css.section}>
+        <div className={css.sectionHead}>
+          <h3 className={css.sectionTitle}>{t('stats.title')}</h3>
           <div className={css.actions}>
             <span className={css.muted}>{cloudMeta}{' · '}{t('cloud.range')}</span>
             <button
@@ -313,32 +312,47 @@ function WakatimePanels(props: PanelsProps) {
             </button>
           </div>
         </div>
-        <dl className={css.stats}>
-          <div className={css.stat}>
-            <dt className={css.statLabel}>{t('stats.promptChars')}</dt>
-            <dd className={css.statValue}>{mergedPromptChars.toLocaleString()}</dd>
-            <span className={css.statSub}>
-              {t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}
-            </span>
-          </div>
-          <div className={css.stat}>
-            <dt className={css.statLabel}>{t('stats.thinking')}</dt>
-            <dd className={css.statValue}>{`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`}</dd>
-          </div>
-          <div className={css.stat}>
-            <dt className={css.statLabel}>{t('stats.outputTokens')}</dt>
-            <dd className={css.statValue}>{mergedOutputTokens.toLocaleString()}</dd>
-          </div>
-          <div className={css.stat}>
-            <dt className={css.statLabel}>{t('stats.apiEffective')}</dt>
-            <dd className={css.statValue}>{mergedApiEffective.toLocaleString()}</dd>
-          </div>
-        </dl>
+        <table className={`${css.table} ${css.statsTable}`}>
+          <colgroup>
+            <col />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>{t('stats.colMetric')}</th>
+              <th>{t('stats.colValue')}</th>
+              <th>{t('stats.colNote')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-column="metric">{t('stats.promptChars')}</td>
+              <td data-column="value">{mergedPromptChars.toLocaleString()}</td>
+              <td data-column="note">{t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}</td>
+            </tr>
+            <tr>
+              <td data-column="metric">{t('stats.thinking')}</td>
+              <td data-column="value">{`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`}</td>
+              <td data-column="note">{t('stats.noteThinking')}</td>
+            </tr>
+            <tr>
+              <td data-column="metric">{t('stats.outputTokens')}</td>
+              <td data-column="value">{mergedOutputTokens.toLocaleString()}</td>
+              <td data-column="note">{t('stats.noteOutput')}</td>
+            </tr>
+            <tr>
+              <td data-column="metric">{t('stats.apiEffective')}</td>
+              <td data-column="value">{mergedApiEffective.toLocaleString()}</td>
+              <td data-column="note">{t('stats.noteApiEffective')}</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
-      <section className={css.card}>
-        <div className={css.cardHead}>
-          <h3 className={css.cardTitle}>{t('apikey.title')}</h3>
+      <section className={css.section}>
+        <div className={css.sectionHead}>
+          <h3 className={css.sectionTitle}>{t('apikey.title')}</h3>
           <div className={css.actions}>
             <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
               {data.configured ? t('status.configured') : t('status.notConfigured')}
@@ -364,7 +378,7 @@ function WakatimePanels(props: PanelsProps) {
             {t('status.loginSuccess')}{t('status.account')}:{data.username}
           </p>
         ) : null}
-        <div className={firstField}>
+        <div className={css.field}>
           <span className={css.fieldLabel}>{t('apikey.save')}</span>
           <span className={css.muted}>{t('apikey.hint')}{t('apikey.overwrite')}</span>
           <div className={css.apiKeyRow}>
@@ -388,7 +402,7 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       </section>
 
-      <section className={css.card}>
+      <section className={css.section}>
         <div className={css.disclosure}>
           <button
             type="button"
@@ -405,7 +419,13 @@ function WakatimePanels(props: PanelsProps) {
               {logs.length === 0
                 ? <p className={css.muted}>{t('logs.empty')}</p>
                 : (
-                  <table className={css.table}>
+                  <table className={`${css.table} ${css.logsTable}`}>
+                    <colgroup>
+                      <col />
+                      <col />
+                      <col />
+                      <col />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>{t('logs.time')}</th>
@@ -431,12 +451,11 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       </section>
 
-      <section className={css.card}>
-        <h3 className={css.cardTitle}>{t('config.title')}</h3>
+      <section className={css.section}>
+        <h3 className={css.sectionTitle}>{t('config.title')}</h3>
         <ToggleField
           label={t('config.enabled')}
           checked={draft.enabled}
-          first
           onChange={(value) => { onPatch('enabled', value) }}
         />
         <ToggleField
@@ -479,10 +498,10 @@ function WakatimePanels(props: PanelsProps) {
   )
 }
 
-/* 开关行:标签文本与官方 Switch 形态的按钮(aria-checked 驱动开态;first 表示卡片内首个字段) */
-function ToggleField({ label, checked, first, onChange }: { label: string; checked: boolean; first?: boolean; onChange: (value: boolean) => void }) {
+/* 开关行:标签文本与官方 Switch 形态的按钮(aria-checked 驱动开态) */
+function ToggleField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <div className={first ? firstField : css.field}>
+    <div className={css.field}>
       <div className={css.row}>
         <span className={css.fieldLabel}>{label}</span>
         <button
