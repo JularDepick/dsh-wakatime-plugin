@@ -232,7 +232,7 @@
 ### 18. 作者信息
 
 - 项目作者已确认: 否
-- 项目作者:[JularDepick](https://github.com/JularDepick)
+- 项目作者: [JularDepick](https://github.com/JularDepick)
 - 前后端项目请在后端代码注释头、每一个前端页面底部标注作者信息,并在控制前端页面的代码里定义宏或常量,方便开发者动态替换前端页面作者信息
 - 提醒用户是否要修改本段落的项目作者信息,得到答复后标记“项目作者已确认”为“是”
 
@@ -253,12 +253,12 @@
 
 ## 第二部 项目信息模板
 
-> 以下章节为项目信息模板,内容按项目最新状态维护。
+> 以下章节为项目信息模板,内容按项目最新状态维护.
 
 ### 模板使用说明
 
 - 模板章节分为默认启用与默认未启用两类;默认未启用的扩展项,在用户明确要求或审计确认确有需要时启用,启用后及时填充内容
-- 模板中段落的行内代码块内容可能包含路径匹配、参数匹配、变量匹配、正则匹配的混合语法,需要区分理解;例如 `~/` 表示工作目录,`<...>` 表示参数或变量,`(...)?` 表示内容正则匹配存在或不存在
+- 模板中段落的行内代码块内容可能包含路径匹配,参数匹配,变量匹配,正则匹配的混合语法,需要区分理解;例如 `~/` 表示工作目录,`<...>` 表示参数或变量,`(...)?` 表示内容正则匹配存在或不存在
 
 ### 模板章节总览
 
@@ -266,19 +266,19 @@
 |:---:|:---:|:---:|:---:|
 | 概述 | 启用 | 项目概述信息 | 项目最新状态变化时自主更新 |
 | 技术栈 | 启用 | 记录项目技术栈 | 技术栈发生变化时自主更新并告知用户 |
-| 架构 | 启用 | 记录前后端架构、服务架构 | 架构发生变化时自主更新并告知用户 |
+| 架构 | 启用 | 记录前后端架构,服务架构 | 架构发生变化时自主更新并告知用户 |
 | 目录结构 | 启用 | 记录工作目录树形图结构 | 目录结构发生变化时自主更新并告知用户 |
 | 工作流程 | 默认未启用扩展项 | 记录项目产物运行时的工作流程 | 按需启用,有需要或用户指定时补充次要流程或分支 |
 | 开发时配置文件 | 启用 | 记录影响项目核心功能的配置文件列表 | 配置发生变动时维护 |
 | 设计细节 | 启用 | 记录可个性化修改但不影响核心功能的设计细节 | 设计细节发生变动时维护 |
 | 版本号索引 | 启用 | 记录当前版本号 | 版本号迭代后更新 |
 | 快捷命令 | 启用 | 记录 Agent 开发时使用的命令 | 按项目实际需求选择性补充 |
-| 辅助脚本 | 默认未启用扩展项 | 记录工作目录 `scripts?/` 内的辅助脚本 | 按需启用、按需撰写 |
+| 辅助脚本 | 默认未启用扩展项 | 记录工作目录 `scripts?/` 内的辅助脚本 | 按需启用,按需撰写 |
 | GitHub Actions 工作流 | 默认未启用扩展项 | 记录 `.github/workflows/` 内的规范化工作流配置 | 用户明确指出有对应需求时才启用 |
 
 ### 概述
 
-这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime:以心跳(Heartbeat)批量上报(定时节奏)、精确统计每次 Agent 调用的 input/output Token 与 LLM 思考时长、全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话区分)、以 WakaTime API Key 认证(Key 经本地小后端代理,仅覆盖写入不可查看)。
+这是一个 dsh 插件项目,插件把 DeepSeek Harness (DSH) 的每次 AI 交互量化为可视化战绩,自动同步至 WakaTime: 以心跳(Heartbeat)批量上报(定时节奏),精确统计每次 Agent 调用的 input/output Token 与 LLM 思考时长,全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话,entity 按会话区分),以 WakaTime API Key 认证(Key 经本地小后端代理,仅覆盖写入不可查看).
 
 - 插件名称规范: `dsh-<核心名称>-plugin`,本项目核心名称为 `wakatime`,包名 `dsh-wakatime-plugin`
 - 插件入口导出 `name`(值 `wakatime`)与 `apply(ctx, config)`,配置经 Schemastery schema 校验
@@ -304,23 +304,23 @@
 
 ### 架构
 
-插件运行于 DSH 宿主内,遵循 Cordis 生命周期(Fiber 状态机),注册的能力在卸载时自动清理,手动资源用 `ctx.effect()`。模块划分为:
+插件运行于 DSH 宿主内,遵循 Cordis 生命周期(Fiber 状态机),注册的能力在卸载时自动清理,手动资源用 `ctx.effect()`.模块划分为:
 
-- `src/index.ts` 入口:导出 `name`/`inject`/`apply(ctx, config)`,装配各模块
-- `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度与 Token 估算、step/start 开启计时 + assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold LLM 思考时长、assistant/message 入队 AI 编码心跳(携带 Token 用量)、tool/call 入队调试心跳
-- `src/heartbeat/` 心跳引擎:本地缓冲 + 定时批量上报(启动一次 + 每 reportInterval 秒),未认证缓冲丢弃,失败入离线队列补报;选项可变(Web 写入后即时生效);维护上报记录日志(调试级)
-- `src/auth/` 认证管理:WakaTime API Key(环境变量优先、配置文件兜底),只允许覆盖写入,任何读取面不回显明文;配置时先经 /users/current 验证
-- `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试、单次请求超时 `30` 秒、请求带 `User-Agent` 标识(插件与宿主,供 WakaTime 归类 Editor/OS)
-- `src/config-manager/` 本地凭证与配置管理(dsh home 下 JSON,POSIX 目录 0700、文件 0600,目录可用环境变量覆盖)
-- `src/runtime-config/` 运行时可变配置:Web 设置页写入项即时生效并持久化到 settings 块,重启合并恢复
-- `src/stats/` 全局战绩聚合(心跳、工具调用、Token 用量、提示词字符与估算、思考时长、API 有效消耗;累计量 = 落盘保留量 + 实时会话)
+- `src/index.ts` 入口: 导出 `name`/`inject`/`apply(ctx, config)`,装配各模块
+- `src/collector/` 采集面: 监听 `session/event`,由 user/message 记录提示词长度与 Token 估算,step/start 开启计时 + assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold LLM 思考时长,assistant/message 入队 AI 编码心跳(携带 Token 用量),tool/call 入队调试心跳
+- `src/heartbeat/` 心跳引擎: 本地缓冲 + 定时批量上报(启动一次 + 每 reportInterval 秒),未认证缓冲丢弃,失败入离线队列补报;选项可变(Web 写入后即时生效);维护上报记录日志(调试级)
+- `src/auth/` 认证管理: WakaTime API Key(环境变量优先,配置文件兜底),只允许覆盖写入,任何读取面不回显明文;配置时先经 /users/current 验证
+- `src/http/` HTTP 层: fetch 封装(API Key 走 HTTP Basic),WakaTimeError 分类,429/5xx 指数退避重试,单次请求超时 `30` 秒,请求带 `User-Agent` 标识(插件与宿主,供 WakaTime 归类 Editor/OS)
+- `src/config-manager/` 本地凭证与配置管理(dsh home 下 JSON,POSIX 目录 0700,文件 0600,目录可用环境变量覆盖)
+- `src/runtime-config/` 运行时可变配置: Web 设置页写入项即时生效并持久化到 settings 块,重启合并恢复
+- `src/stats/` 全局战绩聚合(心跳,工具调用,Token 用量,提示词字符与估算,思考时长,API 有效消耗;累计量 = 落盘保留量 + 实时会话)
 - `src/stats-store/` 战绩累计量快照持久化(凭证目录下 JSON,防抖写入,启动读回并交 `StatsTracker.seed()`)
-- `src/sync/` 云端同步:拉取 WakaTime summaries 近 7 天 AI 聚合,与本地战绩对应指标取最大值合并(仅读取,失败静默)
-- `src/tools/` 工具注册:wakatime_config/logout/status/stats(Agent 可覆盖修改配置与 API Key,不可查看 Key 明文)
-- `src/webui/` 小后端:在 dsh host webserver 上注册状态/配置/API Key 覆盖与清除/上报日志/云端同步路由(仅 web profile,服务可选跟随)
+- `src/sync/` 云端同步: 拉取 WakaTime summaries 近 7 天 AI 聚合,与本地战绩对应指标取最大值合并(仅读取,失败静默)
+- `src/tools/` 工具注册: wakatime_config/logout/status/stats(Agent 可覆盖修改配置与 API Key,不可查看 Key 明文)
+- `src/webui/` 小后端: 在 dsh host webserver 上注册状态/配置/API Key 覆盖与清除/上报日志/云端同步路由(仅 web profile,服务可选跟随)
 - `src/project/` 项目与分支检测(会话工作目录 → Git 仓库根与分支;支持向上查找与 `.git` 文件/worktree 形态)
 - `src/translation/` 翻译加载器与 `xx-YY.ini` 文案(host 工具文案)
-- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽;主视图为 Agent 协作战绩 + 上报日志,配置视图为 API Key 变更 + 上报参数),语言跟随 dsh web UI 语言切换(zh/en 字典),经 `/api/wakatime/*` 与小后端通信
+- `src/client/` 浏览器端(Web UI): `apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽;主视图为 Agent 协作战绩 + 上报日志,配置视图为 API Key 变更 + 上报参数),语言跟随 dsh web UI 语言切换(zh/en 字典),经 `/api/wakatime/*` 与小后端通信
 
 > 当项目架构发生变化时需要自主更新并告知用户
 
@@ -343,15 +343,14 @@ dsh-wakatime-plugin/
 ├── docs/               # 项目文档
 │   ├── dsh-dev-docs/   # 已收录的 dsh 插件开发文档(先读 index.agent.md 速查表)
 │   ├── repo-spec/      # Tag & Release 规范
-│   ├── tech-spec/      # 项目技术规范与经验(translation-ini 规范、dsh web tab 经验等)
-│   └── wsl-deploy-testing.md # WSL 部署测试经验(基线/部署流程/验证清单/常见问题排查)
+│   └── tech-spec/      # 项目技术规范与经验(translation-ini 规范,dsh web tab 经验等)
 ├── scripts/            # 项目辅助脚本
 │   ├── build.mjs       # 构建入口(固定临时目录后执行 tsdown)
 │   └── pack.mjs        # 打包入口(产物收拢到 release/,并挂 postpack)
 └── src/                # 项目源码
     ├── index.ts        # 插件入口:name/inject/apply(ctx, config),装配模块
     ├── config.ts       # Config 接口 + Schemastery Schema(默认值写入 schema)
-    ├── constants.ts    # 全局常量与设计细节(端点、上报参数、环境变量名)
+    ├── constants.ts    # 全局常量与设计细节(端点,上报参数,环境变量名)
     ├── errors.ts       # NotAuthenticatedError
     ├── translation/    # 翻译加载器(index.ts)与 xx-YY.ini 文案
     ├── http/           # HTTP 层(types.ts + index.ts)
@@ -377,51 +376,51 @@ dsh-wakatime-plugin/
 
 1. DSH 加载 profile,按 patch 层插入 `dsh-wakatime-plugin` 插件行
 2. Cordis 校验配置(Schemastery schema),填充默认值
-3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、定时上报与离线补报定时器、小后端路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
-4. 会话事件驱动:user/message 记录提示词长度与 Token 估算;step/start 开启每步计时,assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
-5. 心跳入本地缓冲,启动加载时批量上报一次、之后每 `reportInterval` 秒批量上报(bulk);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未配置 API Key 时缓冲丢弃
-6. API Key 经小后端管理:手动在 Web 标签页输入(仅覆盖、不回显)或 Agent 经 `wakatime_config` 工具覆盖写入,已配置后可在标签页清除(二次确认,回退未登录);`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + 云端同步合并 + API Key 覆盖与清除 + 上报日志 + 配置视图,语言跟随 dsh web)
-7. 插件卸载时,所有注册(事件监听、定时器、工具、Web 路由)由框架与 effect 自动清理
+3. `apply(ctx, config)` 执行: 按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听,四个工具,定时上报与离线补报定时器,小后端路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
+4. 会话事件驱动: user/message 记录提示词长度与 Token 估算;step/start 开启每步计时,assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
+5. 心跳入本地缓冲,启动加载时批量上报一次,之后每 `reportInterval` 秒批量上报(bulk);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未配置 API Key 时缓冲丢弃
+6. API Key 经小后端管理: 手动在 Web 标签页输入(仅覆盖,不回显)或 Agent 经 `wakatime_config` 工具覆盖写入,已配置后可在标签页清除(二次确认,回退未登录);`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + 云端同步合并 + API Key 覆盖与清除 + 上报日志 + 配置视图,语言跟随 dsh web)
+7. 插件卸载时,所有注册(事件监听,定时器,工具,Web 路由)由框架与 effect 自动清理
 
 ### 开发时配置文件
 
-- `package.json` — 包清单:声明 `dsh.bundle`(patch 层)、`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`)、`files`(仅 dist 与 cordis.patch.yml + LICENSE/COPYRIGHT/中英 README,LICENSE 由 npm 自动附加而 COPYRIGHT 需显式列出)、依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
-- `cordis.patch.yml` — patch 层:按包名插入插件行 `dsh-wakatime-plugin`
+- `package.json` — 包清单: 声明 `dsh.bundle`(patch 层),`main`/`types`(对齐 tsdown 产物 `.mjs/.d.mts`),`files`(仅 dist 与 cordis.patch.yml + LICENSE/COPYRIGHT/中英 README,LICENSE 由 npm 自动附加而 COPYRIGHT 需显式列出),依赖与脚本(含 `prepare` 构建脚本,支持 git 安装场景)
+- `cordis.patch.yml` — patch 层: 按包名插入插件行 `dsh-wakatime-plugin`
 - `pnpm-workspace.yaml` — 声明独立 workspace(`packages: ['.']`),规避用户主目录同名文件被 pnpm 11 当作 workspace 根;并置 `minimumReleaseAge: 0` 放宽刚发布 rc 包的供应链策略
-- `tsconfig.json` — TypeScript 编译配置(严格模式、bundler 解析)
-- `tsdown.config.ts` — 构建配置:ESM 产物、类型声明、copy 翻译 ini 到产物
+- `tsconfig.json` — TypeScript 编译配置(严格模式,bundler 解析)
+- `tsdown.config.ts` — 构建配置: ESM 产物,类型声明,copy 翻译 ini 到产物
 - `.gitignore` — 忽略依赖/产物/临时目录
-- `scripts/build.mjs` — 构建入口脚本(`pnpm build` 即调用它):执行前把构建链临时目录固定到工作区内 `temp/`,`WAKATIME_BUILD_TMP` 可覆盖默认值;子进程 stdio 走 inherit 而非管道
-- `scripts/pack.mjs` — 打包入口脚本(`pnpm run pack` 即调用它,并挂在 `postpack` 生命周期上):执行 `pnpm pack --pack-destination release`,并把工作区根目录残留的本包 tarball 一并收拢到 `release/`,`WAKATIME_PACK_DEST` 可覆盖产物目录;以 `--move-only` 调用时只做迁移(供 `postpack` 使用),不与打包命令互相递归
+- `scripts/build.mjs` — 构建入口脚本(`pnpm build` 即调用它): 执行前把构建链临时目录固定到工作区内 `temp/`,`WAKATIME_BUILD_TMP` 可覆盖默认值;子进程 stdio 走 inherit 而非管道
+- `scripts/pack.mjs` — 打包入口脚本(`pnpm run pack` 即调用它,并挂在 `postpack` 生命周期上): 执行 `pnpm pack --pack-destination release`,并把工作区根目录残留的本包 tarball 一并收拢到 `release/`,`WAKATIME_PACK_DEST` 可覆盖产物目录;以 `--move-only` 调用时只做迁移(供 `postpack` 使用),不与打包命令互相递归
 
 ### 设计细节
 
 - 插件名称: `dsh-wakatime-plugin`,入口 `name` 为 `wakatime`
 - 默认语言与回退语言: `zh-CN`;翻译文件目录 `src/translation/`(host 工具文案;Web UI 语言跟随 dsh web 的 zh/en 切换)
-- 凭证与配置存放:dsh home 下 `plugins/wakatime/config.json`(home 取环境变量 `DSH_HOME`,缺省为 `~/.dsh`;`WAKATIME_CONFIG_DIR` 可整体覆盖目录,空串视为未设置);API Key 存于此文件,只允许覆盖写入,任何读取面不回显明文;POSIX 下目录 `0700`、文件 `0600` 并在每次写入后显式收紧,Windows 无 POSIX mode,权限依赖用户目录 ACL;同目录另有战绩累计量快照 `stats.json`(非凭证,本地独有指标跨重启累加用,同样收紧权限)
-- 认证:WakaTime API Key(HTTP Basic,username=api_key);环境变量 `WAKATIME_API_KEY` 优先于配置文件;配置时先经 `/users/current` 验证并缓存用户名。官方该接口的 `username` 与 `full_name` 均可为 null、`display_name` 在未设置用户名与姓名时为固定占位 `Anonymous User`,故展示账号名按 `username` → `full_name` → `display_name` → `email` → `id` 依次取值并剔除匿名占位,全部不可用时只显示已配置状态;缓存值为空或仍是匿名占位时,状态查询借已存 Key 重新解析并回写(解析失败静默降级,不阻塞状态)
-- 项目与分支采样:采样基准为会话工作目录 `session.header.cwd`(缺省回退宿主进程 cwd);项目名优先取 Git 仓库根目录名(向上逐级查找,最大 `64` 层),未命中仓库时取采样目录 basename;分支解析支持 `.git` 目录、`.git` 文件形式的 `gitdir`(worktree/submodule)与 worktree 的 `commondir`;仓库定位按目录缓存,分支按头文件缓存 `5` 秒
-- 网络:Node 内置 fetch,单次请求超时 `30` 秒(超时按网络失败进入既有指数退避重试);环境代理依赖 Node 官方开关 `NODE_USE_ENV_PROXY=1`(Node 24 起可用),不引入第三方代理依赖。所有请求带 `User-Agent`(格式 `<插件名>/<插件版本> (<系统名>-<系统版本>) dsh/<dsh版本>`,版本号运行时从包清单读取):WakaTime 从该头解析 Editor 与 OS,缺失时报表显示 Unknown Editor / Unknown OS
-- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看,展示时间最近优先);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;心跳携带 `machine_name`(本机机器名,供 WakaTime Machines 维度归类);AI 会话全局标识 `dsh_waka_time_plugin`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
-- 量化指标(Agent 协作战绩,不统计/不展示/不上报心跳数与工具调用数):提示词总量(官方 `ai_prompt_length` 口径:字符数,与上报一致)、提示词 Token 估算(字符数 ÷ 系数 `1.5`,本地辅助展示)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法,官方无上报字段,仅本地展示)、输出 TOKEN 总量(官方 `ai_output_tokens`)、API 有效 TOKEN 消耗(输入+输出,官方仅 `ai_input_tokens`/`ai_output_tokens`,缓存命中 Token 无官方字段不并入);累计量落盘于凭证目录快照并在启动时读回,故 LLM 思考时长与提示词 Token 估算这类本地独有指标跨进程重启继续累加,不会因重启归零;云端有对应字段的三项仍取本地与云端最大值合并
-- 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
-- 云端同步并入战绩:已配置 API Key 时,标签页加载后自动同步一次并支持手动按钮,拉取 WakaTime summaries 近 7 天的 AI 聚合,与本地战绩对应指标(提示词字符、输出 TOKEN、API 有效消耗)取最大值合并展示,同步时间与状态显示在战绩区标题行;仅读取不修改云端,失败静默并显示错误态。同步结果两层缓存:服务端进程内缓存(时长 `SYNC_CACHE_TTL_MS`,与 API Key 绑定,换 Key 或清除 Key 自动失效,手动同步带 `?force=1` 跳过)与浏览器端模块级缓存(同长度),切换标签页与刷新页面在缓存窗口内不重复请求云端
-- API Key 清除:配置视图的 API Key 区提供「清除 API Key」按钮(确认流:3 秒内二次点击确认,超时回归),经小后端 `POST /api/wakatime/apikey/clear` 清除本地 Key 并回退未登录
-- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`);主视图工具条左侧带只读账号状态(状态标签 + 账号名,与配置视图同源且不含写操作),其下为 Agent 协作战绩(云端同步合并取最大值,标题行含同步状态与按钮)与上报记录日志;右上角「配置」按钮切换出的配置视图承载 API Key 变更(状态标签、账号名、覆盖写入、清除)与上报参数(开关与间隔;改动按单键写入即时生效,无保存按钮,数字字段失焦或回车才写入以避免中间值生效);小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`、`GET /api/wakatime/sync`(带缓存,`?force=1` 强制刷新)、`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
-- 标签页视觉基准与信息层级:以 dsh web 官方界面为基准(不引入品牌色),不自建卡片,内容直接铺在 tab 下;顶部工具条左侧放只读账号状态(状态标签 + 账号名,过长省略)、右侧放「配置」切换按钮(靠 `margin-left:auto` 固定右端),主视图分区顺序为战绩 → 上报记录,配置视图分区顺序为 API Key → 上报参数,分区之间用 `0.5px` 分隔线区分;根元素内边距 `12px 60px 24px`(左右 `60px` 为按需调整的设计细节,隔离为单一旋钮 `--wakatime-tab-inline-padding`,不再取宿主留白变量),不做内容列最大宽度约束(宿主 viewArea 不给内边距/滚动/最大宽度/背景);内容列声明为宽度查询容器,宿主拖动宽度手柄调整对话区域宽度时由 `@container` 规则重排列宽并让信息列换行(窄宽度下宁可占两行也不截断成无意义片段),工具条/分区标题/API Key 行在放不下时换行而不是把控件压没;查询容器只包内容列、不含提示层(避免布局包含改变 `position: fixed` 提示的包含块);战绩为独立三列表格(指标/数值/说明,固定布局,列宽 34/26/40),数值列用 `--dsw-font-s-strong-14` 与等宽数字;配置表单放在右上角按钮切换出的配置视图里(与主视图互斥渲染,不用遮罩浮层与浏览器原生弹窗;切回主视图后焦点回到切换按钮,ESC 在捕获阶段监听并阻断继续传播);字设与配色继承 profile,字号/行高/字重取 `--dsw-font-*` 令牌(strong 变体命名为 `<字号>-strong-<px>`,如 `--dsw-font-s-strong-14`),颜色只取 `--dsw-alias-*` 语义令牌;表格照官方 trajectory(表头与行高 30px、`0.5px` 分隔线、末行不画线)但文本按项目规范居中;开关/输入/按钮/状态标签按官方 primitives 的标记与样式在插件内自制(官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label、shadow-lv3、160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗、不写 document.body
+- 凭证与配置存放: dsh home 下 `plugins/wakatime/config.json`(home 取环境变量 `DSH_HOME`,缺省为 `~/.dsh`;`WAKATIME_CONFIG_DIR` 可整体覆盖目录,空串视为未设置);API Key 存于此文件,只允许覆盖写入,任何读取面不回显明文;POSIX 下目录 `0700`,文件 `0600` 并在每次写入后显式收紧,Windows 无 POSIX mode,权限依赖用户目录 ACL;同目录另有战绩累计量快照 `stats.json`(非凭证,本地独有指标跨重启累加用,同样收紧权限)
+- 认证: WakaTime API Key(HTTP Basic,username=api_key);环境变量 `WAKATIME_API_KEY` 优先于配置文件;配置时先经 `/users/current` 验证并缓存用户名.官方该接口的 `username` 与 `full_name` 均可为 null,`display_name` 在未设置用户名与姓名时为固定占位 `Anonymous User`,故展示账号名按 `username` → `full_name` → `display_name` → `email` → `id` 依次取值并剔除匿名占位,全部不可用时只显示已配置状态;缓存值为空或仍是匿名占位时,状态查询借已存 Key 重新解析并回写(解析失败静默降级,不阻塞状态)
+- 项目与分支采样: 采样基准为会话工作目录 `session.header.cwd`(缺省回退宿主进程 cwd);项目名优先取 Git 仓库根目录名(向上逐级查找,最大 `64` 层),未命中仓库时取采样目录 basename;分支解析支持 `.git` 目录,`.git` 文件形式的 `gitdir`(worktree/submodule)与 worktree 的 `commondir`;仓库定位按目录缓存,分支按头文件缓存 `5` 秒
+- 网络: Node 内置 fetch,单次请求超时 `30` 秒(超时按网络失败进入既有指数退避重试);环境代理依赖 Node 官方开关 `NODE_USE_ENV_PROXY=1`(Node 24 起可用),不引入第三方代理依赖.所有请求带 `User-Agent`(格式 `<插件名>/<插件版本> (<系统名>-<系统版本>) dsh/<dsh版本>`,版本号运行时从包清单读取): WakaTime 从该头解析 Editor 与 OS,缺失时报表显示 Unknown Editor / Unknown OS
+- 定时上报: 启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次,指数退避(1s 起,30s 封顶,倍率 2);离线队列上限 `1000` 条,补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看,展示时间最近优先);AI 编码心跳类别 `ai coding`,工具心跳类别 `debugging`;心跳携带 `machine_name`(本机机器名,供 WakaTime Machines 维度归类);AI 会话全局标识 `dsh_waka_time_plugin`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
+- 量化指标(Agent 协作战绩,不统计/不展示/不上报心跳数与工具调用数): 提示词总量(官方 `ai_prompt_length` 口径: 字符数,与上报一致),提示词 Token 估算(字符数 ÷ 系数 `1.5`,本地辅助展示),LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法,官方无上报字段,仅本地展示),输出 TOKEN 总量(官方 `ai_output_tokens`),API 有效 TOKEN 消耗(输入+输出,官方仅 `ai_input_tokens`/`ai_output_tokens`,缓存命中 Token 无官方字段不并入);累计量落盘于凭证目录快照并在启动时读回,故 LLM 思考时长与提示词 Token 估算这类本地独有指标跨进程重启继续累加,不会因重启归零;云端有对应字段的三项仍取本地与云端最大值合并
+- 工具面: wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
+- 云端同步并入战绩: 已配置 API Key 时,标签页加载后自动同步一次并支持手动按钮,拉取 WakaTime summaries 近 7 天的 AI 聚合,与本地战绩对应指标(提示词字符,输出 TOKEN,API 有效消耗)取最大值合并展示,同步时间与状态显示在战绩区标题行;仅读取不修改云端,失败静默并显示错误态.同步结果两层缓存: 服务端进程内缓存(时长 `SYNC_CACHE_TTL_MS`,与 API Key 绑定,换 Key 或清除 Key 自动失效,手动同步带 `?force=1` 跳过)与浏览器端模块级缓存(同长度),切换标签页与刷新页面在缓存窗口内不重复请求云端
+- API Key 清除: 配置视图的 API Key 区提供「清除 API Key」按钮(确认流: 3 秒内二次点击确认,超时回归),经小后端 `POST /api/wakatime/apikey/clear` 清除本地 Key 并回退未登录
+- Web UI: 浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`);主视图工具条左侧带只读账号状态(状态标签 + 账号名,与配置视图同源且不含写操作),其下为 Agent 协作战绩(云端同步合并取最大值,标题行含同步状态与按钮)与上报记录日志;右上角「配置」按钮切换出的配置视图承载 API Key 变更(状态标签,账号名,覆盖写入,清除)与上报参数(开关与间隔;改动按单键写入即时生效,无保存按钮,数字字段失焦或回车才写入以避免中间值生效);小后端经 webserver 服务挂载 `GET /api/wakatime/status`,`POST /api/wakatime/config`,`POST /api/wakatime/apikey`,`GET /api/wakatime/logs`,`GET /api/wakatime/sync`(带缓存,`?force=1` 强制刷新),`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
+- 标签页视觉基准与信息层级: 以 dsh web 官方界面为基准(不引入品牌色),不自建卡片,内容直接铺在 tab 下;顶部工具条左侧放只读账号状态(状态标签 + 账号名,过长省略),右侧放「配置」切换按钮(靠 `margin-left:auto` 固定右端),主视图分区顺序为战绩 → 上报记录,配置视图分区顺序为 API Key → 上报参数,分区之间用 `0.5px` 分隔线区分;根元素内边距 `12px 60px 24px`(左右 `60px` 为按需调整的设计细节,隔离为单一旋钮 `--wakatime-tab-inline-padding`,不再取宿主留白变量),不做内容列最大宽度约束(宿主 viewArea 不给内边距/滚动/最大宽度/背景);内容列声明为宽度查询容器,宿主拖动宽度手柄调整对话区域宽度时由 `@container` 规则重排列宽并让信息列换行(窄宽度下宁可占两行也不截断成无意义片段),工具条/分区标题/API Key 行在放不下时换行而不是把控件压没;查询容器只包内容列,不含提示层(避免布局包含改变 `position: fixed` 提示的包含块);战绩为独立三列表格(指标/数值/说明,固定布局,列宽 34/26/40),数值列用 `--dsw-font-s-strong-14` 与等宽数字;配置表单放在右上角按钮切换出的配置视图里(与主视图互斥渲染,不用遮罩浮层与浏览器原生弹窗;切回主视图后焦点回到切换按钮,ESC 在捕获阶段监听并阻断继续传播);字设与配色继承 profile,字号/行高/字重取 `--dsw-font-*` 令牌(strong 变体命名为 `<字号>-strong-<px>`,如 `--dsw-font-s-strong-14`),颜色只取 `--dsw-alias-*` 语义令牌;表格照官方 trajectory(表头与行高 30px,`0.5px` 分隔线,末行不画线)但文本按项目规范居中;开关/输入/按钮/状态标签按官方 primitives 的标记与样式在插件内自制(官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label,shadow-lv3,160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗,不写 document.body
 - 环境变量: `WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`;另识别 dsh 的 `DSH_HOME`(凭证目录默认位置)与 Node 的 `NODE_USE_ENV_PROXY`(环境代理开关)
 
-设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、战绩快照文件名与写入防抖、Git 标记名与仓库查找深度、分支缓存时长、WakaTime API 端点(含 summaries 与云端同步区间)与匿名账号占位显示名、云端同步缓存时长、定时上报间隔/批量/重试/请求超时/离线队列/补报周期/日志上限/心跳类别/AI 会话全局标识/提示词估算系数、Web UI 路由路径(含同步)、环境变量名)。
+设计细节均隔离于 `src/constants.ts`(索引: 默认语言/回退语言/翻译目录,凭证目录/文件名,战绩快照文件名与写入防抖,Git 标记名与仓库查找深度,分支缓存时长,WakaTime API 端点(含 summaries 与云端同步区间)与匿名账号占位显示名,云端同步缓存时长,定时上报间隔/批量/重试/请求超时/离线队列/补报周期/日志上限/心跳类别/AI 会话全局标识/提示词估算系数,Web UI 路由路径(含同步),环境变量名).
 
 > 当项目状态中的设计细节具体值与本段落设计细节值发生冲突时,需要向用户报告请求决策,不要自行决定
 
 ### 版本号索引
 
-- 当前版本: `v0.1.3`
+- 当前版本: `v0.2.0`
 
 > 版本号中 `x` 表示十进制数,不限制位数,无前导 0
 
-- 项目正在开发 0.2.0 版本,开发结束后才更新版本号;开发期间源码与此处保持 `v0.1.3`,不得自行迭代
+- 项目正在开发 0.2.1 版本,开发结束后才更新版本号;开发期间源码与此处保持 `v0.2.0`,不得自行迭代
 - 版本格式遵循 `docs/repo-spec/tag-release-spec.md`(Tag `<版本号>`,Release `<版本号>-dsh-<dsh版本号>`)
 - 版本号迭代时,同步更新 `version.index.md` 所列文件(见该文件同步清单)
 
@@ -442,44 +441,44 @@ pnpm run pack
 
 新会话接手项目时按以下流程启动:
 
-1. 完整阅读根目录 `AGENTS.md`:守则区为硬约束;项目绑定区(概述/技术栈/架构/目录结构/设计细节/版本号索引)随项目状态懒维护
-2. 读 `version.index.md` 与 `git log`,确认当前真实版本号并向用户汇报确认;注意本项目正在开发 0.2.0,开发期间源码版本号保持 0.1.3,勿自行迭代
+1. 完整阅读根目录 `AGENTS.md`: 守则区为硬约束;项目绑定区(概述/技术栈/架构/目录结构/设计细节/版本号索引)随项目状态懒维护
+2. 读 `version.index.md` 与 `git log`,确认当前真实版本号并向用户汇报确认;注意本项目正在开发 0.2.1,开发期间源码版本号保持 0.2.0,勿自行迭代
 3. 读核心 README(中文版 `README.md`)与项目技术文档(`docs/tech-spec/`),掌握既定机制设计,机制细节遵循 specs 不重复抄录
-4. 读 `docs/dsh-dev-docs/<版本>/` 已收录的 dsh 插件开发文档:先读 `index.agent.md` 速查表,涉及框架机制时精读基础篇与框架篇;未收录时回官方仓库 `docs/user/develop` 查阅
+4. 读 `docs/dsh-dev-docs/<版本>/` 已收录的 dsh 插件开发文档: 先读 `index.agent.md` 速查表,涉及框架机制时精读基础篇与框架篇;未收录时回官方仓库 `docs/user/develop` 查阅
 5. 动手前的关键技术决策先列给用户裁决;涉及安装/构建/测试须经授权
 
 ### 开发经验
 
 dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实选已登记于本文件各处):
 
-- 插件本质:导出 `name` + `inject` + `apply(ctx, config)` 的 TypeScript 模块;`ctx` 是上下文,经它注册能力(工具、事件、资源);三种形态(函数/对象/类),一般函数形式即可
-- 配置:导出同名 `Config` 类型 + Schemastery `Schema`(默认值写入 schema,如 `src/config.ts`);无效配置在加载期响亮失败;不导出普通对象
-- 工具:经 `ctx.tools.register(defineTool({ name, description, parameters, output, execute }))` 注册,`output.render` 把规范值转成面向模型的内容;需要 `inject: ['tools']`
-- 生命周期:插件 Fiber 状态机;经 `ctx` 的注册在卸载时自动清理;手动资源用 `ctx.effect(() => cleanup)`
-- 服务与依赖:服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
-- 事件:`ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
-- bundle 打包:包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
-- 版本对齐:dsh 各包版本须与本地运行环境对齐(本地实测 0.2.0-rc.2 系列: `dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 0.2.0-rc.2、`cordis` 4.0.4、`schemastery` 3.18.4);带 rc 的包需核对 registry 的 next 标签;三次历史升级的破坏性判定:0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除、`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`、`dsh-client-runtime` 拆分消失、`dsh-client-ui-slots` 变纯类型核心、`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件、`assistantStreamFirstTokenTime`、`defineTool`、`ctx.slots.register/inject`、`ctx.locale.register/bind`、`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费)、webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响);0.1.7-rc.2→0.2.0-rc.2 同样**无破坏性改动**(官方 `docs/user/develop/` 两版逐字节相同,`git hash-object` 校验与上游两个 tag 的 blob 一致,故该文档集不能作为安全依据,结论以发布包 `lib/types` 逐文件哈希对比为准:`dsh-tools`/`dsh-llm`/`dsh-client-ui-slots`/`dsh-client-ui-renderer`/`dsh-client-locale`/`dsh-client-ui-settings` 声明层零改动;`dsh-session` 仅新增导出 `ToolCallRecovery`;`dsh-client-ui-conversation` 新增 `input/submission-analytics` 与 composer/input 面若干声明,`conversation.view` 槽声明逐行未变;平台模块表与 `/client` 子路径契约未变),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
-- pnpm 11 坑(升级依赖时踩过):(1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」——在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
-- pnpm 12 沙箱不可用(0.2.0-rc.2 升级实测):pnpm 12.6 的 install 固定要在 `%LOCALAPPDATA%\pnpm-store-operation-locks\all-stores.lock` 开 store 操作锁,沙箱拒绝写入(`ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK`,os error 5),`--store-dir`/`--state-dir`/重定向 `LOCALAPPDATA` 均无法改道该路径;改用 `$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 安装(无该锁机制),并显式带 `--store-dir <ws>\.pnpm-store`、`CI=true`、`--no-frozen-lockfile`(改依赖后 frozen 会报 `ERR_PNPM_OUTDATED_LOCKFILE`;`CI=true` 亦用于免交互确认删除旧 `node_modules`,`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`)
-- 构建与打包:`pnpm build` 经 `scripts/build.mjs` 把构建链临时目录固定到工作区内 `temp/` 后执行 tsdown(声明生成插件默认写系统 `%TEMP%`,受限环境下报 `TS5033` 使 dts 阶段失败;现象具欺骗性——日志前半段已显示 client 面构建成功)。故 `pnpm build` 与 `pnpm pack` 均无需外部环境变量重定向;`pnpm pack` 会触发 `prepare` 再次构建。注意构建以 `clean` 开头,中断会先删掉产物,失败后须重新构建以恢复 `dist/` 全部 6 个产物
-- Windows 侧 `%TEMP%` 写入被拒(历史记录,现由 `scripts/build.mjs` 规避):`rolldown-plugin-dts` 写 `%TEMP%\rolldown-plugin-dts-*` 报 `TS5033 ... Access is denied`,build/pack 失败但 client 面已成功;需要临时目录的其它工具同样应指向工作区内 `temp/` 或 `.agents/`
-- pnpm 11.22 构建/打包沙箱经验:(1) `pnpm run <script>` 执行前自动做依赖状态检查(runDepsStatusCheck),即使依赖 up-to-date 也会内部执行一次 `pnpm install` 并触发 root 的 `prepare`(递归 build),prepare 的 pipe-spawn 被沙箱 EPERM 拦截导致外层命令失败——用 `pnpm --config.verify-deps-before-run=false run <script>` 跳过检查(CLI 配置项,环境变量 `npm_config_verify_deps_before_run=false` 实测不生效);(2) `pnpm pack` 会触发 `prepare`(即再次 build),若其失败则整个 pack 中止且**不会产出 tarball**;`postpack` 在 tarball 落盘之后执行(工作目录为包根,`pnpm pack` 与 `pnpm run pack` 均触发),项目据此把根目录产物收拢到 `release/`;另实测 `pnpm pack` 不执行 package.json 里同名的 `pack` 脚本,故 `pack` 脚本内部再调 `pnpm pack` 不会递归;(3) pack 不支持 `--ignore-scripts` 选项;(4) pack 产物内 package.json 的 scripts 会被 pnpm 混淆(移除 prepare 等发布生命周期脚本),属正常行为,不影响 tarball 安装(git 源码安装读仓库自身清单)
-- 缓存重定向:npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agents/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
-- 工作区内 junction 无法被 Node 模块解析(本机环境实测,务必先读):在工作区内创建的任何目录联接(junction)其重解析点目标被写成 `Global\<绝对路径>` 前缀形式,Node 的 `fs.realpathSync`(模块解析实际走的实现)无法跟随该目标,而 `fs.realpathSync.native` 与直接文件读写均正常——故现象具有欺骗性。后果:pnpm 默认 `isolated` nodeLinker 产出的 `node_modules/<包>` 与 `.pnpm/<包>@<版本>/node_modules/<依赖>` 全部解析失败(build 报 `ERR_MODULE_NOT_FOUND`,例如 tsdown 找不到自身依赖 ansis),而 `tsc` 走自带解析器可能仍通过,表现为「typecheck 过、build 挂」。规避:安装时显式改用扁平布局 `pnpm install --config.node-linker=hoisted --ignore-scripts`(只改本地 `node_modules` 布局,不改项目配置、不影响发布产物);Node 22/24/26 与 pnpm 11/12 均复现,与本项目代码无关。另注:本机默认 pnpm 已是 12.x,其 `pnpm install --force` 会栈溢出崩溃(`STATUS_STACK_OVERFLOW`)并清空 `node_modules`;`$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 留有 pnpm 11 可直接调用,恢复布局时可先删 `node_modules\.pnpm-workspace-state-v1.json` 或整目录后重装
-- 产物后缀:tsdown 产物为 `.mjs`/`.d.mts`,`package.json` 的 `main`/`types` 必须与真实产物对齐
-- file:// import:Node 动态 import 绝对路径必须转 `file://`(Windows 报 ERR_UNSUPPORTED_ESM_URL_SCHEME)
-- 冒烟测试:临时脚本放 `.agents/`,对构建产物断言入口导出、配置默认值、翻译加载回退;`pnpm pack` 后列 tarball 内容核对打包边界(`files` 收窄,避免源码混入)
+- 插件本质: 导出 `name` + `inject` + `apply(ctx, config)` 的 TypeScript 模块;`ctx` 是上下文,经它注册能力(工具,事件,资源);三种形态(函数/对象/类),一般函数形式即可
+- 配置: 导出同名 `Config` 类型 + Schemastery `Schema`(默认值写入 schema,如 `src/config.ts`);无效配置在加载期响亮失败;不导出普通对象
+- 工具: 经 `ctx.tools.register(defineTool({ name, description, parameters, output, execute }))` 注册,`output.render` 把规范值转成面向模型的内容;需要 `inject: ['tools']`
+- 生命周期: 插件 Fiber 状态机;经 `ctx` 的注册在卸载时自动清理;手动资源用 `ctx.effect(() => cleanup)`
+- 服务与依赖: 服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
+- 事件: `ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
+- bundle 打包: 包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
+- 版本对齐: dsh 各包版本须与本地运行环境对齐(本地实测 0.2.0-rc.2 系列: `dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 0.2.0-rc.2,`cordis` 4.0.4,`schemastery` 3.18.4);带 rc 的包需核对 registry 的 next 标签;三次历史升级的破坏性判定: 0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除,`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`,`dsh-client-runtime` 拆分消失,`dsh-client-ui-slots` 变纯类型核心,`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件,`assistantStreamFirstTokenTime`,`defineTool`,`ctx.slots.register/inject`,`ctx.locale.register/bind`,`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费),webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响);0.1.7-rc.2→0.2.0-rc.2 同样**无破坏性改动**(官方 `docs/user/develop/` 两版逐字节相同,`git hash-object` 校验与上游两个 tag 的 blob 一致,故该文档集不能作为安全依据,结论以发布包 `lib/types` 逐文件哈希对比为准: `dsh-tools`/`dsh-llm`/`dsh-client-ui-slots`/`dsh-client-ui-renderer`/`dsh-client-locale`/`dsh-client-ui-settings` 声明层零改动;`dsh-session` 仅新增导出 `ToolCallRecovery`;`dsh-client-ui-conversation` 新增 `input/submission-analytics` 与 composer/input 面若干声明,`conversation.view` 槽声明逐行未变;平台模块表与 `/client` 子路径契约未变),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
+- pnpm 11 坑(升级依赖时踩过): (1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」, 在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
+- pnpm 12 沙箱不可用(0.2.0-rc.2 升级实测): pnpm 12.6 的 install 固定要在 `%LOCALAPPDATA%\pnpm-store-operation-locks\all-stores.lock` 开 store 操作锁,沙箱拒绝写入(`ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK`,os error 5),`--store-dir`/`--state-dir`/重定向 `LOCALAPPDATA` 均无法改道该路径;改用 `$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 安装(无该锁机制),并显式带 `--store-dir <ws>\.pnpm-store`,`CI=true`,`--no-frozen-lockfile`(改依赖后 frozen 会报 `ERR_PNPM_OUTDATED_LOCKFILE`;`CI=true` 亦用于免交互确认删除旧 `node_modules`,`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`)
+- 构建与打包: `pnpm build` 经 `scripts/build.mjs` 把构建链临时目录固定到工作区内 `temp/` 后执行 tsdown(声明生成插件默认写系统 `%TEMP%`,受限环境下报 `TS5033` 使 dts 阶段失败;现象具欺骗性,日志前半段已显示 client 面构建成功).故 `pnpm build` 与 `pnpm pack` 均无需外部环境变量重定向;`pnpm pack` 会触发 `prepare` 再次构建.注意构建以 `clean` 开头,中断会先删掉产物,失败后须重新构建以恢复 `dist/` 全部 6 个产物
+- Windows 侧 `%TEMP%` 写入被拒(历史记录,现由 `scripts/build.mjs` 规避): `rolldown-plugin-dts` 写 `%TEMP%\rolldown-plugin-dts-*` 报 `TS5033 ... Access is denied`,build/pack 失败但 client 面已成功;需要临时目录的其它工具同样应指向工作区内 `temp/` 或 `.agents/`
+- pnpm 11.22 构建/打包沙箱经验: (1) `pnpm run <script>` 执行前自动做依赖状态检查(runDepsStatusCheck),即使依赖 up-to-date 也会内部执行一次 `pnpm install` 并触发 root 的 `prepare`(递归 build),prepare 的 pipe-spawn 被沙箱 EPERM 拦截导致外层命令失败,用 `pnpm --config.verify-deps-before-run=false run <script>` 跳过检查(CLI 配置项,环境变量 `npm_config_verify_deps_before_run=false` 实测不生效);(2) `pnpm pack` 会触发 `prepare`(即再次 build),若其失败则整个 pack 中止且**不会产出 tarball**;`postpack` 在 tarball 落盘之后执行(工作目录为包根,`pnpm pack` 与 `pnpm run pack` 均触发),项目据此把根目录产物收拢到 `release/`;另实测 `pnpm pack` 不执行 package.json 里同名的 `pack` 脚本,故 `pack` 脚本内部再调 `pnpm pack` 不会递归;(3) pack 不支持 `--ignore-scripts` 选项;(4) pack 产物内 package.json 的 scripts 会被 pnpm 混淆(移除 prepare 等发布生命周期脚本),属正常行为,不影响 tarball 安装(git 源码安装读仓库自身清单)
+- 缓存重定向: npm/pnpm 写缓存到工作区外会被拒(EPERM),store/cache 重定向到工作区内(本仓库 `.agents/`);pnpm content-addressable store 落到 `.pnpm-store/`(已在 .gitignore)
+- 工作区内 junction 无法被 Node 模块解析(本机环境实测,务必先读): 在工作区内创建的任何目录联接(junction)其重解析点目标被写成 `Global\<绝对路径>` 前缀形式,Node 的 `fs.realpathSync`(模块解析实际走的实现)无法跟随该目标,而 `fs.realpathSync.native` 与直接文件读写均正常,故现象具有欺骗性.后果: pnpm 默认 `isolated` nodeLinker 产出的 `node_modules/<包>` 与 `.pnpm/<包>@<版本>/node_modules/<依赖>` 全部解析失败(build 报 `ERR_MODULE_NOT_FOUND`,例如 tsdown 找不到自身依赖 ansis),而 `tsc` 走自带解析器可能仍通过,表现为「typecheck 过,build 挂」.规避: 安装时显式改用扁平布局 `pnpm install --config.node-linker=hoisted --ignore-scripts`(只改本地 `node_modules` 布局,不改项目配置,不影响发布产物);Node 22/24/26 与 pnpm 11/12 均复现,与本项目代码无关.另注: 本机默认 pnpm 已是 12.x,其 `pnpm install --force` 会栈溢出崩溃(`STATUS_STACK_OVERFLOW`)并清空 `node_modules`;`$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 留有 pnpm 11 可直接调用,恢复布局时可先删 `node_modules\.pnpm-workspace-state-v1.json` 或整目录后重装
+- 产物后缀: tsdown 产物为 `.mjs`/`.d.mts`,`package.json` 的 `main`/`types` 必须与真实产物对齐
+- file:// import: Node 动态 import 绝对路径必须转 `file://`(Windows 报 ERR_UNSUPPORTED_ESM_URL_SCHEME)
+- 冒烟测试: 临时脚本放 `.agents/`,对构建产物断言入口导出,配置默认值,翻译加载回退;`pnpm pack` 后列 tarball 内容核对打包边界(`files` 收窄,避免源码混入)
 - PowerShell 每次调用独立无状态,必要时传 `workdir`;控制台中文乱码不代表文件损坏(UTF-8 正常)
-- 维护规则:按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
-- Web UI 插件:给 dsh web 新增 tab/UI 的完整机制与踩坑见 `docs/tech-spec/dsh-web-tab-experience.md`(client 产物格式、平台模块表、slot 纪律、数据通道选型);项目实例细节另见 `.agents/web-tab-experience.md`
-- WSL 部署测试:基线环境、两种部署流程、启动命令、服务端与浏览器端验证清单、常见问题排查见 `docs/wsl-deploy-testing.md`;**构建与部署默认全部由用户执行**(用户明确:Agent 不构建、不部署,只改代码与做语法/类型校验;历史上"仅安装"的单次授权不跨会话复用),Agent 不请求 WSL 权限升级,复验结论按该文档第八节回写;`add` 会先解析 profile 内全部既有依赖,任一 `file:` 依赖的 tarball 缺失即整体报 pnpm ENOENT
-- Agent 工作目录 `.agents/`:经验文档(`web-tab-experience.md`、`ui-research-dsh-web-styling.md`)与脚本(`smoke.mjs`/`compare-client.mjs`/`compare-pkgs.mjs`/`check-tokens.mjs`,末者用 lightningcss 编译样式并核对 `--dsw-*` 令牌是否都有定义)均置于 `.agents/`(守则第 6/16 章:临时与工作文档优先 `temp/`、`.agent/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
-- 外部插件依赖纪律:宿主包(`@deepseek-ai/cordis`、`dsh-tools`、`dsh-session`、`dsh-llm`、`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**——否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
+- 维护规则: 按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
+- Web UI 插件: 给 dsh web 新增 tab/UI 的完整机制与踩坑见 `docs/tech-spec/dsh-web-tab-experience.md`(client 产物格式,平台模块表,slot 纪律,数据通道选型);项目实例细节另见 `.agents/web-tab-experience.md`
+- WSL 部署与真机验证:基线环境,两种部署流程,启动命令,服务端与浏览器端验证清单与常见问题排查保存在 Agent 工作目录内(经验文档不入库,换工作区时需随会话迁移);**构建与部署默认全部由用户执行**(用户明确: Agent 不构建,不部署,只改代码与做语法/类型校验;历史上"仅安装"的单次授权不跨会话复用),Agent 不请求 WSL 权限升级,复验结论按该经验文档的复验节回写;`add` 会先解析 profile 内全部既有依赖,任一 `file:` 依赖的 tarball 缺失即整体报 pnpm ENOENT
+- Agent 工作目录 `.agents/`: 经验文档(`web-tab-experience.md`,`ui-research-dsh-web-styling.md`)与脚本(`smoke.mjs`/`compare-client.mjs`/`compare-pkgs.mjs`/`check-tokens.mjs`,末者用 lightningcss 编译样式并核对 `--dsw-*` 令牌是否都有定义)均置于 `.agents/`(守则第 6/16 章: 临时与工作文档优先 `temp/`,`.agent/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
+- 外部插件依赖纪律: 宿主包(`@deepseek-ai/cordis`,`dsh-tools`,`dsh-session`,`dsh-llm`,`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**, 否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
 
 ### 辅助脚本(默认未启用扩展项)
 
-> 主要指放在工作目录 `scripts?/` 文件夹内的脚本文件,是由 Agent 撰写并维护的,需要按需撰写;辅助脚本的存在主要是为了补充 Agent 技能/工具能力的不足、减轻批量工作时的上下文负担、供给 GitHub 工作流自动化调用。主要功能包括但不限于:
+> 主要指放在工作目录 `scripts?/` 文件夹内的脚本文件,是由 Agent 撰写并维护的,需要按需撰写;辅助脚本的存在主要是为了补充 Agent 技能/工具能力的不足,减轻批量工作时的上下文负担,供给 GitHub 工作流自动化调用.主要功能包括但不限于:
 >
 > - 测试与罗列可用的开发环境
 > - 执行快捷命令的组合和扩展
@@ -487,20 +486,20 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 > - 获取与解析网络页面的内容
 > - 复制核心产物到发布包目录
 >
-> 辅助脚本的具体实现形式需要根据开发环境决定: 简单任务一般用 `bat/cmd/bash` 脚本即可解决,复杂任务应该使用 Python 脚本解决(此时如果缺失 Python 环境则提醒用户建议安装)。
+> 辅助脚本的具体实现形式需要根据开发环境决定: 简单任务一般用 `bat/cmd/bash` 脚本即可解决,复杂任务应该使用 Python 脚本解决(此时如果缺失 Python 环境则提醒用户建议安装).
 > 当文件夹名称冲突时选择备选辅助脚本文件夹名称(其一): `assist-scripts?/` `assist/`
 
 ### GitHub Actions 工作流(默认未启用扩展项)
 
-> 指工作目录下与 `.git/` 文件夹同时存在的 `.github/workflows/` 目录,用于储存 GitHub 远程仓库的规范化工作流配置文件。当用户明确指出项目有如下需求(或部分需求)时才允许启用(默认不启用):
+> 指工作目录下与 `.git/` 文件夹同时存在的 `.github/workflows/` 目录,用于储存 GitHub 远程仓库的规范化工作流配置文件.当用户明确指出项目有如下需求(或部分需求)时才允许启用(默认不启用):
 >
 > - 自动化构建并发布发行版(Releases): 在代码合并或打标签时,自动构建产物并创建/更新 Release,同时上传构建产物
-> - 自动化触发部署(Deployments): 在特定条件(如推送到 `main` 分支)下,自动触发部署任务至指定环境(测试、预发布、生产),并回传部署状态
-> - 自动化打包与托管软件包(Packages): 构建成功后,自动将项目打包为符合规范的格式(如 npm、Docker 镜像等),并推送至 GitHub Packages 进行版本管理
+> - 自动化触发部署(Deployments): 在特定条件(如推送到 `main` 分支)下,自动触发部署任务至指定环境(测试,预发布,生产),并回传部署状态
+> - 自动化打包与托管软件包(Packages): 构建成功后,自动将项目打包为符合规范的格式(如 npm,Docker 镜像等),并推送至 GitHub Packages 进行版本管理
 > - 自动化执行辅助脚本: 在构建或部署前后,自动执行脚本以动态调整目录结构,复制和移动文件,确保后续步骤运行环境正确
-> - 自动化运行测试(单元/集成测试): 在代码推送或合并请求时,自动执行单元测试、集成测试,并生成测试报告;若测试失败则阻断后续构建和发布流程
-> - 自动化代码质量检查(Lint 与安全扫描): 在构建前自动运行代码风格检查、静态分析以及依赖安全漏洞扫描,确保代码符合规范且无已知高危漏洞
+> - 自动化运行测试(单元/集成测试): 在代码推送或合并请求时,自动执行单元测试,集成测试,并生成测试报告;若测试失败则阻断后续构建和发布流程
+> - 自动化代码质量检查(Lint 与安全扫描): 在构建前自动运行代码风格检查,静态分析以及依赖安全漏洞扫描,确保代码符合规范且无已知高危漏洞
 > - 自动化生成变更日志与更新文档: 在 Release 发布时,自动根据 Conventional Commits 规范生成 `CHANGELOG.md`,并自动构建和部署项目文档(如 GitHub Pages)至指定分支
-> - 自动化清理过期资源: 定期或每次发布后,自动删除不再使用的旧 Release 预发布版本、过期的包(Packages)版本或临时构建缓存,以节省存储空间
+> - 自动化清理过期资源: 定期或每次发布后,自动删除不再使用的旧 Release 预发布版本,过期的包(Packages)版本或临时构建缓存,以节省存储空间
 >
 > 除通用辅助脚本外,由 GitHub Actions 工作流调用的脚本应该放在 `.github/scripts?/` 下,避免与项目的(辅助)脚本文件夹混淆

@@ -1,6 +1,6 @@
 {
   "name": "dsh-wakatime-plugin",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "将 DSH 的 AI 交互量化并上报至 WakaTime",
   "type": "module",
   "main": "./dist/index.mjs",

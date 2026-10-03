@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.1.3-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.1.3)
+[![Version](https://img.shields.io/badge/Version-0.2.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.2.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
@@ -11,18 +11,24 @@
 
 </div>
 
-一个 dsh 插件:将 DSH 的每一次 Agent 交互量化为可视化表现指标,自动同步至 WakaTime——用数据展示你与 Agent 协作的生产力。
+一个 dsh 插件: 将 DSH 的每一次 Agent 交互量化为可视化表现指标,自动同步至 WakaTime,用数据展示你与 Agent 协作的生产力.
+
+---
+
 
 ## 特性
 
-- 自动追踪、量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
-- API Key 认证:仅需一个 WakaTime API Key,经本地小后端代理保管,前端永不接触明文
-- 定时批量上报:启动时上报一次,之后按可配置间隔(默认 60 秒)批量同步
-- Token 统计:精确记录每次 Agent 调用的 input/output Token 数量
-- Agent 协作战绩:全局汇总提示词总量、LLM 思考总时长、输出 Token、API 有效 Token 消耗等表现指标,在 Web 界面随时查看
-- 云端同步合并:配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致
-- 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别会话工作目录所属项目与 Git 分支(支持子目录与 worktree)
-- 本地优先:凭证和配置数据默认存储在本地,用户完全掌控
+- 自动追踪,量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
+- API Key 认证: 仅需一个 WakaTime API Key,经本地小后端代理保管,前端永不接触明文
+- 定时批量上报: 启动时上报一次,之后按可配置间隔(默认 60 秒)批量同步
+- Token 统计: 精确记录每次 Agent 调用的 input/output Token 数量
+- Agent 协作战绩: 全局汇总提示词总量,LLM 思考总时长,输出 Token,API 有效 Token 消耗等表现指标,在 Web 界面随时查看
+- 配置即改即生效: 在 WakaTime 标签页右上角「配置」切换出配置视图,API Key 变更与上报参数在同一处完成,改动立即生效,无需保存
+- 云端同步合并: 配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致;同步结果本地缓存,切换标签页与刷新页面不重复请求云端
+- 会话追踪: 全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别会话工作目录所属项目与 Git 分支(支持子目录与 worktree)
+- 本地累计保留: LLM 思考总时长与提示词 Token 估算等本地独有指标写入本地快照,重启 dsh 后继续累加,不会归零
+- 本地优先: 凭证和配置数据默认存储在本地,用户完全掌控
+
 
 ## 安装
 
@@ -34,38 +40,40 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # 或使用发布 tarball 本地安装(预构建产物,无需构建)
-dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
+dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.0.tgz
 ```
 
-> 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本。pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败:把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
+> 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本;pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败: 把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
 
 > ```yaml
 > allowBuilds:
 >   dsh-wakatime-plugin: true
 > ```
 
-> 该授权意味着允许该包的代码在安装时于你的机器上执行,请只对源码可信的包授权。
+> 该授权意味着允许该包的代码在安装时于你的机器上执行,请只对源码可信的包授权.
+
 
 ## 使用
 
 安装并启用插件后,配置 WakaTime API Key(在 wakatime.com/settings/api-key 生成):
 
-- **手动**:在 Web 界面会话区域的 WakaTime 标签页,点右上角「配置」进入配置视图后粘贴保存(仅覆盖、不回显);
-- **Agent 引导**:让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
-- **环境变量**:设置 `WAKATIME_API_KEY`(优先于文件配置)。
+- **手动**: 在 Web 界面会话区域的 WakaTime 标签页,点右上角「配置」进入配置视图后粘贴保存(仅覆盖,不可查看);
+- **Agent 引导**: 让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
+- **环境变量**: 设置 `WAKATIME_API_KEY`(优先于文件配置).
 
-已配置 API Key 后,可在配置视图的 API Key 区执行「清除 API Key」回退到未登录状态。
+已配置 API Key 后,可在配置视图的 API Key 区执行「清除 API Key」回退到未登录状态.
 
-配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入)。
+配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入).
 
-此后插件会自动追踪 DSH 中的 AI 交互,按定时节奏批量上报至 WakaTime。
+此后插件会自动追踪 DSH 中的 AI 交互,按定时节奏批量上报至 WakaTime.
 
 | 工具 | 用途 |
-|:---:|:---|
+|:---:|:---:|
 | `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入 API Key(op=set_apikey,仅覆盖不可查看) |
 | `wakatime_logout` | 清除本地 API Key |
 | `wakatime_status` | 查看认证状态(不回显 Key 明文) |
-| `wakatime_stats` | 查看 Agent 协作战绩(提示词、思考时长、Token 消耗) |
+| `wakatime_stats` | 查看 Agent 协作战绩(提示词,思考时长,Token 消耗) |
+
 
 ## 配置
 
@@ -87,41 +95,44 @@ dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 环境变量:
 
 | 变量名 | 描述 |
-|:---:|:---|
+|:---:|:---:|
 | `WAKATIME_API_KEY` | WakaTime API Key(优先于文件配置) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
 | `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `$DSH_HOME/plugins/wakatime`,即 `~/.dsh/plugins/wakatime`) |
 | `DSH_HOME` | dsh home 目录,影响凭证配置目录的默认位置(默认 `~/.dsh`) |
 | `NODE_USE_ENV_PROXY` | 置为 `1` 时让插件请求走环境代理变量 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上) |
 
+
 ## 平台与路径
 
-- 运行平台:Windows、macOS、Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;
-- 权限:POSIX 平台下配置目录与文件分别收紧为 `0700` 与 `0600`;Windows 无 POSIX 权限位,依赖用户目录 ACL;
-- 项目与分支识别:以会话工作目录为基准,项目名取 Git 仓库根目录名,会话位于仓库子目录或 worktree 中也归到同一项目;分支名解析 Git 头文件,detached HEAD 时分支留空;
-- 网络:单次请求超时 30 秒,超时按网络失败重试;需要走代理时设置 `NODE_USE_ENV_PROXY=1` 并配置 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上)。
+- 运行平台: Windows, macOS, Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;同目录下另有战绩累计量快照 `stats.json`,删除该文件即可重置本地累计量.
+- 权限: POSIX 平台下配置目录与文件分别收紧为 `0700` 与 `0600`;Windows 无 POSIX 权限位,依赖用户目录 ACL.
+- 项目与分支识别: 以会话工作目录为基准,项目名取 Git 仓库根目录名,会话位于仓库子目录或 worktree 中也归到同一项目;分支名解析 Git 头文件,detached HEAD 时分支留空.
+- 网络: 单次请求超时 30 秒,超时按网络失败重试;上报请求带插件与宿主标识,便于 WakaTime 归类编辑器与操作系统;需要走代理时设置 `NODE_USE_ENV_PROXY=1` 并配置 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上).
+
 
 ## 发布与分发
 
 标准分发流程(在仓库根目录手动执行):
 
 ```bash
-# 1. 检查类型并构建产物(tsdown 输出 dist/)
+# 1. 检查类型并构建产物
 pnpm typecheck
 pnpm build
 
-# 2. 打包标准 npm tarball 并自动收拢到 release/(含 dist、cordis.patch.yml 与 LICENSE/COPYRIGHT/中英 README,不含 node_modules 与源码)
-#    pnpm pack 会触发 prepare 再次构建;直接执行 pnpm pack 时,产出的 tarball 也会被自动收拢到 release/
+# 2. 打包标准 npm tarball(含构建产物,cordis.patch.yml 与 LICENSE/COPYRIGHT/中英 README,不含源码与依赖)
+#    pnpm pack 会触发 prepare 再次构建
 pnpm run pack
 ```
 
 产物与用途:
 
 | 产物 | 用途 |
-|:---:|:---|
-| `release/dsh-wakatime-plugin-<版本>.tgz` | 本地/离线安装:`dsh plugin --profile <name> add <tgz 路径>`;亦可作为发布到 npm registry 的素材(将来执行 `npm publish`) |
+|:---:|:---:|
+| `dsh-wakatime-plugin-<版本>.tgz` | 本地/离线安装: `dsh plugin --profile <name> add <tgz 路径>`;亦可作为发布到 npm registry 的素材(将来执行 `npm publish`) |
 
-> 产物为预构建形态,安装无需构建权限。仓库未提交 `dist/` 与 `release/`(见 .gitignore):从 GitHub 源码安装依赖 `prepare` 构建,从 tarball 安装则可离线使用。
+> 产物为预构建形态,安装无需构建权限.从 GitHub 源码安装依赖 `prepare` 构建,从 tarball 安装则可离线使用.
+
 
 ## 相关链接
 
@@ -129,10 +140,12 @@ pnpm run pack
 - dsh 官方插件开发文档: https://github.com/deepseek-ai/deepseek-harness/tree/main/docs/user/develop
 - WakaTime 官方: https://wakatime.com
 
-## 许可证
-
-采用 **MIT License**,详见 [LICENSE](./LICENSE)。
 
 ## 版权声明
 
-Copyright &copy; 2026 JularDepick,详见 [COPYRIGHT](./COPYRIGHT)。
+Copyright &copy; 2026 JularDepick,详见 [COPYRIGHT](./COPYRIGHT).
+
+
+## 许可证
+
+采用 **MIT License**,详见 [LICENSE](./LICENSE).
