@@ -13,6 +13,7 @@ export type WakatimeKey =
   | 'status.notConfigured'
   | 'status.account'
   | 'status.loginSuccess'
+  | 'apikey.title'
   | 'apikey.overwrite'
   | 'apikey.save'
   | 'apikey.clear'
@@ -67,6 +68,7 @@ export const zh: WakatimeDict = {
   'status.notConfigured': '未配置 API Key',
   'status.account': '当前账号',
   'status.loginSuccess': '登录成功, ',
+  'apikey.title': 'API Key',
   'apikey.overwrite': '仅覆盖、不可查看。',
   'apikey.save': '保存 API Key',
   'apikey.clear': '清除 API Key',
@@ -120,6 +122,7 @@ export const en: WakatimeDict = {
   'status.notConfigured': 'API key not configured',
   'status.account': 'Current account',
   'status.loginSuccess': 'Logged in as ',
+  'apikey.title': 'API key',
   'apikey.overwrite': 'Overwrite only, never shown.',
   'apikey.save': 'Save API key',
   'apikey.clear': 'Clear API key',

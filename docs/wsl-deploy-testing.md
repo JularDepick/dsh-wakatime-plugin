@@ -1,9 +1,9 @@
 # WSL 部署测试经验(wsl-deploy-testing)
 
-> 面向接手本插件仓库的 Agent 会话:总结 WSL 环境下的部署步骤、验证清单与常见问题排查,供后继会话直接复用,避免反复试错。实机测试由人工完成(Agent 不代跑部署与启动),复验结论由人工反馈后回写本文档与 `.agents/NEXT-SESSION.md`。随项目状态维护,换 dsh 版本时对照 `docs/dsh-dev-docs/<版本>/` 与依赖版本核对。
+> 面向接手本插件仓库的 Agent 会话:总结 WSL 环境下的部署步骤、验证清单与常见问题排查,供后继会话直接复用,避免反复试错。安装可在用户明确要求时由 Agent 执行(只安装,不启动服务),实机启动与验证仍由人工完成,复验结论由人工反馈后回写本文档与 `.agents/NEXT-SESSION.md`。随项目状态维护,换 dsh 版本时对照 `docs/dsh-dev-docs/<版本>/` 与依赖版本核对。
 > 本文档系从 `dsh-system-monitor-plugin` 项目的同功能经验文档适配而来(通用机制部分沿用,项目特定内容已替换为本项目)。
 >
-> 部署测试状态:v0.1.3 已完成 dsh 0.2.0-rc.2 适配(typecheck/build/smoke 通过),真机部署与验证待用户执行;下方验证清单按本项目实测口径更新。清单中标注「0.1.5-rc.1 实测」的行为在 0.1.7-rc.2 与 0.2.0-rc.2 均尚未真机复验,按第六节复核。
+> 部署测试状态:v0.1.3 已完成 dsh 0.2.0-rc.2 适配(typecheck/build/smoke 通过);v0.1.3 tarball 已安装进 WSL web profile(`dsh plugin --profile web add`,安装后 profile 内产物与仓库 `dist/` 逐字节一致),服务启动与真机验证待用户执行;下方验证清单按本项目实测口径更新。清单中标注「0.1.5-rc.1 实测」的行为在 0.1.7-rc.2 与 0.2.0-rc.2 均尚未真机复验,按第六节复核。
 
 ## 一、适用环境(基线)
 
@@ -14,10 +14,12 @@
 | web profile | `~/.dsh/profiles/web` |
 | 插件包 | dsh-wakatime-plugin v0.1.3(已适配 dsh 0.2.0-rc.2) |
 | 发布物 | `release/dsh-wakatime-plugin-0.1.3.tgz` |
+| profile 当前已装插件 | dsh-wakatime-plugin v0.1.3;安装 v0.1.3 时因发布 tarball 缺失移除了 dsh-system-monitor-plugin(见第七节) |
 
-- 沙箱内访问 WSL 常被文件策略拒绝(E_ACCESSDENIED / `wsl.exe` 需更高权限),部署与启动命令由人工在 WSL 终端执行;
-- 部署分工约定(用户明确):**部署全部由用户自行执行**,Agent 不发起任何 WSL 部署/启动操作(也不请求 WSL 权限升级);Agent 的职责是修复代码 + 构建打包(`release/` 单产物交付);
-- 部署测试约定(用户明确):只安装最新构建的插件包到 WSL dsh(`dsh plugin --profile web add <最新 tgz>`),不自动开启端口,服务启动由用户自行控制;
+- 沙箱内访问 WSL 常被文件策略拒绝(E_ACCESSDENIED / `wsl.exe` 需更高权限);沙箱为完全访问时 `wsl.exe` 可用,但安装与启动的分工仍按下方约定执行;
+- 部署分工约定(用户明确):**构建、打包、安装与实机验证全部由用户执行**;用户已收紧规则:**Agent 不构建、不部署,只改代码与做语法/类型校验**;此前会话曾获单次授权由 Agent 在 WSL 内执行安装(`dsh plugin --profile web add <最新 tgz>`,只安装、不启动服务),该授权属单次、不跨会话复用;Agent 不请求 WSL 权限升级,端口由用户自行控制;
+- 部署测试约定(用户明确):只安装最新构建的插件包到 WSL dsh,不自动开启端口,服务启动由用户自行控制;
+- `dsh plugin --profile web add` 会先解析 profile 内**全部既有依赖**,任一 `file:` 依赖的 tarball 已被清理即整体失败(见第七节);安装前先核对 `~/.dsh/profiles/web/package.json` 的 dependencies 是否都还指向存在的文件;
 - `dsh web` 是 `--profile web` 的别名(0.1.7-rc.2 CLI 帮助实测沿用);`--host`、`--port`、`--no-open` 由 web-app 的 webStartup 插件解析为服务值(缺省回退 127.0.0.1:3080),端口可自选以避开占用。
 
 ## 二、部署流程(两种,任选其一)
@@ -26,6 +28,7 @@
    - 将 `release/` 下的 tgz 传入 WSL;
    - `dsh plugin --profile web add <tarball>`;
    - 同版本覆盖安装失败时,先 `dsh plugin --profile web remove dsh-wakatime-plugin` 再 add;
+   - add 前确认 profile 内既有插件的 `file:` 依赖指向的 tarball 仍然存在,否则 pnpm 解析既有依赖即报 ENOENT(第七节);
    - profile 安装时有 peer 警告属正常(可 `pnpm peers check` 复查),不影响启动;旧实例存在时需先 kill 再启动新实例加载插件。
 2. 直接部署工作流(开发迭代,免 pack/add 往返):
    - 构建后把 `dist/`(`index.mjs`、`index.d.mts`、`client.js`、翻译 ini)、`package.json`、`cordis.patch.yml` 复制到 `~/.dsh/profiles/web/node_modules/dsh-wakatime-plugin/` 覆盖;
@@ -87,6 +90,7 @@ NODE_PATH=~/.dsh/profiles/web/node_modules dsh web --no-open --host 127.0.0.1 --
 | tab 不出现但 client.js 200 | 浏览器 console 报错优先;检查 `__DSH_BOOT__` 条目;服务端正常不代表浏览器端就绪,组件崩溃有 per-entry 错误边界 |
 | client.js 更新不生效 | client-modules 按 rev 刷新:硬刷新浏览器(清缓存)后再看 |
 | 同版本 tarball 覆盖安装失败 | 先 remove 再 add |
+| add 报 `ENOENT` 找不到某个 `file:` tarball(报错文本含「This error happened while installing a direct dependency of .../profiles/web」) | profile 内**其它**既有插件的 `file:` 依赖指向已被清理的 tarball;实例:dsh-system-monitor-plugin 0.1.2 的 `release/` tarball 被删,导致 add 本插件时 pnpm 解析既有依赖失败。处理:恢复该 tarball,或 `dsh plugin --profile web remove <该插件>`(其 profile 内 `node_modules/<该插件>` 一并移除)后再 add;移除旧依赖后本次安装成功 |
 | 服务端数据接口正常但面板无数据 | 检查浏览器端 fetch `/api/wakatime/*` 是否被同源策略/路由拦截;面板数据只经 host webserver 端点出口 |
 
 ## 八、复验结论回写

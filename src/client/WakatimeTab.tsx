@@ -8,6 +8,8 @@
  * 上报记录日志(可展开/收起,调试级);配置区。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
+ * 版式与视觉以 dsh web 官方界面为基准:官方控件形态自行复制
+ * (官方守则禁止外部插件 value-import Harness Client 包),只用语义 token。
  */
 
 import { useEffect, useState } from 'react'
@@ -44,6 +46,16 @@ const LOGS_PATH = '/api/wakatime/logs'
 const SYNC_PATH = '/api/wakatime/sync'
 const APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
 
+/** 清除确认与提示停留时长:与官方 Toast 默认一致(1000ms 淡出另计) */
+const CONFIRM_MS = 3000
+const NOTICE_MS = 3000
+
+/** 紧凑次级按钮类名(官方 Button sm + outline) */
+const compactButton = `${css.button} ${css.buttonSm} ${css.buttonOutline}`
+
+/** 卡片内首个字段类名(去掉顶部内边距,避免与卡片标题间距叠加) */
+const firstField = `${css.field} ${css.fieldFirst}`
+
 /**
  * 渲染 wakatime 标签页。
  * @param props - 框架座位:t 为 locale 座位,会话座位不消费。
@@ -69,7 +81,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 清除确认超时回归 */
   useEffect(() => {
     if (!clearConfirm) return
-    const timer = setTimeout(() => { setClearConfirm(false) }, 3000)
+    const timer = setTimeout(() => { setClearConfirm(false) }, CONFIRM_MS)
     return () => clearTimeout(timer)
   }, [clearConfirm])
 
@@ -134,10 +146,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     return error ?? ''
   }
 
-  /* 提示 3 秒后自动消失 */
+  /* 提示停留后自动消失(与官方 Toast 的 3000ms 停留 + 1000ms 淡出一致) */
   useEffect(() => {
     if (!notice) return
-    const timer = setTimeout(() => { setNotice(undefined) }, 3000)
+    const timer = setTimeout(() => { setNotice(undefined) }, NOTICE_MS)
     return () => clearTimeout(timer)
   }, [notice])
 
@@ -190,23 +202,86 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .finally(() => { setKeySaving(false) })
   }
 
-  if (loadError !== undefined && data === null) {
-    return (
-      <div className={css.tab}>
-        <p className={css.error} role="status">
-          {t('state.loadFailed')}:{loadError}
-        </p>
-      </div>
-    )
-  }
-  if (data === null || draft === null) {
-    return (
-      <div className={css.tab}>
-        <p className={css.muted}>{t('state.loading')}</p>
-      </div>
-    )
-  }
+  return (
+    <div className={css.tab}>
+      <div className={css.column}>
+        {loadError !== undefined && data === null ? (
+          <p className={css.error} role="status">
+            {t('state.loadFailed')}:{loadError}
+          </p>
+        ) : null}
 
+        {data === null || draft === null ? (
+          loadError === undefined ? <p className={css.muted}>{t('state.loading')}</p> : null
+        ) : (
+          <WakatimePanels
+            t={t}
+            data={data}
+            draft={draft}
+            logs={logs}
+            logsOpen={logsOpen}
+            cloud={cloud}
+            cloudState={cloudState}
+            apiKeyInput={apiKeyInput}
+            saving={saving}
+            keySaving={keySaving}
+            clearConfirm={clearConfirm}
+            describeLogError={describeLogError}
+            onToggleLogs={() => { setLogsOpen(!logsOpen) }}
+            onRefresh={() => { setTick((value) => value + 1) }}
+            onSync={syncCloud}
+            onClearApiKey={clearApiKey}
+            onApiKeyInput={setApiKeyInput}
+            onSaveApiKey={saveApiKey}
+            onPatch={patch}
+            onSave={save}
+          />
+        )}
+      </div>
+
+      {notice ? (
+        <div className={css.toast} role="status">
+          <span className={css.toastText}>{notice.text}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 面板属性(数据与回调均由主体下发,便于主体只负责数据编排) */
+interface PanelsProps {
+  t: (key: Parameters<WakatimeTabProps['t']>[0]) => string
+  data: WebStatusResponse
+  draft: ConfigDraft
+  logs: readonly WebLogEntry[]
+  logsOpen: boolean
+  cloud: WebSyncResponse['data'] | null
+  cloudState: 'idle' | 'syncing' | 'error'
+  apiKeyInput: string
+  saving: boolean
+  keySaving: boolean
+  clearConfirm: boolean
+  describeLogError: (error: string | undefined) => string
+  onToggleLogs: () => void
+  onRefresh: () => void
+  onSync: () => void
+  onClearApiKey: () => void
+  onApiKeyInput: (value: string) => void
+  onSaveApiKey: () => void
+  onPatch: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
+  onSave: () => void
+}
+
+/**
+ * 渲染四张卡片(顺序:战绩 → API Key → 上报记录 → 配置)。
+ * @param props - 数据、草稿与回调集合。
+ * @returns 卡片列内容。
+ */
+function WakatimePanels(props: PanelsProps) {
+  const { t, data, draft, logs, logsOpen, cloud, cloudState } = props
+  const { apiKeyInput, saving, keySaving, clearConfirm } = props
+  const { describeLogError, onToggleLogs, onRefresh, onSync, onClearApiKey } = props
+  const { onApiKeyInput, onSaveApiKey, onPatch, onSave } = props
   const aggregate = data.stats.aggregate
   const thinkingMinutes = Math.floor(aggregate.thinkingMs / 60000)
   const thinkingSeconds = Math.round((aggregate.thinkingMs % 60000) / 1000)
@@ -217,25 +292,69 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const mergedPromptChars = Math.max(aggregate.promptChars, cloudPrompt)
   const mergedOutputTokens = Math.max(aggregate.outputTokens, cloudOutput)
   const mergedApiEffective = Math.max(effectiveTokens(aggregate), cloudInput + cloudOutput)
+  const cloudMeta = cloud
+    ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
+    : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))
 
   return (
-    <div className={css.tab}>
+    <>
       <section className={css.card}>
         <div className={css.cardHead}>
-          <h3 className={css.cardTitle}>
-            {data.configured ? t('status.configured') : t('status.notConfigured')}
-          </h3>
-          <div className={css.cloudMeta}>
+          <h3 className={css.cardTitle}>{t('stats.title')}</h3>
+          <div className={css.actions}>
+            <span className={css.muted}>{cloudMeta}{' · '}{t('cloud.range')}</span>
+            <button
+              type="button"
+              className={compactButton}
+              disabled={cloudState === 'syncing'}
+              onClick={onSync}
+            >
+              {cloudState === 'syncing' ? t('cloud.syncing') : t('cloud.sync')}
+            </button>
+          </div>
+        </div>
+        <dl className={css.stats}>
+          <div className={css.stat}>
+            <dt className={css.statLabel}>{t('stats.promptChars')}</dt>
+            <dd className={css.statValue}>{mergedPromptChars.toLocaleString()}</dd>
+            <span className={css.statSub}>
+              {t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}
+            </span>
+          </div>
+          <div className={css.stat}>
+            <dt className={css.statLabel}>{t('stats.thinking')}</dt>
+            <dd className={css.statValue}>{`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`}</dd>
+          </div>
+          <div className={css.stat}>
+            <dt className={css.statLabel}>{t('stats.outputTokens')}</dt>
+            <dd className={css.statValue}>{mergedOutputTokens.toLocaleString()}</dd>
+          </div>
+          <div className={css.stat}>
+            <dt className={css.statLabel}>{t('stats.apiEffective')}</dt>
+            <dd className={css.statValue}>{mergedApiEffective.toLocaleString()}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className={css.card}>
+        <div className={css.cardHead}>
+          <h3 className={css.cardTitle}>{t('apikey.title')}</h3>
+          <div className={css.actions}>
+            <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
+              {data.configured ? t('status.configured') : t('status.notConfigured')}
+            </span>
             {data.configured ? (
               <button
                 type="button"
-                className={clearConfirm ? css.save : css.refresh}
-                onClick={clearApiKey}
+                className={clearConfirm
+                  ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
+                  : compactButton}
+                onClick={onClearApiKey}
               >
                 {clearConfirm ? t('apikey.clearConfirm') : t('apikey.clear')}
               </button>
             ) : null}
-            <button type="button" className={css.refresh} onClick={() => { setTick((value) => value + 1) }}>
+            <button type="button" className={compactButton} onClick={onRefresh}>
               {t('action.refresh')}
             </button>
           </div>
@@ -245,145 +364,181 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             {t('status.loginSuccess')}{t('status.account')}:{data.username}
           </p>
         ) : null}
-        <p className={css.muted}>{t('apikey.hint')}</p>
-        <div className={css.apiKeyRow}>
-          <input
-            className={css.input}
-            type="password"
-            autoComplete="off"
-            placeholder={t('apikey.placeholder')}
-            value={apiKeyInput}
-            onChange={(event) => { setApiKeyInput(event.target.value) }}
-          />
-          <button type="button" className={css.save} disabled={keySaving || apiKeyInput.trim() === ''} onClick={saveApiKey}>
-            {keySaving ? t('config.saving') : t('apikey.save')}
-          </button>
-        </div>
-        <p className={css.muted}>{t('apikey.overwrite')}</p>
-      </section>
-
-      <section className={css.card}>
-        <div className={css.cardHead}>
-          <h3 className={css.cardTitle}>{t('stats.title')}</h3>
-          <div className={css.cloudMeta}>
-            <span className={css.muted}>
-              {cloud
-                ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
-                : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))}
-              {' · '}{t('cloud.range')}
-            </span>
-            <button type="button" className={css.refresh} disabled={cloudState === 'syncing'} onClick={syncCloud}>
-              {cloudState === 'syncing' ? t('cloud.syncing') : t('cloud.sync')}
+        <div className={firstField}>
+          <span className={css.fieldLabel}>{t('apikey.save')}</span>
+          <span className={css.muted}>{t('apikey.hint')}{t('apikey.overwrite')}</span>
+          <div className={css.apiKeyRow}>
+            <input
+              className={css.input}
+              type="password"
+              autoComplete="off"
+              placeholder={t('apikey.placeholder')}
+              value={apiKeyInput}
+              onChange={(event) => { onApiKeyInput(event.target.value) }}
+            />
+            <button
+              type="button"
+              className={`${css.button} ${css.buttonPrimary}`}
+              disabled={keySaving || apiKeyInput.trim() === ''}
+              onClick={onSaveApiKey}
+            >
+              {keySaving ? t('config.saving') : t('apikey.save')}
             </button>
           </div>
         </div>
-        <div className={css.grid}>
-          <Stat
-            label={t('stats.promptChars')}
-            value={mergedPromptChars.toLocaleString()}
-            sub={t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}
-          />
-          <Stat label={t('stats.thinking')} value={`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`} />
-          <Stat label={t('stats.outputTokens')} value={mergedOutputTokens.toLocaleString()} />
-          <Stat label={t('stats.apiEffective')} value={mergedApiEffective.toLocaleString()} />
-        </div>
       </section>
 
       <section className={css.card}>
-        <div className={css.cardHead}>
-          <h3 className={css.cardTitle}>{t('logs.title')}</h3>
-          <button type="button" className={css.refresh} onClick={() => { setLogsOpen(!logsOpen) }}>
-            {logsOpen ? t('logs.collapse') : t('logs.expand')}
+        <div className={css.disclosure}>
+          <button
+            type="button"
+            className={css.disclosureRow}
+            aria-expanded={logsOpen}
+            aria-label={logsOpen ? t('logs.collapse') : t('logs.expand')}
+            onClick={onToggleLogs}
+          >
+            <Chevron className={css.chevron} />
+            <span className={css.disclosureTitle}>{t('logs.title')}</span>
           </button>
+          {logsOpen ? (
+            <div className={css.disclosureBody}>
+              {logs.length === 0
+                ? <p className={css.muted}>{t('logs.empty')}</p>
+                : (
+                  <table className={css.table}>
+                    <thead>
+                      <tr>
+                        <th>{t('logs.time')}</th>
+                        <th>{t('logs.records')}</th>
+                        <th>{t('logs.result')}</th>
+                        <th>{t('logs.detail')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map((entry, index) => (
+                        <tr key={`${entry.time}-${index}`}>
+                          <td>{formatTime(entry.time)}</td>
+                          <td>{entry.count} {t('logs.count')}</td>
+                          <td className={entry.ok ? css.ok : css.error}>{entry.ok ? t('logs.success') : t('logs.failed')}</td>
+                          <td className={css.muted}>{describeLogError(entry.error)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+            </div>
+          ) : null}
         </div>
-        {logsOpen ? (
-          logs.length === 0
-            ? <p className={css.muted}>{t('logs.empty')}</p>
-            : (
-              <table className={css.table}>
-                <thead>
-                  <tr>
-                    <th>{t('logs.time')}</th>
-                    <th>{t('logs.records')}</th>
-                    <th>{t('logs.result')}</th>
-                    <th>{t('logs.detail')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((entry, index) => (
-                    <tr key={`${entry.time}-${index}`}>
-                      <td>{formatTime(entry.time)}</td>
-                      <td>{entry.count} {t('logs.count')}</td>
-                      <td className={entry.ok ? css.ok : css.error}>{entry.ok ? t('logs.success') : t('logs.failed')}</td>
-                      <td className={css.muted}>{describeLogError(entry.error)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-        ) : null}
       </section>
 
       <section className={css.card}>
         <h3 className={css.cardTitle}>{t('config.title')}</h3>
-        <div className={css.fields}>
-          <ToggleRow label={t('config.enabled')} checked={draft.enabled} onChange={(value) => { patch('enabled', value) }} />
-          <ToggleRow label={t('config.reportEnabled')} checked={draft.reportEnabled} onChange={(value) => { patch('reportEnabled', value) }} />
-          <NumberRow label={t('config.reportInterval')} value={draft.reportInterval} onChange={(value) => { patch('reportInterval', value) }} />
-          <ToggleRow label={t('config.includeTokens')} checked={draft.includeTokens} onChange={(value) => { patch('includeTokens', value) }} />
-          <ToggleRow label={t('config.includePrompts')} checked={draft.includePrompts} onChange={(value) => { patch('includePrompts', value) }} />
-          <ToggleRow label={t('config.debug')} checked={draft.debug} onChange={(value) => { patch('debug', value) }} />
-        </div>
+        <ToggleField
+          label={t('config.enabled')}
+          checked={draft.enabled}
+          first
+          onChange={(value) => { onPatch('enabled', value) }}
+        />
+        <ToggleField
+          label={t('config.reportEnabled')}
+          checked={draft.reportEnabled}
+          onChange={(value) => { onPatch('reportEnabled', value) }}
+        />
+        <NumberField
+          label={t('config.reportInterval')}
+          value={draft.reportInterval}
+          onChange={(value) => { onPatch('reportInterval', value) }}
+        />
+        <ToggleField
+          label={t('config.includeTokens')}
+          checked={draft.includeTokens}
+          onChange={(value) => { onPatch('includeTokens', value) }}
+        />
+        <ToggleField
+          label={t('config.includePrompts')}
+          checked={draft.includePrompts}
+          onChange={(value) => { onPatch('includePrompts', value) }}
+        />
+        <ToggleField
+          label={t('config.debug')}
+          checked={draft.debug}
+          onChange={(value) => { onPatch('debug', value) }}
+        />
         <div className={css.saveRow}>
-          <button type="button" className={css.save} disabled={saving} onClick={save}>
+          <button
+            type="button"
+            className={`${css.button} ${css.buttonPrimary}`}
+            disabled={saving}
+            onClick={onSave}
+          >
             {saving ? t('config.saving') : t('config.save')}
           </button>
         </div>
       </section>
+    </>
+  )
+}
 
-      {notice ? (
-        <div className={notice.kind === 'ok' ? css.toastOk : css.toastError} role="status">
-          {notice.text}
-        </div>
-      ) : null}
+/* 开关行:标签文本与官方 Switch 形态的按钮(aria-checked 驱动开态;first 表示卡片内首个字段) */
+function ToggleField({ label, checked, first, onChange }: { label: string; checked: boolean; first?: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div className={first ? firstField : css.field}>
+      <div className={css.row}>
+        <span className={css.fieldLabel}>{label}</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label={label}
+          className={css.switch}
+          onClick={() => { onChange(!checked) }}
+        >
+          <span className={css.thumb} />
+        </button>
+      </div>
     </div>
   )
 }
 
-/** 汇总指标小卡片(sub 为可选的辅助说明行) */
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+/* 数字输入行:标签文本与官方形态输入框 */
+function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
   return (
-    <div className={css.stat}>
-      <span className={css.statValue}>{value}</span>
-      <span className={css.statLabel}>{label}</span>
-      {sub ? <span className={css.statSub}>{sub}</span> : null}
+    <div className={css.field}>
+      <div className={css.row}>
+        <span className={css.fieldLabel}>{label}</span>
+        <input
+          className={`${css.input} ${css.inputNarrow}`}
+          type="number"
+          min={1}
+          aria-label={label}
+          value={Number.isFinite(value) ? value : ''}
+          onChange={(event) => { onChange(Number(event.target.value)) }}
+        />
+      </div>
     </div>
   )
 }
 
-/** 开关行:label 关联控件,点击文本亦可切换 */
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+/* 折叠指示图标:官方 DisclosureRow 的 16px 盒内 14px 折角(描边用 currentColor) */
+function Chevron({ className }: { className?: string }) {
   return (
-    <label className={css.row}>
-      <span className={css.rowLabel}>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => { onChange(event.target.checked) }} />
-    </label>
-  )
-}
-
-/** 数字输入行:label 关联控件,点击文本亦可聚焦 */
-function NumberRow({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <label className={css.row}>
-      <span className={css.rowLabel}>{label}</span>
-      <input
-        className={css.input}
-        type="number"
-        min={1}
-        value={Number.isFinite(value) ? value : ''}
-        onChange={(event) => { onChange(Number(event.target.value)) }}
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M4 6.5 8 10.5 12 6.5"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-    </label>
+    </svg>
   )
 }
 

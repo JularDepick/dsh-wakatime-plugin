@@ -340,8 +340,9 @@ release/                  # 发布产物(已 gitignore):标准 npm tarball 单�
 - 量化指标(Agent 协作战绩,不统计/不展示/不上报心跳数与工具调用数):提示词总量(官方 `ai_prompt_length` 口径:字符数,与上报一致)、提示词 Token 估算(字符数 ÷ 系数 `1.5`,本地辅助展示)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法,官方无上报字段,仅本地展示)、输出 TOKEN 总量(官方 `ai_output_tokens`)、API 有效 TOKEN 消耗(输入+输出,官方仅 `ai_input_tokens`/`ai_output_tokens`,缓存命中 Token 无官方字段不并入)
 - 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
 - 云端同步并入战绩:已配置 API Key 时,标签页加载后自动同步一次并支持手动按钮,拉取 WakaTime summaries 近 7 天的 AI 聚合,与本地战绩对应指标(提示词字符、输出 TOKEN、API 有效消耗)取最大值合并展示,同步时间与状态显示在战绩卡头部;仅读取不修改云端,失败静默并显示错误态
-- API Key 清除:标签页登录卡提供「清除 API Key」按钮(确认流:3 秒内二次点击确认,超时回归),经小后端 `POST /api/wakatime/apikey/clear` 清除本地 Key 并回退未登录
+- API Key 清除:标签页 API Key 卡提供「清除 API Key」按钮(确认流:3 秒内二次点击确认,超时回归),经小后端 `POST /api/wakatime/apikey/clear` 清除本地 Key 并回退未登录
 - Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示 Agent 协作战绩(云端同步合并取最大值,头部含同步状态与按钮)、API Key 覆盖与清除区、上报记录日志与配置区;小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`、`GET /api/wakatime/sync`、`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
+- 标签页视觉基准与信息层级:以 dsh web 官方界面为基准(不引入品牌色),卡片顺序为战绩 → API Key → 上报记录 → 配置;根元素自备内边距 `16px calc(var(--dsh-composer-side-clearance) + 16px)` 与内容列 `max-width: var(--dsh-chat-content-width)` 居中(宿主 viewArea 不给内边距/滚动/最大宽度/背景);卡片材质 `0.5px` + `--dsw-radius-xl` + `--dsw-alias-settings-card-fill/stroke`,卡片标题 14px/500,字段间 `0.5px` 分隔;表格照官方 trajectory(固定布局、`font: var(--dsw-font-xxs-12)`、表头 sticky、行高 30px、`0.5px` 分隔线)但文本按项目规范居中;开关/输入/按钮/状态标签按官方 primitives 的标记与样式在插件内自制(官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label、shadow-lv3、160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗、不写 document.body
 - 环境变量:`WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`
 
 设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、WakaTime API 端点(含 summaries 与云端同步区间)、定时上报间隔/批量/重试/离线队列/补报周期/日志上限/心跳类别/AI 会话全局标识/提示词估算系数、Web UI 路由路径(含同步)、环境变量名)。
@@ -403,7 +404,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - PowerShell 每次调用独立无状态,必要时传 `workdir`;控制台中文乱码不代表文件损坏(UTF-8 正常)
 - 维护规则:按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
 - Web UI 插件:给 dsh web 新增 tab/UI 的完整机制与踩坑见 `docs/tech-spec/dsh-web-tab-experience.md`(client 产物格式、平台模块表、slot 纪律、数据通道选型);项目实例细节另见 `.agents/web-tab-experience.md`
-- WSL 部署测试:基线环境、两种部署流程、启动命令、服务端与浏览器端验证清单、常见问题排查见 `docs/wsl-deploy-testing.md`;部署与启动由用户人工执行(Agent 不发起 WSL 操作,不请求权限升级),复验结论按该文档第八节回写
+- WSL 部署测试:基线环境、两种部署流程、启动命令、服务端与浏览器端验证清单、常见问题排查见 `docs/wsl-deploy-testing.md`;**构建与部署默认全部由用户执行**(用户明确:Agent 不构建、不部署,只改代码与做语法/类型校验;历史上"仅安装"的单次授权不跨会话复用),Agent 不请求 WSL 权限升级,复验结论按该文档第八节回写;`add` 会先解析 profile 内全部既有依赖,任一 `file:` 依赖的 tarball 缺失即整体报 pnpm ENOENT
 - Agent 工作目录 `.agents/`:交接提示词(`NEXT-SESSION.md`)、经验文档(`web-tab-experience.md`)、临时脚本(`smoke.mjs`/`compare-pkgs.mjs`)与 npm/pnpm 缓存重定向(`npm-cache`/`pnpm-*`)均置于 `.agents/`(守则第 5/14 章:临时与工作文档优先 `temp/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
 - 外部插件依赖纪律:宿主包(`@deepseek-ai/cordis`、`dsh-tools`、`dsh-session`、`dsh-llm`、`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**——否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
 
