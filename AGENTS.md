@@ -130,6 +130,7 @@
 - 用户未明确要求时,不要动 tag 和 release,也不要 push,不要提及tag问题
 - 不要更改用户的 `LICENSE` `COPYRIGHT` 等项目长久性文件,除非用户明确提出要求变更
 - 保证git历史只描述被git追踪的文件和目录,即不要描述被git忽略的文件或目录
+- 无论本文档是否被git实际忽略,git描述变更时都将本文档视为被git忽略的文件
 
 ### 10. 代码开发
 
@@ -318,7 +319,7 @@
 - `src/webui/` 小后端:在 dsh host webserver 上注册状态/配置/API Key 覆盖与清除/上报日志/云端同步路由(仅 web profile,服务可选跟随)
 - `src/project/` 项目与分支检测(会话工作目录 → Git 仓库根与分支;支持向上查找与 `.git` 文件/worktree 形态)
 - `src/translation/` 翻译加载器与 `xx-YY.ini` 文案(host 工具文案)
-- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + API Key 覆盖 + 上报日志 + 配置子页),语言跟随 dsh web UI 语言切换(zh/en 字典),经 `/api/wakatime/*` 与小后端通信
+- `src/client/` 浏览器端(Web UI):`apply` 注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + API Key 覆盖 + 上报日志 + 配置视图),语言跟随 dsh web UI 语言切换(zh/en 字典),经 `/api/wakatime/*` 与小后端通信
 
 > 当项目架构发生变化时需要自主更新并告知用户
 
@@ -377,7 +378,7 @@ dsh-wakatime-plugin/
 3. `apply(ctx, config)` 执行:按 `config.locale` 初始化翻译,装配认证/心跳/采集/统计/工具各模块,注册 `session/event` 监听、四个工具、定时上报与离线补报定时器、小后端路由(web profile 提供 webserver 时挂载 `/api/wakatime/*`)
 4. 会话事件驱动:user/message 记录提示词长度与 Token 估算;step/start 开启每步计时,assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold 每步 LLM 思考时长;assistant/message 以 `ai coding` 类别入队主心跳(携带 input/output Token 与提示词长度);tool/call 以 `debugging` 类别入队轻量心跳
 5. 心跳入本地缓冲,启动加载时批量上报一次、之后每 `reportInterval` 秒批量上报(bulk);429/5xx 指数退避重试;失败进入离线队列由定时器补报;未配置 API Key 时缓冲丢弃
-6. API Key 经小后端管理:手动在 Web 标签页输入(仅覆盖、不回显)或 Agent 经 `wakatime_config` 工具覆盖写入,已配置后可在标签页清除(二次确认,回退未登录);`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + 云端同步合并 + API Key 覆盖与清除 + 上报日志 + 配置子页,语言跟随 dsh web)
+6. API Key 经小后端管理:手动在 Web 标签页输入(仅覆盖、不回显)或 Agent 经 `wakatime_config` 工具覆盖写入,已配置后可在标签页清除(二次确认,回退未登录);`wakatime_config` 还可读改全部配置项,`wakatime_logout` 清除 Key,`wakatime_status`/`wakatime_stats` 查看状态与战绩;web profile 下浏览器端 client 插件自动注册会话区域视图标签栏 wakatime 标签页(`conversation.view` 槽,Agent 协作战绩 + 云端同步合并 + API Key 覆盖与清除 + 上报日志 + 配置视图,语言跟随 dsh web)
 7. 插件卸载时,所有注册(事件监听、定时器、工具、Web 路由)由框架与 effect 自动清理
 
 ### 开发时配置文件
@@ -404,8 +405,8 @@ dsh-wakatime-plugin/
 - 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
 - 云端同步并入战绩:已配置 API Key 时,标签页加载后自动同步一次并支持手动按钮,拉取 WakaTime summaries 近 7 天的 AI 聚合,与本地战绩对应指标(提示词字符、输出 TOKEN、API 有效消耗)取最大值合并展示,同步时间与状态显示在战绩区标题行;仅读取不修改云端,失败静默并显示错误态
 - API Key 清除:标签页 API Key 区提供「清除 API Key」按钮(确认流:3 秒内二次点击确认,超时回归),经小后端 `POST /api/wakatime/apikey/clear` 清除本地 Key 并回退未登录
-- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示 Agent 协作战绩(云端同步合并取最大值,头部含同步状态与按钮)、API Key 覆盖与清除区、上报记录日志与右上角「配置」按钮呼起的配置子页;小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`、`GET /api/wakatime/sync`、`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
-- 标签页视觉基准与信息层级:以 dsh web 官方界面为基准(不引入品牌色),不自建卡片,内容直接铺在 tab 下;顶部工具条在右上角放「配置」按钮,主列分区顺序为战绩 → API Key → 上报记录,分区之间用 `0.5px` 分隔线区分;根元素只留宿主侧边留白 `12px var(--dsh-composer-side-clearance) 24px`,不做内容列最大宽度约束(宿主 viewArea 不给内边距/滚动/最大宽度/背景);战绩为独立三列表格(指标/数值/说明,固定布局,列宽 34/26/40),数值列用 `--dsw-font-s-strong-14` 与等宽数字;配置表单移入该按钮呼起的配置子页(组件内 `position: fixed` 遮罩浮层,`--dsw-alias-bg-mask-1` 遮罩 + `settings-card-fill/stroke` + `shadow-lv3` 面板,打开聚焦关闭按钮、收起焦点回到入口按钮,ESC 在捕获阶段监听并阻断继续传播,遮罩点击亦收起);字设与配色继承 profile,字号/行高/字重取 `--dsw-font-*` 令牌(strong 变体命名为 `<字号>-strong-<px>`,如 `--dsw-font-s-strong-14`),颜色只取 `--dsw-alias-*` 语义令牌;表格照官方 trajectory(表头与行高 30px、`0.5px` 分隔线、末行不画线)但文本按项目规范居中;开关/输入/按钮/状态标签按官方 primitives 的标记与样式在插件内自制(官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label、shadow-lv3、160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗、不写 document.body
+- Web UI:浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`),展示 Agent 协作战绩(云端同步合并取最大值,头部含同步状态与按钮)、API Key 覆盖与清除区、上报记录日志与右上角「配置」按钮切换出的配置视图;小后端经 webserver 服务挂载 `GET /api/wakatime/status`、`POST /api/wakatime/config`、`POST /api/wakatime/apikey`、`GET /api/wakatime/logs`、`GET /api/wakatime/sync`、`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
+- 标签页视觉基准与信息层级:以 dsh web 官方界面为基准(不引入品牌色),不自建卡片,内容直接铺在 tab 下;顶部工具条在右上角放「配置」按钮,主列分区顺序为战绩 → API Key → 上报记录,分区之间用 `0.5px` 分隔线区分;根元素只留宿主侧边留白 `12px var(--dsh-composer-side-clearance) 24px`,不做内容列最大宽度约束(宿主 viewArea 不给内边距/滚动/最大宽度/背景);战绩为独立三列表格(指标/数值/说明,固定布局,列宽 34/26/40),数值列用 `--dsw-font-s-strong-14` 与等宽数字;配置表单放在右上角按钮切换出的配置视图里(与主视图互斥渲染,不用遮罩浮层与浏览器原生弹窗;切回主视图后焦点回到切换按钮,ESC 在捕获阶段监听并阻断继续传播);字设与配色继承 profile,字号/行高/字重取 `--dsw-font-*` 令牌(strong 变体命名为 `<字号>-strong-<px>`,如 `--dsw-font-s-strong-14`),颜色只取 `--dsw-alias-*` 语义令牌;表格照官方 trajectory(表头与行高 30px、`0.5px` 分隔线、末行不画线)但文本按项目规范居中;开关/输入/按钮/状态标签按官方 primitives 的标记与样式在插件内自制(官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label、shadow-lv3、160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗、不写 document.body
 - 环境变量: `WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`;另识别 dsh 的 `DSH_HOME`(凭证目录默认位置)与 Node 的 `NODE_USE_ENV_PROXY`(环境代理开关)
 
 设计细节均隔离于 `src/constants.ts`(索引:默认语言/回退语言/翻译目录、凭证目录/文件名、Git 标记名与仓库查找深度、分支缓存时长、WakaTime API 端点(含 summaries 与云端同步区间)、定时上报间隔/批量/重试/请求超时/离线队列/补报周期/日志上限/心跳类别/AI 会话全局标识/提示词估算系数、Web UI 路由路径(含同步)、环境变量名)。

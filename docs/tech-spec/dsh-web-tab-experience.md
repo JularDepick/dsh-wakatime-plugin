@@ -167,7 +167,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 4. **CSS Modules 需要 lightningcss**:tsdown 不内置该管线,官方用自定义插件(虚拟 id + lightningcss transform);不想要 CSS 文件时可用内联样式规避
 5. **样式纪律**:使用已定义的语义 token,不写死颜色;写 `var(--dsw-*)` 前在主题 CSS 里确认该 token 存在(未定义时整条声明静默失效,实例:`--dsw-alias-border-l` 应为 `border-l1`..`border-l4`);产品文案用界面语言;**表格/select 文本居中属本仓库前端规范,与官方表格左对齐不同,两者冲突时按项目规范执行**;不用浏览器原生弹窗与原生二次确认
 6. **pnpm 无 TTY 会 abort**:package.json 描述符变更后需 `CI=true pnpm install`;typecheck/build 也建议 `CI=true` 前缀
-7. **子页/浮层与 ESC 收起**:外部 tab 需要可收起的子页时,在组件内渲染 `position: fixed` 浮层即可(遮罩 + 面板,不写 `document.body`、不用浏览器原生弹窗);键盘收起用 `window` **捕获阶段**监听 `keydown`,命中 ESC 时 `stopPropagation()` 以阻断宿主同时响应;打开后把焦点移入面板(如关闭按钮)、收起后还给入口按钮。宿主对标签页通常是"未选中即卸载或隐藏",固定定位浮层不会跨标签残留
+7. **次要视图优先用 tab 内互斥渲染,而不是浮层**:tab 内的次要视图(如配置表单)首选「同一 tab 内互斥渲染」——一个 `useState` 开关 + `aria-expanded`/`aria-controls` 即可切换内容,布局天然受宿主约束,不用处理遮罩点击、层级与整屏遮挡;`position: fixed` 遮罩浮层(组件内渲染,不写 `document.body`、不用浏览器原生弹窗)只在确实需要悬浮于页面之上时使用。键盘收起(如 ESC 切回主视图)用 `window` **捕获阶段**监听 `keydown`,命中时 `stopPropagation()` 阻断宿主同时响应;被切走的一侧若有元素持有焦点,切回后把焦点还给入口按钮(切换按钮自身常驻时无需额外处理打开方向)
 
 ## 六、参考文件索引(官方仓库)
 
@@ -189,4 +189,4 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 | `packages/client/ui-chat/src/client/*`、`ui-trajectory/src/client/*` | 非 overlay 与 overlay 两条 tab 版式路线的官方实现 |
 | `packages/host/webserver/src/index.ts` | webserver 服务(register 路由扩展点) |
 
-> 本项目实例:dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线的铺满变体(不设内容列最大宽度、不自建卡片,分区靠 `0.5px` 分隔线,战绩为指标/数值/说明三列表格),字设与配色取 profile 的 `--dsw-font-*`(strong 变体为 `<字号>-strong-<px>`)与 `--dsw-alias-*` 令牌,控件形态按第四节表格自行复制官方 primitives,配置表单放在标签页右上角按钮呼起的子页里(组件内固定定位遮罩浮层,ESC 或遮罩点击收起);相关项目细节见根目录 `AGENTS.md` 设计细节段。
+> 本项目实例:dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线的铺满变体(不设内容列最大宽度、不自建卡片,分区靠 `0.5px` 分隔线,战绩为指标/数值/说明三列表格),字设与配色取 profile 的 `--dsw-font-*`(strong 变体为 `<字号>-strong-<px>`)与 `--dsw-alias-*` 令牌,控件形态按第四节表格自行复制官方 primitives,配置表单放在标签页右上角按钮切换出的配置视图里(与主视图互斥渲染,ESC 切回);相关项目细节见根目录 `AGENTS.md` 设计细节段。
