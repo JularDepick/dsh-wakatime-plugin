@@ -3,7 +3,8 @@
  * 作者: JularDepick
  *
  * 视觉基准为 dsh web 官方界面:内容直接铺在 tab 根元素下,不再自建卡片,
- * 左右只留宿主 composer 侧边留白,不做内容列最大宽度约束;
+ * 左右内边距固定为 60px(单一旋钮 --wakatime-tab-inline-padding),
+ * 不做内容列最大宽度约束;
  * 分区之间用 0.5px 分隔线区分。
  * 宽度自适应:内容列声明为容器(container-type: inline-size),宿主拖动宽度手柄
  * 调整对话区域宽度时,由 @container 规则重排列宽、让信息列换行,避免横向溢出与
@@ -19,7 +20,9 @@
 .tab {
   box-sizing: border-box;
   width: 100%;
-  padding: 12px var(--dsh-composer-side-clearance, 16px) 24px;
+  /* 左右内边距:按设计要求固定 60px(可按需调整的设计细节),不再取宿主留白变量 */
+  --wakatime-tab-inline-padding: 60px;
+  padding: 12px var(--wakatime-tab-inline-padding) 24px;
   color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-s-14);
 }
