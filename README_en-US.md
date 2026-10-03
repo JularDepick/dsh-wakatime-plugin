@@ -50,11 +50,13 @@ dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 
 After installing and enabling the plugin, configure a WakaTime API key (generate one at wakatime.com/settings/api-key):
 
-- **Manually**: paste it into the WakaTime tab of the Web interface (overwrite only, never echoed back);
+- **Manually**: in the WakaTime tab of the Web interface, open the config view via the "Settings" button at the top right and paste it there (overwrite only, never echoed back);
 - **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_apikey) to configure it for you;
 - **Environment variable**: set `WAKATIME_API_KEY` (takes precedence over the file).
 
-After configuring an API key, you can clear it in the tab to return to the logged-out state.
+After configuring an API key, you can clear it in the API key section of the config view to return to the logged-out state.
+
+Switches and the report interval in the config view apply immediately — there is no save button (numeric fields commit on blur or Enter).
 
 The plugin then tracks AI interactions in DSH and reports them to WakaTime on a scheduled basis.
 

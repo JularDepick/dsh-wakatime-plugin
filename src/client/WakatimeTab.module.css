@@ -28,14 +28,33 @@
   min-width: 0;
 }
 
-/* ---------- 顶部工具条(右上角配置视图切换入口) ---------- */
+/* ---------- 顶部工具条(左侧只读账号状态,右侧配置视图切换入口) ---------- */
 
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 切换按钮始终靠右(工具条左侧留给只读账号状态) */
+.toolbarEnd {
+  margin-left: auto;
+}
+
+/* 只读账号状态:状态标签 + 账号名(过长省略,不参与写操作) */
+.statusLine {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.statusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 分区:无卡片材质,靠分隔线与间距区分 */
@@ -396,15 +415,6 @@
   .thumb {
     transition: none;
   }
-}
-
-/* ---------- 保存行(官方 SettingsForm footer) ---------- */
-
-.saveRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-top: 4px;
 }
 
 /* ---------- 可折叠区块(官方 DisclosureRow 形态) ---------- */

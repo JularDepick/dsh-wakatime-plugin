@@ -50,11 +50,13 @@ dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 
 安装并启用插件后,配置 WakaTime API Key(在 wakatime.com/settings/api-key 生成):
 
-- **手动**:在 Web 界面会话区域的 WakaTime 标签页粘贴保存(仅覆盖、不回显);
+- **手动**:在 Web 界面会话区域的 WakaTime 标签页,点右上角「配置」进入配置视图后粘贴保存(仅覆盖、不回显);
 - **Agent 引导**:让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
 - **环境变量**:设置 `WAKATIME_API_KEY`(优先于文件配置)。
 
-已配置 API Key 后,可在标签页执行「清除 API Key」回退到未登录状态。
+已配置 API Key 后,可在配置视图的 API Key 区执行「清除 API Key」回退到未登录状态。
+
+配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入)。
 
 此后插件会自动追踪 DSH 中的 AI 交互,按定时节奏批量上报至 WakaTime。
 

@@ -34,7 +34,7 @@ export const inject = ['tools']
 export { Config }
 
 /* 导出模块类:便于复用与测试 */
-export { AuthManagerImpl, basicAuthOf } from './auth'
+export { AuthManagerImpl, basicAuthOf, pickUsername } from './auth'
 export { SessionEventCollector } from './collector'
 export { ConfigManagerImpl } from './config-manager'
 export { HeartbeatEngineImpl } from './heartbeat'

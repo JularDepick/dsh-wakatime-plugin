@@ -27,6 +27,10 @@ export const HEARTBEATS_BULK_PATH = '/users/current/heartbeats.bulk'
 export const USER_INFO_PATH = '/users/current'
 export const SUMMARIES_PATH = '/users/current/summaries'
 
+/* WakaTime 匿名账号的 display_name 占位值(未设置用户名与姓名时由服务端返回),
+   官方 /users/current 的 username 与 full_name 均可为 null,故展示账号名时需要剔除该占位 */
+export const ANONYMOUS_DISPLAY_NAME = 'Anonymous User'
+
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
 

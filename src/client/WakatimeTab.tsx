@@ -5,7 +5,8 @@
  * Agent 协作战绩(全局):提示词总量(字符,官方 ai_prompt_length 口径)、
  * LLM 思考总时长、输出 TOKEN、API 有效 TOKEN 消耗(输入+输出)等;
  * API Key 覆盖管理(小后端代理,仅覆盖不可查看);
- * 上报记录日志(可展开/收起,调试级);配置以独立视图形式由右上角按钮切换(ESC 切回)。
+ * 上报记录日志(可展开/收起,调试级);主视图工具条左侧带只读账号状态,
+ * API Key 变更与上报参数同属配置,由右上角按钮切换出的配置视图承载(ESC 切回主视图)。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
  * 版式:内容直接铺在 tab 下,不再自建卡片(分区之间用分隔线区分),
@@ -17,7 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { WebConfigPayload, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
+import type { WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -71,7 +72,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [logsOpen, setLogsOpen] = useState(false)
   const [loadError, setLoadError] = useState<string>()
   const [notice, setNotice] = useState<Notice>()
-  const [saving, setSaving] = useState(false)
   const [keySaving, setKeySaving] = useState(false)
   const [tick, setTick] = useState(0)
   /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合) */
@@ -181,25 +181,29 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   }, [notice])
 
   const patch = (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]): void => {
+    /* 值未变化时不重复写入(数字字段失焦时常见) */
+    if (draft && draft[key] === value) return
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
-  }
-
-  const save = (): void => {
-    if (!draft) return
-    setSaving(true)
     setNotice(undefined)
+    /* 单键写入,小后端即时应用并持久化:配置改动无需保存按钮 */
     fetch(CONFIG_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(toPayload(draft)),
+      body: JSON.stringify({ [key]: value }),
     })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<{ ok: boolean }>
       })
-      .then(() => { setNotice({ kind: 'ok', text: t('config.saved') }) })
-      .catch((error: unknown) => { setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` }) })
-      .finally(() => { setSaving(false) })
+      .catch((error: unknown) => {
+        setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` })
+        /* 写入失败:重新拉取状态,使草稿回到服务端已生效的值 */
+        setTick((value) => value + 1)
+      })
+  }
+
+  /* 数字字段输入过程只更新草稿,避免中间值(如 1)即时生效 */
+  const draftOnly = (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]): void => {
+    setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
   }
 
   /* API Key 覆盖写入:小后端先验证,失败不保存并回报;成功后清空输入框,
@@ -250,7 +254,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             cloud={cloud}
             cloudState={cloudState}
             apiKeyInput={apiKeyInput}
-            saving={saving}
             keySaving={keySaving}
             clearConfirm={clearConfirm}
             configOpen={configOpen}
@@ -264,7 +267,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             onApiKeyInput={setApiKeyInput}
             onSaveApiKey={saveApiKey}
             onPatch={patch}
-            onSave={save}
+            onDraft={draftOnly}
           />
         )}
       </div>
@@ -288,7 +291,6 @@ interface PanelsProps {
   cloud: WebSyncResponse['data'] | null
   cloudState: 'idle' | 'syncing' | 'error'
   apiKeyInput: string
-  saving: boolean
   keySaving: boolean
   clearConfirm: boolean
   configOpen: boolean
@@ -302,11 +304,11 @@ interface PanelsProps {
   onApiKeyInput: (value: string) => void
   onSaveApiKey: () => void
   onPatch: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
-  onSave: () => void
+  onDraft: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
 }
 
 /**
- * 渲染主视图(战绩 → API Key → 上报记录)或配置视图。
+ * 渲染主视图(只读账号状态 + 战绩 → 上报记录)或配置视图(API Key 变更 → 上报参数)。
  * 战绩为独立表格;分区之间用分隔线区分,不自建卡片;
  * 右上角按钮在两个视图之间切换 tab 内容(ESC 切回主视图)。
  * @param props - 数据、草稿与回调集合。
@@ -314,10 +316,10 @@ interface PanelsProps {
  */
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloud, cloudState } = props
-  const { apiKeyInput, saving, keySaving, clearConfirm } = props
+  const { apiKeyInput, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
   const { describeLogError, onToggleLogs, onRefresh, onSync, onClearApiKey, onToggleConfig } = props
-  const { onApiKeyInput, onSaveApiKey, onPatch, onSave } = props
+  const { onApiKeyInput, onSaveApiKey, onPatch, onDraft } = props
   const aggregate = data.stats.aggregate
   const thinkingMinutes = Math.floor(aggregate.thinkingMs / 60000)
   const thinkingSeconds = Math.round((aggregate.thinkingMs % 60000) / 1000)
@@ -332,28 +334,96 @@ function WakatimePanels(props: PanelsProps) {
     ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
     : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))
 
-  /* 右上角视图切换按钮:主视图与配置视图共用 */
+  /* 视图切换按钮:主视图与配置视图共用(靠右,主视图左侧留给只读账号状态) */
   const toggleButton = (
-    <div className={css.toolbar}>
-      <button
-        type="button"
-        ref={configToggleRef}
-        className={compactButton}
-        aria-expanded={configOpen}
-        aria-controls={CONFIG_PANEL_ID}
-        onClick={onToggleConfig}
-      >
-        {configOpen ? t('config.collapse') : t('config.open')}
-      </button>
-    </div>
+    <button
+      type="button"
+      ref={configToggleRef}
+      className={`${compactButton} ${css.toolbarEnd}`}
+      aria-expanded={configOpen}
+      aria-controls={CONFIG_PANEL_ID}
+      onClick={onToggleConfig}
+    >
+      {configOpen ? t('config.collapse') : t('config.open')}
+    </button>
+  )
+
+  /* 只读账号状态:主视图复制一份展示(与配置视图的 API Key 区同源,不含任何写操作入口) */
+  const accountStatus = (
+    <span className={css.statusLine}>
+      <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
+        {data.configured ? t('status.configured') : t('status.notConfigured')}
+      </span>
+      {data.configured && data.username ? (
+        <span className={`${css.muted} ${css.statusText}`}>
+          {t('status.loginSuccess')}{t('status.account')}:{data.username}
+        </span>
+      ) : null}
+    </span>
+  )
+
+  /* API Key 变更属于配置:与上报参数一并放在配置视图(容器 id 供切换按钮 aria-controls 指向) */
+  const apiKeySection = (
+    <section id={CONFIG_PANEL_ID} className={css.section}>
+      <div className={css.sectionHead}>
+        <h3 className={css.sectionTitle}>{t('apikey.title')}</h3>
+        <div className={css.actions}>
+          <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
+            {data.configured ? t('status.configured') : t('status.notConfigured')}
+          </span>
+          {data.configured ? (
+            <button
+              type="button"
+              className={clearConfirm
+                ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
+                : compactButton}
+              onClick={onClearApiKey}
+            >
+              {clearConfirm ? t('apikey.clearConfirm') : t('apikey.clear')}
+            </button>
+          ) : null}
+          <button type="button" className={compactButton} onClick={onRefresh}>
+            {t('action.refresh')}
+          </button>
+        </div>
+      </div>
+      {data.configured && data.username ? (
+        <p className={css.ok} role="status">
+          {t('status.loginSuccess')}{t('status.account')}:{data.username}
+        </p>
+      ) : null}
+      <div className={css.field}>
+        <span className={css.fieldLabel}>{t('apikey.save')}</span>
+        <span className={css.muted}>{t('apikey.hint')}{t('apikey.overwrite')}</span>
+        <div className={css.apiKeyRow}>
+          <input
+            className={css.input}
+            type="password"
+            autoComplete="off"
+            placeholder={t('apikey.placeholder')}
+            value={apiKeyInput}
+            onChange={(event) => { onApiKeyInput(event.target.value) }}
+          />
+          <button
+            type="button"
+            className={`${css.button} ${css.buttonPrimary}`}
+            disabled={keySaving || apiKeyInput.trim() === ''}
+            onClick={onSaveApiKey}
+          >
+            {keySaving ? t('config.saving') : t('apikey.save')}
+          </button>
+        </div>
+      </div>
+    </section>
   )
 
   /* 配置视图:直接切换 tab 内容(不另起浮层) */
   if (configOpen) {
     return (
       <>
-        {toggleButton}
-        <section id={CONFIG_PANEL_ID} className={css.section}>
+        <div className={css.toolbar}>{toggleButton}</div>
+        {apiKeySection}
+        <section className={css.section}>
           <h3 className={css.sectionTitle}>{t('config.title')}</h3>
           <ToggleField
             label={t('config.enabled')}
@@ -368,7 +438,8 @@ function WakatimePanels(props: PanelsProps) {
           <NumberField
             label={t('config.reportInterval')}
             value={draft.reportInterval}
-            onChange={(value) => { onPatch('reportInterval', value) }}
+            onChange={(value) => { onDraft('reportInterval', value) }}
+            onCommit={(value) => { onPatch('reportInterval', value) }}
           />
           <ToggleField
             label={t('config.includeTokens')}
@@ -385,16 +456,7 @@ function WakatimePanels(props: PanelsProps) {
             checked={draft.debug}
             onChange={(value) => { onPatch('debug', value) }}
           />
-          <div className={css.saveRow}>
-            <button
-              type="button"
-              className={`${css.button} ${css.buttonPrimary}`}
-              disabled={saving}
-              onClick={onSave}
-            >
-              {saving ? t('config.saving') : t('config.save')}
-            </button>
-          </div>
+          <p className={css.muted}>{t('config.instantHint')}</p>
         </section>
       </>
     )
@@ -402,7 +464,7 @@ function WakatimePanels(props: PanelsProps) {
 
   return (
     <>
-      {toggleButton}
+      <div className={css.toolbar}>{accountStatus}{toggleButton}</div>
 
       <section className={css.section}>
         <div className={css.sectionHead}>
@@ -455,58 +517,6 @@ function WakatimePanels(props: PanelsProps) {
             </tr>
           </tbody>
         </table>
-      </section>
-
-      <section className={css.section}>
-        <div className={css.sectionHead}>
-          <h3 className={css.sectionTitle}>{t('apikey.title')}</h3>
-          <div className={css.actions}>
-            <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
-              {data.configured ? t('status.configured') : t('status.notConfigured')}
-            </span>
-            {data.configured ? (
-              <button
-                type="button"
-                className={clearConfirm
-                  ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
-                  : compactButton}
-                onClick={onClearApiKey}
-              >
-                {clearConfirm ? t('apikey.clearConfirm') : t('apikey.clear')}
-              </button>
-            ) : null}
-            <button type="button" className={compactButton} onClick={onRefresh}>
-              {t('action.refresh')}
-            </button>
-          </div>
-        </div>
-        {data.configured && data.username ? (
-          <p className={css.ok} role="status">
-            {t('status.loginSuccess')}{t('status.account')}:{data.username}
-          </p>
-        ) : null}
-        <div className={css.field}>
-          <span className={css.fieldLabel}>{t('apikey.save')}</span>
-          <span className={css.muted}>{t('apikey.hint')}{t('apikey.overwrite')}</span>
-          <div className={css.apiKeyRow}>
-            <input
-              className={css.input}
-              type="password"
-              autoComplete="off"
-              placeholder={t('apikey.placeholder')}
-              value={apiKeyInput}
-              onChange={(event) => { onApiKeyInput(event.target.value) }}
-            />
-            <button
-              type="button"
-              className={`${css.button} ${css.buttonPrimary}`}
-              disabled={keySaving || apiKeyInput.trim() === ''}
-              onClick={onSaveApiKey}
-            >
-              {keySaving ? t('config.saving') : t('apikey.save')}
-            </button>
-          </div>
-        </div>
       </section>
 
       <section className={css.section}>
@@ -583,8 +593,14 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
   )
 }
 
-/* 数字输入行:标签文本与官方形态输入框 */
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+/* 数字输入行:标签文本与官方形态输入框;
+   输入过程只回传草稿值,失焦或回车才回传提交值(避免中间值即时生效) */
+function NumberField({ label, value, onChange, onCommit }: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  onCommit: (value: number) => void
+}) {
   return (
     <div className={css.field}>
       <div className={css.row}>
@@ -596,6 +612,11 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
           aria-label={label}
           value={Number.isFinite(value) ? value : ''}
           onChange={(event) => { onChange(Number(event.target.value)) }}
+          onBlur={(event) => { onCommit(Number(event.target.value)) }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            onCommit(Number(event.currentTarget.value))
+          }}
         />
       </div>
     </div>
@@ -633,17 +654,6 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,
     debug: config.debug,
-  }
-}
-
-function toPayload(draft: ConfigDraft): WebConfigPayload {
-  return {
-    enabled: draft.enabled,
-    reportInterval: draft.reportInterval,
-    reportEnabled: draft.reportEnabled,
-    includeTokens: draft.includeTokens,
-    includePrompts: draft.includePrompts,
-    debug: draft.debug,
   }
 }
 

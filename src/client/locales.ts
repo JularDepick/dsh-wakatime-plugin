@@ -60,9 +60,8 @@ export type WakatimeKey =
   | 'config.includeTokens'
   | 'config.includePrompts'
   | 'config.debug'
-  | 'config.save'
   | 'config.saving'
-  | 'config.saved'
+  | 'config.instantHint'
   | 'config.saveFailed'
   | 'action.refresh'
   | 'state.loading'
@@ -123,9 +122,8 @@ export const zh: WakatimeDict = {
   'config.includeTokens': '上报 Token 用量',
   'config.includePrompts': '上报提示词长度',
   'config.debug': '调试日志',
-  'config.save': '保存配置',
   'config.saving': '保存中…',
-  'config.saved': '配置已保存',
+  'config.instantHint': '修改立即生效',
   'config.saveFailed': '保存失败',
   'action.refresh': '刷新',
   'state.loading': '加载中…',
@@ -185,9 +183,8 @@ export const en: WakatimeDict = {
   'config.includeTokens': 'Report token usage',
   'config.includePrompts': 'Report prompt length',
   'config.debug': 'Debug logging',
-  'config.save': 'Save config',
   'config.saving': 'Saving…',
-  'config.saved': 'Config saved',
+  'config.instantHint': 'Changes apply immediately',
   'config.saveFailed': 'Save failed',
   'action.refresh': 'Refresh',
   'state.loading': 'Loading…',
