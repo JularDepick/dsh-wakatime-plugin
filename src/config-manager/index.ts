@@ -20,13 +20,13 @@ function dshHome(): string {
 }
 
 /* 配置目录:环境变量覆盖优先(空串视为未设置),否则置于 dsh home 的 plugins 下 */
-function configDir(): string {
+export function resolveConfigDir(): string {
   const fromEnv = process.env[ENV_CONFIG_DIR]?.trim()
   return fromEnv || join(dshHome(), 'plugins', CONFIG_DIR_NAME)
 }
 
 function configPath(): string {
-  return join(configDir(), CONFIG_FILE_NAME)
+  return join(resolveConfigDir(), CONFIG_FILE_NAME)
 }
 
 export class ConfigManagerImpl implements ConfigManager {
@@ -45,11 +45,11 @@ export class ConfigManagerImpl implements ConfigManager {
 
   save(config: StoredConfig): Promise<void> {
     const task = this.writeQueue.then(async () => {
-      const dir = configDir()
+      const dir = resolveConfigDir()
       const path = configPath()
       await mkdir(dir, { recursive: true, mode: 0o700 })
       await writeFile(path, JSON.stringify(config, null, 2), { mode: 0o600 })
-      await hardenPermissions(dir, path)
+      await hardenPathPermissions(dir, path)
     })
     /* 失败不阻塞后续写入 */
     this.writeQueue = task.catch(() => {})
@@ -72,7 +72,7 @@ export class ConfigManagerImpl implements ConfigManager {
 
 /* POSIX 下显式收紧目录与文件权限(已存在文件的 mode 不会因写入而改变);
    Windows 无 POSIX mode,权限依赖用户目录 ACL,此处跳过;收紧失败不影响写入结果 */
-async function hardenPermissions(dir: string, path: string): Promise<void> {
+export async function hardenPathPermissions(dir: string, path: string): Promise<void> {
   if (process.platform === 'win32') return
   try {
     await chmod(dir, 0o700)

@@ -21,6 +21,7 @@ import { FetchHttpClient } from './http'
 import { ProjectDetector } from './project'
 import { RuntimeConfig } from './runtime-config'
 import { StatsTracker } from './stats'
+import { StatsStore } from './stats-store'
 import { CloudSync } from './sync'
 import { WakatimeTools } from './tools'
 import { setLanguage } from './translation'
@@ -42,7 +43,8 @@ export { FetchHttpClient } from './http'
 export { WakaTimeError } from './http'
 export { ProjectDetector } from './project'
 export { RuntimeConfig } from './runtime-config'
-export { StatsTracker } from './stats'
+export { StatsTracker, normalizeTotals, emptyTotals } from './stats'
+export { StatsStore } from './stats-store'
 export { CloudSync } from './sync'
 export { WakatimeTools } from './tools'
 export { translate, setLanguage, getLanguage } from './translation'
@@ -64,7 +66,8 @@ export function apply(ctx: Context, config: ConfigType) {
     includePrompts: config.includePrompts,
     logger,
   })
-  const stats = new StatsTracker()
+  const statsStore = new StatsStore()
+  const stats = new StatsTracker({ onChange: (totals) => { statsStore.save(totals) } })
   const project = new ProjectDetector()
   const collector = new SessionEventCollector({ heartbeat, stats, project })
   const cloudSync = new CloudSync(http, auth)
@@ -99,6 +102,14 @@ export function apply(ctx: Context, config: ConfigType) {
   void configManager.load().then((stored) => {
     if (stored?.settings) void runtimeConfig.mergeStored(stored.settings)
   })
+
+  /* 启动时恢复上次运行的战绩累计量(本地独有指标无云端来源,失败静默从零开始) */
+  void statsStore.load().then((totals) => {
+    if (totals) stats.seed(totals)
+  })
+
+  /* 卸载时落盘最后一次累计量,避免进程结束丢失防抖窗口内的变更 */
+  ctx.effect(() => () => { void statsStore.flush() })
 
   /* 定时上报循环:启动时立即上报一次,之后按间隔循环;离线队列补报独立定时 */
   ctx.effect(() => {

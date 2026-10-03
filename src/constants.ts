@@ -15,6 +15,11 @@ export const TRANSLATION_DIR = 'translation'
 export const CONFIG_DIR_NAME = 'wakatime'
 export const CONFIG_FILE_NAME = 'config.json'
 
+/* 战绩累计量快照(与配置文件同目录):本地独有指标无云端字段可恢复,故落盘跨重启累加;
+   写入防抖(毫秒),避免高频统计变更频繁写盘 */
+export const STATS_FILE_NAME = 'stats.json'
+export const STATS_SAVE_DEBOUNCE_MS = 2000
+
 /* 项目与分支采样:Git 标记名、向上查找的最大层数、分支缓存时长(毫秒) */
 export const GIT_DIR_NAME = '.git'
 export const GIT_ROOT_MAX_DEPTH = 64
