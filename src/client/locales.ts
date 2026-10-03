@@ -52,6 +52,8 @@ export type WakatimeKey =
   | 'logs.failed'
   | 'logs.errNotConfigured'
   | 'config.title'
+  | 'config.open'
+  | 'config.collapse'
   | 'config.enabled'
   | 'config.reportInterval'
   | 'config.reportEnabled'
@@ -113,6 +115,8 @@ export const zh: WakatimeDict = {
   'logs.failed': '失败',
   'logs.errNotConfigured': '未配置 API Key',
   'config.title': '配置',
+  'config.open': '配置',
+  'config.collapse': '收起配置',
   'config.enabled': '启用上报',
   'config.reportInterval': '上报间隔(秒)',
   'config.reportEnabled': '开启定时上报',
@@ -173,6 +177,8 @@ export const en: WakatimeDict = {
   'logs.failed': 'Failed',
   'logs.errNotConfigured': 'API key not configured',
   'config.title': 'Configuration',
+  'config.open': 'Settings',
+  'config.collapse': 'Hide settings',
   'config.enabled': 'Enable reporting',
   'config.reportInterval': 'Report interval (seconds)',
   'config.reportEnabled': 'Enable scheduled reporting',

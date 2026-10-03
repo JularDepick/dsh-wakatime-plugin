@@ -5,7 +5,7 @@
  * Agent 协作战绩(全局):提示词总量(字符,官方 ai_prompt_length 口径)、
  * LLM 思考总时长、输出 TOKEN、API 有效 TOKEN 消耗(输入+输出)等;
  * API Key 覆盖管理(小后端代理,仅覆盖不可查看);
- * 上报记录日志(可展开/收起,调试级);配置区。
+ * 上报记录日志(可展开/收起,调试级);配置以子页形式由右上角按钮呼起(ESC 收起)。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
  * 版式:内容直接铺在 tab 下,不再自建卡片(分区之间用分隔线区分),
@@ -13,7 +13,8 @@
  * 官方控件形态自行复制(官方守则禁止外部插件 value-import Harness Client 包)。
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { WebConfigPayload, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
@@ -54,10 +55,13 @@ const NOTICE_MS = 3000
 /** 紧凑次级按钮类名(官方 Button sm + outline) */
 const compactButton = `${css.button} ${css.buttonSm} ${css.buttonOutline}`
 
+/** 配置子页容器 id(供右上角按钮 aria-controls 指向) */
+const CONFIG_PANEL_ID = 'wakatime-config-panel'
+
 /**
  * 渲染 wakatime 标签页。
  * @param props - 框架座位:t 为 locale 座位,会话座位不消费。
- * @returns 战绩面板、API Key 覆盖区、上报日志与配置区。
+ * @returns 战绩表、API Key 覆盖区、上报日志区与配置子页。
  */
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
@@ -75,6 +79,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
   const [clearConfirm, setClearConfirm] = useState(false)
+  /* 配置子页开关(右上角按钮呼起/收起,ESC 或遮罩点击收起) */
+  const [configOpen, setConfigOpen] = useState(false)
+  const configToggleRef = useRef<HTMLButtonElement | null>(null)
+  const configCloseRef = useRef<HTMLButtonElement | null>(null)
 
   /* 清除确认超时回归 */
   useEffect(() => {
@@ -82,6 +90,29 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     const timer = setTimeout(() => { setClearConfirm(false) }, CONFIRM_MS)
     return () => clearTimeout(timer)
   }, [clearConfirm])
+
+  /* 配置子页打开后聚焦关闭按钮,收起后焦点回到右上角按钮(首次挂载不抢焦点) */
+  const configFocusReady = useRef(false)
+  useEffect(() => {
+    if (!configFocusReady.current) {
+      configFocusReady.current = true
+      return
+    }
+    if (configOpen) configCloseRef.current?.focus()
+    else configToggleRef.current?.focus()
+  }, [configOpen])
+
+  /* ESC 收起配置子页(捕获阶段监听并阻断继续传播,避免宿主同时响应) */
+  useEffect(() => {
+    if (!configOpen) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setConfigOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => { window.removeEventListener('keydown', onKeyDown, true) }
+  }, [configOpen])
 
   /* 清除本地 API Key(回退未登录)并刷新状态 */
   const clearApiKey = (): void => {
@@ -224,8 +255,12 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             saving={saving}
             keySaving={keySaving}
             clearConfirm={clearConfirm}
+            configOpen={configOpen}
+            configToggleRef={configToggleRef}
+            configCloseRef={configCloseRef}
             describeLogError={describeLogError}
             onToggleLogs={() => { setLogsOpen(!logsOpen) }}
+            onToggleConfig={() => { setConfigOpen(!configOpen) }}
             onRefresh={() => { setTick((value) => value + 1) }}
             onSync={syncCloud}
             onClearApiKey={clearApiKey}
@@ -259,8 +294,12 @@ interface PanelsProps {
   saving: boolean
   keySaving: boolean
   clearConfirm: boolean
+  configOpen: boolean
+  configToggleRef: MutableRefObject<HTMLButtonElement | null>
+  configCloseRef: MutableRefObject<HTMLButtonElement | null>
   describeLogError: (error: string | undefined) => string
   onToggleLogs: () => void
+  onToggleConfig: () => void
   onRefresh: () => void
   onSync: () => void
   onClearApiKey: () => void
@@ -271,15 +310,17 @@ interface PanelsProps {
 }
 
 /**
- * 渲染四个分区(顺序:战绩 → API Key → 上报记录 → 配置)。
- * 战绩为独立表格;分区之间用分隔线区分,不再自建卡片。
+ * 渲染三个分区(顺序:战绩 → API Key → 上报记录)与配置子页。
+ * 战绩为独立表格;分区之间用分隔线区分,不再自建卡片;
+ * 配置表单移入右上角按钮呼起的子页(ESC 或遮罩点击收起)。
  * @param props - 数据、草稿与回调集合。
- * @returns 分区列内容。
+ * @returns 分区列内容与配置子页浮层。
  */
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloud, cloudState } = props
   const { apiKeyInput, saving, keySaving, clearConfirm } = props
-  const { describeLogError, onToggleLogs, onRefresh, onSync, onClearApiKey } = props
+  const { configOpen, configToggleRef, configCloseRef } = props
+  const { describeLogError, onToggleLogs, onRefresh, onSync, onClearApiKey, onToggleConfig } = props
   const { onApiKeyInput, onSaveApiKey, onPatch, onSave } = props
   const aggregate = data.stats.aggregate
   const thinkingMinutes = Math.floor(aggregate.thinkingMs / 60000)
@@ -297,6 +338,19 @@ function WakatimePanels(props: PanelsProps) {
 
   return (
     <>
+      <div className={css.toolbar}>
+        <button
+          type="button"
+          ref={configToggleRef}
+          className={compactButton}
+          aria-expanded={configOpen}
+          aria-controls={CONFIG_PANEL_ID}
+          onClick={onToggleConfig}
+        >
+          {configOpen ? t('config.collapse') : t('config.open')}
+        </button>
+      </div>
+
       <section className={css.section}>
         <div className={css.sectionHead}>
           <h3 className={css.sectionTitle}>{t('stats.title')}</h3>
@@ -451,49 +505,75 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       </section>
 
-      <section className={css.section}>
-        <h3 className={css.sectionTitle}>{t('config.title')}</h3>
-        <ToggleField
-          label={t('config.enabled')}
-          checked={draft.enabled}
-          onChange={(value) => { onPatch('enabled', value) }}
-        />
-        <ToggleField
-          label={t('config.reportEnabled')}
-          checked={draft.reportEnabled}
-          onChange={(value) => { onPatch('reportEnabled', value) }}
-        />
-        <NumberField
-          label={t('config.reportInterval')}
-          value={draft.reportInterval}
-          onChange={(value) => { onPatch('reportInterval', value) }}
-        />
-        <ToggleField
-          label={t('config.includeTokens')}
-          checked={draft.includeTokens}
-          onChange={(value) => { onPatch('includeTokens', value) }}
-        />
-        <ToggleField
-          label={t('config.includePrompts')}
-          checked={draft.includePrompts}
-          onChange={(value) => { onPatch('includePrompts', value) }}
-        />
-        <ToggleField
-          label={t('config.debug')}
-          checked={draft.debug}
-          onChange={(value) => { onPatch('debug', value) }}
-        />
-        <div className={css.saveRow}>
-          <button
-            type="button"
-            className={`${css.button} ${css.buttonPrimary}`}
-            disabled={saving}
-            onClick={onSave}
+      {configOpen ? (
+        <div
+          className={css.subpage}
+          onMouseDown={(event) => {
+            /* 点击遮罩自身收起;点击面板内部不收起 */
+            if (event.target === event.currentTarget) onToggleConfig()
+          }}
+        >
+          <section
+            id={CONFIG_PANEL_ID}
+            className={css.subpagePanel}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('config.title')}
           >
-            {saving ? t('config.saving') : t('config.save')}
-          </button>
+            <div className={css.subpageHead}>
+              <h3 className={css.sectionTitle}>{t('config.title')}</h3>
+              <button
+                type="button"
+                ref={configCloseRef}
+                className={compactButton}
+                onClick={onToggleConfig}
+              >
+                {t('config.collapse')}
+              </button>
+            </div>
+            <ToggleField
+              label={t('config.enabled')}
+              checked={draft.enabled}
+              onChange={(value) => { onPatch('enabled', value) }}
+            />
+            <ToggleField
+              label={t('config.reportEnabled')}
+              checked={draft.reportEnabled}
+              onChange={(value) => { onPatch('reportEnabled', value) }}
+            />
+            <NumberField
+              label={t('config.reportInterval')}
+              value={draft.reportInterval}
+              onChange={(value) => { onPatch('reportInterval', value) }}
+            />
+            <ToggleField
+              label={t('config.includeTokens')}
+              checked={draft.includeTokens}
+              onChange={(value) => { onPatch('includeTokens', value) }}
+            />
+            <ToggleField
+              label={t('config.includePrompts')}
+              checked={draft.includePrompts}
+              onChange={(value) => { onPatch('includePrompts', value) }}
+            />
+            <ToggleField
+              label={t('config.debug')}
+              checked={draft.debug}
+              onChange={(value) => { onPatch('debug', value) }}
+            />
+            <div className={css.saveRow}>
+              <button
+                type="button"
+                className={`${css.button} ${css.buttonPrimary}`}
+                disabled={saving}
+                onClick={onSave}
+              >
+                {saving ? t('config.saving') : t('config.save')}
+              </button>
+            </div>
+          </section>
         </div>
-      </section>
+      ) : null}
     </>
   )
 }
