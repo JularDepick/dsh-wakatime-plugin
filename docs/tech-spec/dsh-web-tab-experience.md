@@ -168,6 +168,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 5. **样式纪律**:使用已定义的语义 token,不写死颜色;写 `var(--dsw-*)` 前在主题 CSS 里确认该 token 存在(未定义时整条声明静默失效,实例:`--dsw-alias-border-l` 应为 `border-l1`..`border-l4`);产品文案用界面语言;**表格/select 文本居中属本仓库前端规范,与官方表格左对齐不同,两者冲突时按项目规范执行**;不用浏览器原生弹窗与原生二次确认
 6. **pnpm 无 TTY 会 abort**:package.json 描述符变更后需 `CI=true pnpm install`;typecheck/build 也建议 `CI=true` 前缀
 7. **次要视图优先用 tab 内互斥渲染,而不是浮层**:tab 内的次要视图(如配置表单)首选「同一 tab 内互斥渲染」——一个 `useState` 开关 + `aria-expanded`/`aria-controls` 即可切换内容,布局天然受宿主约束,不用处理遮罩点击、层级与整屏遮挡;`position: fixed` 遮罩浮层(组件内渲染,不写 `document.body`、不用浏览器原生弹窗)只在确实需要悬浮于页面之上时使用。键盘收起(如 ESC 切回主视图)用 `window` **捕获阶段**监听 `keydown`,命中时 `stopPropagation()` 阻断宿主同时响应;被切走的一侧若有元素持有焦点,切回后把焦点还给入口按钮(切换按钮自身常驻时无需额外处理打开方向)
+8. **tab 内容必须自适应宿主宽度变化**:宿主会话区域带一个宽度手柄,拖动它会改变对话区域(以及 tab 内容)的可用宽度,因此 tab 内容不能假设宽度固定——表格用百分比列宽 + `table-layout: fixed`,文本列在窄宽度下换行(`white-space: normal`,长串再加 `overflow-wrap: anywhere`)而不是截断成无意义片段,工具条/分区标题/输入行在放不下时 `flex-wrap` 换行而不是把控件压没。需要按宽度切换版式时优先用**容器查询**:给内容列声明 `container-type: inline-size`(配 `container-name`),再用 `@container <name> (max-width: ...)` 重排列宽与留白,不必写 `window.resize` 监听。注意 `container-type` 隐含布局包含(`contain: layout`),会让该元素成为 `position: fixed` 后代的包含块——**查询容器只包内容列,不要包住 `position: fixed` 的提示层**(本仓库把提示层放在容器外侧的根元素下)
 
 ## 六、参考文件索引(官方仓库)
 

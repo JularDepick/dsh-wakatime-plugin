@@ -5,6 +5,9 @@
  * 视觉基准为 dsh web 官方界面:内容直接铺在 tab 根元素下,不再自建卡片,
  * 左右只留宿主 composer 侧边留白,不做内容列最大宽度约束;
  * 分区之间用 0.5px 分隔线区分。
+ * 宽度自适应:内容列声明为容器(container-type: inline-size),宿主拖动宽度手柄
+ * 调整对话区域宽度时,由 @container 规则重排列宽、让信息列换行,避免横向溢出与
+ * 无意义截断(容器只包内容列,不包提示层,以免布局包含影响 position: fixed)。
  * 字设与配色继承 profile:字号/行高/字重取 --dsw-font-* 令牌,
  * 颜色取 --dsw-alias-* 语义令牌,不写死颜色与像素字号。
  * 控件形态照抄官方 dsh-client-ui-primitives 的标记与样式
@@ -21,11 +24,14 @@
   font: var(--dsw-font-s-14);
 }
 
+/* 内容列同时是宽度查询容器:窄宽度下的自适应规则都挂在它下面 */
 .column {
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  container-type: inline-size;
+  container-name: wakatime-tab;
 }
 
 /* ---------- 顶部工具条(左侧只读账号状态,右侧配置视图切换入口) ---------- */
@@ -33,12 +39,15 @@
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  row-gap: 8px;
   min-width: 0;
 }
 
-/* 切换按钮始终靠右(工具条左侧留给只读账号状态) */
+/* 切换按钮始终靠右(工具条左侧留给只读账号状态),且不参与压缩 */
 .toolbarEnd {
+  flex: none;
   margin-left: auto;
 }
 
@@ -78,7 +87,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 8px;
   min-width: 0;
 }
 
@@ -91,7 +102,10 @@
 .actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+  row-gap: 6px;
   flex: none;
 }
 
@@ -354,12 +368,15 @@
 .apiKeyRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 8px;
   min-width: 0;
 }
 
+/* 输入框给一个可换行的基准宽度:窄到放不下按钮时按钮换到下一行,而不是把输入框压没 */
 .apiKeyRow .input {
-  flex: 1;
+  flex: 1 1 180px;
   min-width: 0;
 }
 
@@ -526,5 +543,87 @@
 @media (prefers-reduced-motion: reduce) {
   .toast {
     animation: dsh-toast-fade 1000ms ease var(--dsh-toast-hold, 3000ms) forwards;
+  }
+}
+
+/* ---------- 宽度自适应(容器查询) ----------
+   宿主拖动宽度手柄调整对话区域宽度时,内容列宽度变化会命中以下规则:
+   优先保住数值列与状态列,信息列改为换行,列宽按可用宽度重新分配。 */
+
+@container wakatime-tab (max-width: 640px) {
+  .section {
+    gap: 8px;
+  }
+
+  /* 战绩表:略向说明列倾斜;上报表:略向时间列倾斜 */
+  .statsTable col:nth-child(1) {
+    width: 36%;
+  }
+
+  .statsTable col:nth-child(2) {
+    width: 28%;
+  }
+
+  .statsTable col:nth-child(3) {
+    width: 36%;
+  }
+
+  .logsTable col:nth-child(1) {
+    width: 30%;
+  }
+
+  .logsTable col:nth-child(2) {
+    width: 16%;
+  }
+
+  .logsTable col:nth-child(3) {
+    width: 16%;
+  }
+
+  .logsTable col:nth-child(4) {
+    width: 38%;
+  }
+
+  /* 指标名与上报详情改为换行:窄宽度下宁可占两行,也不截断成无意义片段 */
+  .statsTable td[data-column='metric'] {
+    white-space: normal;
+  }
+
+  .logsTable td {
+    height: auto;
+    padding: 7px 8px;
+    white-space: normal;
+  }
+
+  .logsTable td:nth-child(4) {
+    overflow-wrap: anywhere;
+  }
+}
+
+@container wakatime-tab (max-width: 460px) {
+  .statsTable col:nth-child(1) {
+    width: 40%;
+  }
+
+  .statsTable col:nth-child(2) {
+    width: 30%;
+  }
+
+  .statsTable col:nth-child(3) {
+    width: 30%;
+  }
+
+  /* 单元格留白收紧,给文字腾出宽度 */
+  .table th,
+  .table td {
+    padding: 0 6px;
+  }
+
+  .statsTable td {
+    padding: 6px;
+  }
+
+  .logsTable td {
+    padding: 6px;
   }
 }
