@@ -94,13 +94,15 @@ export class SessionEventCollector {
         if (timing?.stepStartTime != null && firstTokenTime != null) {
           this.options.stats.recordThinking(session.id, firstTokenTime - timing.stepStartTime)
         }
+        /* 项目与分支采样基准:会话工作目录(缺省回退宿主进程 cwd) */
+        const project = this.options.project.detect(session.header.cwd)
         const heartbeat: Heartbeat = {
           entity: session.id,
           type: 'app',
           time: event.time / 1000,
           category: HEARTBEAT_CATEGORY_AI,
-          project: this.options.project.project(),
-          branch: this.options.project.branch(),
+          project: project.project,
+          branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
           ai_prompt_length: promptLength,
         }
@@ -113,13 +115,15 @@ export class SessionEventCollector {
       }
       case 'tool/call': {
         this.options.stats.recordToolCall(session.id)
+        /* 项目与分支采样基准:会话工作目录(缺省回退宿主进程 cwd) */
+        const project = this.options.project.detect(session.header.cwd)
         const heartbeat: Heartbeat = {
           entity: `tool:${event.data.name}`,
           type: 'app',
           time: event.time / 1000,
           category: HEARTBEAT_CATEGORY_TOOL,
-          project: this.options.project.project(),
-          branch: this.options.project.branch(),
+          project: project.project,
+          branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
         }
         this.options.heartbeat.enqueue(heartbeat)

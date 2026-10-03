@@ -1,6 +1,6 @@
 # WSL 部署测试经验(wsl-deploy-testing)
 
-> 面向接手本插件仓库的 Agent 会话:总结 WSL 环境下的部署步骤、验证清单与常见问题排查,供后继会话直接复用,避免反复试错。安装可在用户明确要求时由 Agent 执行(只安装,不启动服务),实机启动与验证仍由人工完成,复验结论由人工反馈后回写本文档与 `.agents/NEXT-SESSION.md`。随项目状态维护,换 dsh 版本时对照 `docs/dsh-dev-docs/<版本>/` 与依赖版本核对。
+> 面向接手本插件仓库的 Agent 会话:总结 WSL 环境下的部署步骤、验证清单与常见问题排查,供后继会话直接复用,避免反复试错。安装可在用户明确要求时由 Agent 执行(只安装,不启动服务),实机启动与验证仍由人工完成,复验结论由人工反馈后回写本文档与 `.agent/NEXT_SESSION.md`。随项目状态维护,换 dsh 版本时对照 `docs/dsh-dev-docs/<版本>/` 与依赖版本核对。
 > 本文档系从 `dsh-system-monitor-plugin` 项目的同功能经验文档适配而来(通用机制部分沿用,项目特定内容已替换为本项目)。
 >
 > 部署测试状态:v0.1.3 已完成 dsh 0.2.0-rc.2 适配(typecheck/build/smoke 通过);v0.1.3 tarball 已安装进 WSL web profile(`dsh plugin --profile web add`,安装后 profile 内产物与仓库 `dist/` 逐字节一致),服务启动与真机验证待用户执行;下方验证清单按本项目实测口径更新。清单中标注「0.1.5-rc.1 实测」的行为在 0.1.7-rc.2 与 0.2.0-rc.2 均尚未真机复验,按第六节复核。
@@ -86,6 +86,7 @@ NODE_PATH=~/.dsh/profiles/web/node_modules dsh web --no-open --host 127.0.0.1 --
 | 首页 401 | 0.1.5-rc.1 需以启动打印 URL 的 `?token=` 访问(303 下发 cookie);重启换令牌 |
 | 浏览器 console 报 `exports is not defined` | client bundle 的 `module`/`exports` 定义未并入 banner(tsdown 0.22 无 intro,静默忽略),需重新构建 |
 | 浏览器解析失败(require 未注册的包) | 外部化清单与宿主平台模块表不符:多余的外部化包不在 seed 表内,运行时 require 抛错;核对 `tsdown.config.ts` 的 `PLATFORM_MODULES`(0.2.0-rc.2 表见 `docs/tech-spec/dsh-web-tab-experience.md`,自 0.1.5-rc.1 未变;旧词如 `@deepseek-ai/dsh-client-web-react` 已从宿主表移除) |
+| 构建报 `error TS5033: Could not write file '...AppData/Local/Temp/rolldown-plugin-dts-...'` | 声明生成插件经 Node 的 `os.tmpdir()` 取临时目录,默认写系统 `%TEMP%`(工作目录之外),受限环境下被拒;现象具欺骗性(日志前半段已显示 client 面构建成功,失败在宿主面 dts 阶段)。已由 `scripts/build.mjs` 把构建链临时目录固定到工作区内 `temp/`(可用环境变量 `WAKATIME_BUILD_TMP` 覆盖),`pnpm build` 与 `pnpm pack` 均不再需要外部重定向;**注意构建中断会先被 `clean` 删掉产物**,失败后须重新构建以恢复 `dist/` 全部 6 个产物 |
 | 工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`) | 宿主 `healProfilesModuleFallback` 维护 profile 平面 symlink,插件 peer 应解析到宿主实例;若 web profile 顶层 `node_modules/@deepseek-ai/` 存在宿主包真实副本(hoisted 平铺),Node 最近优先命中副本导致 `TOOL_RUNTIME_SCHEDULER` 分裂。修复:删 `~/.dsh/profiles/web/node_modules/@deepseek-ai/{cordis,cosmokit,dsh-tools,schemastery}`(保留 dsh-wakatime-plugin),**不要先跑 pnpm install**(可能重装副本),直接启动验证 |
 | tab 不出现但 client.js 200 | 浏览器 console 报错优先;检查 `__DSH_BOOT__` 条目;服务端正常不代表浏览器端就绪,组件崩溃有 per-entry 错误边界 |
 | client.js 更新不生效 | client-modules 按 rev 刷新:硬刷新浏览器(清缓存)后再看 |
@@ -97,9 +98,9 @@ NODE_PATH=~/.dsh/profiles/web/node_modules dsh web --no-open --host 127.0.0.1 --
 
 人工完成实机测试后,按结论更新:
 
-1. 验证通过的项:在 `.agents/NEXT-SESSION.md` 待办中勾除对应条目;
-2. `NODE_PATH` 对比结论:更新 `AGENTS.md` 开发经验段的 WSL/发布版部署条目与 `.agents/NEXT-SESSION.md` 关键技术结论;
+1. 验证通过的项:在 `.agent/NEXT_SESSION.md` 待办中勾除对应条目;
+2. `NODE_PATH` 对比结论:更新 `AGENTS.md` 开发经验段的 WSL/发布版部署条目与 `.agent/NEXT_SESSION.md` 关键技术结论;
 3. UI 布局若仍异常:收集异常区域截图或描述与 DevTools 盒模型数据,由 Agent 定点修复;
 4. 所在 dsh 版本再次更迭:本文档基线表、验证点与待复验项一并核对更新。
 
-> 本文档与 `.agents/NEXT-SESSION.md` 均不随包发布(见 `package.json` 的 `files` 白名单)。
+> 本文档与 `.agent/NEXT_SESSION.md` 均不随包发布(见 `package.json` 的 `files` 白名单)。

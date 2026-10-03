@@ -21,7 +21,7 @@
 - Token 统计:精确记录每次 Agent 调用的 input/output Token 数量
 - Agent 协作战绩:全局汇总提示词总量、LLM 思考总时长、输出 Token、API 有效 Token 消耗等表现指标,在 Web 界面随时查看
 - 云端同步合并:配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致
-- 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别当前项目
+- 会话追踪:全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别会话工作目录所属项目与 Git 分支(支持子目录与 worktree)
 - 本地优先:凭证和配置数据默认存储在本地,用户完全掌控
 
 ## 安装
@@ -88,7 +88,16 @@ dsh plugin --profile <name> add release/dsh-wakatime-plugin-0.1.3.tgz
 |:---:|:---|
 | `WAKATIME_API_KEY` | WakaTime API Key(优先于文件配置) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
-| `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `~/.dsh/plugins/wakatime`) |
+| `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `$DSH_HOME/plugins/wakatime`,即 `~/.dsh/plugins/wakatime`) |
+| `DSH_HOME` | dsh home 目录,影响凭证配置目录的默认位置(默认 `~/.dsh`) |
+| `NODE_USE_ENV_PROXY` | 置为 `1` 时让插件请求走环境代理变量 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上) |
+
+## 平台与路径
+
+- 运行平台:Windows、macOS、Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;
+- 权限:POSIX 平台下配置目录与文件分别收紧为 `0700` 与 `0600`;Windows 无 POSIX 权限位,依赖用户目录 ACL;
+- 项目与分支识别:以会话工作目录为基准,项目名取 Git 仓库根目录名,会话位于仓库子目录或 worktree 中也归到同一项目;分支名解析 Git 头文件,detached HEAD 时分支留空;
+- 网络:单次请求超时 30 秒,超时按网络失败重试;需要走代理时设置 `NODE_USE_ENV_PROXY=1` 并配置 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上)。
 
 ## 发布与分发
 

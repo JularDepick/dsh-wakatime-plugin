@@ -23,7 +23,7 @@
   "license": "MIT",
   "author": "JularDepick",
   "scripts": {
-    "build": "tsdown",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "pack": "pnpm pack",
     "prepare": "pnpm build"

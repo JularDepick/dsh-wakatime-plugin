@@ -11,9 +11,14 @@ export const DEFAULT_LANGUAGE = 'zh-CN'
 export const FALLBACK_LANGUAGE = 'zh-CN'
 export const TRANSLATION_DIR = 'translation'
 
-/* 凭证与配置存放位置(相对用户主目录) */
+/* 凭证与配置存放位置(dsh home 的 plugins 下) */
 export const CONFIG_DIR_NAME = 'wakatime'
 export const CONFIG_FILE_NAME = 'config.json'
+
+/* 项目与分支采样:Git 标记名、向上查找的最大层数、分支缓存时长(毫秒) */
+export const GIT_DIR_NAME = '.git'
+export const GIT_ROOT_MAX_DEPTH = 64
+export const BRANCH_CACHE_TTL_MS = 5000
 
 /* WakaTime REST API */
 export const WAKATIME_API_BASE = 'https://wakatime.com/api/v1'
@@ -34,6 +39,8 @@ export const RETRY_MAX_RETRIES = 5
 export const RETRY_BASE_DELAY_MS = 1000
 export const RETRY_MAX_DELAY_MS = 30000
 export const RETRY_BACKOFF_MULTIPLIER = 2
+/* 单次请求超时(毫秒;超时按网络失败进入重试,避免挂起阻塞上报循环) */
+export const REQUEST_TIMEOUT_MS = 30000
 export const OFFLINE_QUEUE_LIMIT = 1000
 /* 离线队列补报周期(毫秒) */
 export const OFFLINE_FLUSH_INTERVAL_MS = 30000
@@ -64,3 +71,7 @@ export const ENV_API_KEY = 'WAKATIME_API_KEY'
 export const ENV_DEBUG = 'WAKATIME_DEBUG'
 /* 覆盖凭证配置目录(测试与自托管场景使用) */
 export const ENV_CONFIG_DIR = 'WAKATIME_CONFIG_DIR'
+/* dsh home 覆盖项(默认 home 推导用,与 dsh 本体的 DSH_HOME 对齐) */
+export const ENV_DSH_HOME = 'DSH_HOME'
+/* 环境代理开关提示:Node 24 起官方支持 NODE_USE_ENV_PROXY=1 让 fetch 读取代理变量 */
+export const ENV_USE_ENV_PROXY = 'NODE_USE_ENV_PROXY'

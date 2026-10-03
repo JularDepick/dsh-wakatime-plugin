@@ -15,5 +15,7 @@ temp/
 v*-*.md
 
 # Agent Runtime
+.agent/
+.agents/
 .skills/
 .agent*/

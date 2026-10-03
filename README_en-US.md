@@ -21,7 +21,7 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt tokens, LLM thinking time, output tokens, API effective token usage, viewable anytime in the Web interface
 - Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency
-- Global AI session tracking: all heartbeats unify into one overall AI session, with automatic project detection
+- Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
 
 ## Installation
@@ -88,7 +88,16 @@ Environment variables:
 |:---:|:---|
 | `WAKATIME_API_KEY` | WakaTime API key (takes precedence over the file) |
 | `WAKATIME_DEBUG` | Enable debug logging |
-| `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `~/.dsh/plugins/wakatime`) |
+| `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `$DSH_HOME/plugins/wakatime`, that is `~/.dsh/plugins/wakatime`) |
+| `DSH_HOME` | dsh home directory, affects the default credential config location (default `~/.dsh`) |
+| `NODE_USE_ENV_PROXY` | Set to `1` to route plugin requests through the environment proxy variables `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later) |
+
+## Platforms & Paths
+
+- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case;
+- Permissions: on POSIX platforms the config directory and file are tightened to `0700` and `0600` respectively; Windows has no POSIX permission bits and relies on user-profile ACLs;
+- Project and branch detection: based on the session working directory, the project name comes from the Git repository root (sessions in a repository subdirectory or a worktree belong to the same project); the branch comes from the Git head file, and stays empty on a detached HEAD;
+- Network: single requests time out after 30 seconds and are retried as network failures; to use a proxy, set `NODE_USE_ENV_PROXY=1` together with `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later).
 
 ## Publish & Distribute
 

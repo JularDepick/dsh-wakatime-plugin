@@ -7,6 +7,7 @@
  */
 
 import {
+  REQUEST_TIMEOUT_MS,
   RETRY_BACKOFF_MULTIPLIER,
   RETRY_BASE_DELAY_MS,
   RETRY_MAX_DELAY_MS,
@@ -44,7 +45,8 @@ export class FetchHttpClient implements HttpClient {
       attempt++
       let response: Response
       try {
-        response = await fetch(url, init)
+        /* 每次尝试独立计时:超时按网络失败处理,避免请求挂起阻塞上报循环 */
+        response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
       } catch (error) {
         /* 网络层失败:按服务器错误对待,进入重试 */
         const last = attempt > maxRetries
