@@ -147,6 +147,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       lines: heartbeat.lines,
       is_write: heartbeat.is_write,
       ai_session: heartbeat.ai_session,
+      machine_name: heartbeat.machine_name,
     }
     if (this.options.includeTokens) {
       copy.ai_input_tokens = heartbeat.ai_input_tokens

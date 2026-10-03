@@ -552,7 +552,8 @@ function WakatimePanels(props: PanelsProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {logs.map((entry, index) => (
+                      {/* 展示顺序:时间最近优先(引擎按追加顺序保存,由旧到新) */}
+                      {[...logs].reverse().map((entry, index) => (
                         <tr key={`${entry.time}-${index}`}>
                           <td>{formatTime(entry.time)}</td>
                           <td>{entry.count} {t('logs.count')}</td>

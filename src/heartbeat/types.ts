@@ -27,6 +27,8 @@ export interface Heartbeat {
   ai_prompt_length?: number
   ai_line_changes?: number
   ai_session?: string
+  /* 本机机器名:WakaTime Machines 维度(官方 POST 字段表未列出,官方 CLI 仍会发送) */
+  machine_name?: string
   /* 可选字段 */
   language?: string
   lines?: number

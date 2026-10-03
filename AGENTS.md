@@ -310,7 +310,7 @@
 - `src/collector/` 采集面:监听 `session/event`,由 user/message 记录提示词长度与 Token 估算、step/start 开启计时 + assistant/message 携带的计时流 stream(经 `assistantStreamFirstTokenTime`)fold LLM 思考时长、assistant/message 入队 AI 编码心跳(携带 Token 用量)、tool/call 入队调试心跳
 - `src/heartbeat/` 心跳引擎:本地缓冲 + 定时批量上报(启动一次 + 每 reportInterval 秒),未认证缓冲丢弃,失败入离线队列补报;选项可变(Web 写入后即时生效);维护上报记录日志(调试级)
 - `src/auth/` 认证管理:WakaTime API Key(环境变量优先、配置文件兜底),只允许覆盖写入,任何读取面不回显明文;配置时先经 /users/current 验证
-- `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试、单次请求超时 `30` 秒
+- `src/http/` HTTP 层:fetch 封装(API Key 走 HTTP Basic)、WakaTimeError 分类、429/5xx 指数退避重试、单次请求超时 `30` 秒、请求带 `User-Agent` 标识(插件与宿主,供 WakaTime 归类 Editor/OS)
 - `src/config-manager/` 本地凭证与配置管理(dsh home 下 JSON,POSIX 目录 0700、文件 0600,目录可用环境变量覆盖)
 - `src/runtime-config/` 运行时可变配置:Web 设置页写入项即时生效并持久化到 settings 块,重启合并恢复
 - `src/stats/` 全局战绩聚合(心跳、工具调用、Token 用量、提示词字符与估算、思考时长、API 有效消耗)
@@ -399,8 +399,8 @@ dsh-wakatime-plugin/
 - 凭证与配置存放:dsh home 下 `plugins/wakatime/config.json`(home 取环境变量 `DSH_HOME`,缺省为 `~/.dsh`;`WAKATIME_CONFIG_DIR` 可整体覆盖目录,空串视为未设置);API Key 存于此文件,只允许覆盖写入,任何读取面不回显明文;POSIX 下目录 `0700`、文件 `0600` 并在每次写入后显式收紧,Windows 无 POSIX mode,权限依赖用户目录 ACL
 - 认证:WakaTime API Key(HTTP Basic,username=api_key);环境变量 `WAKATIME_API_KEY` 优先于配置文件;配置时先经 `/users/current` 验证并缓存用户名。官方该接口的 `username` 与 `full_name` 均可为 null、`display_name` 在未设置用户名与姓名时为固定占位 `Anonymous User`,故展示账号名按 `username` → `full_name` → `display_name` → `email` → `id` 依次取值并剔除匿名占位,全部不可用时只显示已配置状态;缓存值为空或仍是匿名占位时,状态查询借已存 Key 重新解析并回写(解析失败静默降级,不阻塞状态)
 - 项目与分支采样:采样基准为会话工作目录 `session.header.cwd`(缺省回退宿主进程 cwd);项目名优先取 Git 仓库根目录名(向上逐级查找,最大 `64` 层),未命中仓库时取采样目录 basename;分支解析支持 `.git` 目录、`.git` 文件形式的 `gitdir`(worktree/submodule)与 worktree 的 `commondir`;仓库定位按目录缓存,分支按头文件缓存 `5` 秒
-- 网络:Node 内置 fetch,单次请求超时 `30` 秒(超时按网络失败进入既有指数退避重试);环境代理依赖 Node 官方开关 `NODE_USE_ENV_PROXY=1`(Node 24 起可用),不引入第三方代理依赖
-- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;AI 会话全局标识 `dsh_waka_time_plugin`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
+- 网络:Node 内置 fetch,单次请求超时 `30` 秒(超时按网络失败进入既有指数退避重试);环境代理依赖 Node 官方开关 `NODE_USE_ENV_PROXY=1`(Node 24 起可用),不引入第三方代理依赖。所有请求带 `User-Agent`(格式 `<插件名>/<插件版本> (<系统名>-<系统版本>) dsh/<dsh版本>`,版本号运行时从包清单读取):WakaTime 从该头解析 Editor 与 OS,缺失时报表显示 Unknown Editor / Unknown OS
+- 定时上报:启动加载时批量上报一次,之后每 `reportInterval` 秒(默认 `60`,可配)循环;`reportEnabled` 开关;批量上限 `25` 条;重试最多 `5` 次、指数退避(1s 起、30s 封顶、倍率 2);离线队列上限 `1000` 条、补报周期 `30` 秒;上报记录日志保留 `50` 条(Web 可展开查看,展示时间最近优先);AI 编码心跳类别 `ai coding`、工具心跳类别 `debugging`;心跳携带 `machine_name`(本机机器名,供 WakaTime Machines 维度归类);AI 会话全局标识 `dsh_waka_time_plugin`(全部心跳归为一个整体 AI 会话,entity 按会话区分)
 - 量化指标(Agent 协作战绩,不统计/不展示/不上报心跳数与工具调用数):提示词总量(官方 `ai_prompt_length` 口径:字符数,与上报一致)、提示词 Token 估算(字符数 ÷ 系数 `1.5`,本地辅助展示)、LLM 思考总时长(步骤开始 → 首个输出 token,官方 fold 算法,官方无上报字段,仅本地展示)、输出 TOKEN 总量(官方 `ai_output_tokens`)、API 有效 TOKEN 消耗(输入+输出,官方仅 `ai_input_tokens`/`ai_output_tokens`,缓存命中 Token 无官方字段不并入)
 - 工具面:wakatime_config(读改全部配置;`set_apikey` 仅覆盖写入 API Key)/ wakatime_logout(清除 Key)/ wakatime_status / wakatime_stats
 - 云端同步并入战绩:已配置 API Key 时,标签页加载后自动同步一次并支持手动按钮,拉取 WakaTime summaries 近 7 天的 AI 聚合,与本地战绩对应指标(提示词字符、输出 TOKEN、API 有效消耗)取最大值合并展示,同步时间与状态显示在战绩区标题行;仅读取不修改云端,失败静默并显示错误态

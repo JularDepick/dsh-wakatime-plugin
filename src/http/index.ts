@@ -16,6 +16,7 @@ import {
 } from '../constants'
 import type { HttpClient, RequestOptions } from './types'
 import { WakaTimeError } from './types'
+import { userAgent } from '../useragent'
 
 /* 可重试的 HTTP 状态:限流与服务器错误 */
 function isRetryableStatus(status: number): boolean {
@@ -32,7 +33,10 @@ export class FetchHttpClient implements HttpClient {
     const url = path.startsWith('http') ? path : `${WAKATIME_API_BASE}${path}`
     const method = options.method ?? 'GET'
 
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = {
+      /* WakaTime 从 User-Agent 解析 Editor 与 OS(缺失时报表显示 Unknown) */
+      'User-Agent': userAgent(),
+    }
     if (options.basicAuth) headers.Authorization = `Basic ${options.basicAuth}`
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 

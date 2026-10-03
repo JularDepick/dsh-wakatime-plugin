@@ -17,6 +17,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { assistantStreamFirstTokenTime } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR } from '../constants'
 import type { Heartbeat } from '../heartbeat'
+import { machineName } from '../useragent'
 import type { CollectorOptions } from './types'
 
 /* 计算消息可见文本长度(提示词长度口径:所有 text 块字符数之和) */
@@ -105,6 +106,7 @@ export class SessionEventCollector {
           branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
           ai_prompt_length: promptLength,
+          machine_name: machineName(),
         }
         if (usage) {
           heartbeat.ai_input_tokens = usage.inputTokens
@@ -125,6 +127,7 @@ export class SessionEventCollector {
           project: project.project,
           branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
+          machine_name: machineName(),
         }
         this.options.heartbeat.enqueue(heartbeat)
         break
