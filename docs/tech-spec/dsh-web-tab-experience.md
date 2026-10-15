@@ -145,7 +145,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 ### 样式 token 事实(权威来源与已知坑)
 
 - 权威来源是**主题包内联 CSS**(`dsh-client-ui-theme` 的 `lib/client.js`,约 601 个定义对 / 107 个 `--dsw-alias-*` 别名);官方 README 指向的 `docs/web-styling.md` 在安装包内**不存在**,属悬空引用,需要时回官方仓库取;
-- 圆角刻度 `--dsw-radius-xs|sm|md|lg|xl|panel`(4/8/12/16/20/28);字号为 font 简写 token `--dsw-font-xxxs-11`/`-xxs-12`/`-xs-13`/`-s-14`/`-base-16`/`-m-18`/`-l-20`/`-xl-24`,各带 `-strong-` 变体,可直接 `font: var(--dsw-font-xxs-12)`;
+- 圆角刻度 `--dsw-radius-xs|sm|md|lg|xl|panel`(4/8/12/16/20/28);字号为 font 简写 token `--dsw-font-xxxs-11`/`-xxs-12`/`-xs-13`/`-s-14`/`-base-16`/`-m-18`/`-l-20`/`-xl-24`,可直接 `font: var(--dsw-font-xxs-12)`;**strong 变体只到 `base-strong-16`**(`m-18`/`l-20`/`xl-24` 没有 strong 变体),且字号 token 名与真实 px 有不一致(实测主题包:`m-18` 实为 `500 16px/28px`,`l-20` 为 `500 20px/28px`,`xl-24` 为 `600 24px/32px`),**按名取用时务必核对真实值**;每个 token 另有 `<token>-font-family`/`-font-size`/`-font-style`/`-font-weight`/`-line-height` 五个子变量,需要整体缩放某处字号时用子变量做 `calc()`,不必写死 px;
 - **没有间距刻度 token**(601 个 token 中检索 space/gap/padding 命中 0),间距只能照抄官方页面字面 px;圆角 token 名与 px 值不一致(如 `radius-lg` 是 16px),按名使用;
 - 主题: 浅色定义在 `body`,深色在 `body[data-ds-dark-theme]`;胶囊/正圆需显式 `corner-shape: round`;
 - **不存在的 token 写了会整条声明失效**(静默,不报错): 已实证 `--dsw-alias-border-l`(只有 `border-l1`..`border-l4`),`--dsw-alias-label-error`,`--dsw-alias-bg-layer-4`.写 token 前必须在主题 CSS 里检索确认定义存在;
@@ -190,4 +190,4 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 | `packages/client/ui-chat/src/client/*`,`ui-trajectory/src/client/*` | 非 overlay 与 overlay 两条 tab 版式路线的官方实现 |
 | `packages/host/webserver/src/index.ts` | webserver 服务(register 路由扩展点) |
 
-> 本项目实例: dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线的铺满变体(不设内容列最大宽度,不自建卡片,分区靠 `0.5px` 分隔线,战绩为指标/数值/说明三列表格),字设与配色取 profile 的 `--dsw-font-*`(strong 变体为 `<字号>-strong-<px>`)与 `--dsw-alias-*` 令牌,控件形态按第四节表格自行复制官方 primitives,配置表单放在标签页右上角按钮切换出的配置视图里(与主视图互斥渲染,ESC 切回);相关项目细节见根目录 `AGENTS.md` 设计细节段.
+> 本项目实例: dsh-wakatime-plugin 在会话区域注册 wakatime 标签页(conversation.view 槽,order 20),数据通道走 host webserver 路由(`/api/wakatime/*`),并注册 zh/en 字典跟随 dsh web 语言;版式走第四节第 1 条「随页面滚」路线的铺满变体(不设内容列最大宽度,不自建卡片,分区靠 `0.5px` 分隔线,战绩为指标名称/指标数值/备注三列表格(字号在官方字设基础上按单一旋钮整体放大 1.5 倍,行高由 30px 放宽到 40px;表格满格边框由配置项开关经 `data-bordered` 属性驱动,关闭时退回仅横向分隔线)),字设与配色取 profile 的 `--dsw-font-*`(strong 变体为 `<字号>-strong-<px>`)与 `--dsw-alias-*` 令牌,控件形态按第四节表格自行复制官方 primitives(开关为自制 `role="switch"` 按钮,下拉为原生 `select` 加官方输入框样式,折叠区用原生 `details/summary` 并在 `onToggle` 里按需拉取明细),配置表单放在标签页右上角按钮切换出的配置视图里(与主视图互斥渲染,ESC 切回),顶部提示走组件内固定定位元素而非浏览器原生弹窗;相关项目细节见根目录 `AGENTS.md` 设计细节段.

@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/badge/Version-0.2.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.2.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
 [English]
 | [简体中文](./README.md)
@@ -20,10 +20,13 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 
 - Automatically track, quantify, and report AI Agent work data in DSH to WakaTime
 - API key authentication: one WakaTime API key, guarded by a local mini-backend, never exposed to the frontend
-- Scheduled batch reporting: reports once at startup, then batches by a configurable interval (default 60 seconds)
+- Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
+- Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it
+- Per-account data isolation: every API key keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching keys never credits one account's data to another; data collected while no key is configured is claimed by the first key configured afterwards, and no account's data is ever cleaned up automatically; the "API key caches" section in the config view shows each key's own stats and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
+- Stats display scope: switch between "all API keys" and "current API key" in the config view (the former is the default)
 - Token statistics: precisely record the input/output Token count of each Agent call
-- Agent collaboration battle stats: globally aggregated prompt volume, LLM thinking time, output tokens, and API effective token usage, viewable anytime in the Web interface
-- Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the API key and reporting options in one place; changes apply immediately, with no save button
+- Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders
+- Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the API key, reporting options, and interface switches in one place; changes apply immediately, with no save button
 - Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
 - Local totals survive restarts: local-only metrics such as LLM thinking time and estimated prompt tokens are written to a local snapshot and keep accumulating across dsh restarts instead of resetting to zero
@@ -72,7 +75,7 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 | `wakatime_config` | Read/update plugin config (op=get/set); overwrite the API key (op=set_apikey, overwrite only, never shown) |
 | `wakatime_logout` | Clear the local API key |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
-| `wakatime_stats` | Show Agent collaboration battle stats (prompts, thinking time, token usage) |
+| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, model thinking duration, output and effective TOKEN, average output speed, current stats display scope; same source as the UI stats table) |
 
 
 ## Configuration
@@ -90,6 +93,8 @@ Plugin configuration is provided through the DSH `cordis.yml`:
     includeTokens: true    # Whether to report Token usage
     includePrompts: true   # Whether to report prompt length
     debug: false           # Debug logging switch
+    tableBorders: true     # Whether the stats table shows cell borders (display only)
+    statsScope: all        # Stats display scope: all = every API key, current = current API key
 ```
 
 Environment variables:
@@ -105,7 +110,7 @@ Environment variables:
 
 ## Platforms & Paths
 
-- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a battle-stats snapshot `stats.json` lives in the same directory, and deleting it resets the local totals.
+- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a per-key data-bucket file `buckets.json` lives in the same directory, holding one set of local data per API key (stats totals, cloud snapshot, pending queue, report log), so deleting a single bucket resets that account's local data and deleting the whole file clears every account's local data (cloud data can still be synced again).
 - Permissions: on POSIX platforms the config directory and file are tightened to `0700` and `0600` respectively; Windows has no POSIX permission bits and relies on user-profile ACLs.
 - Project and branch detection: based on the session working directory, the project name comes from the Git repository root (sessions in a repository subdirectory or a worktree belong to the same project); the branch comes from the Git head file, and stays empty on a detached HEAD.
 - Network: single requests time out after 30 seconds and are retried as network failures; report requests carry plugin and host identification, so WakaTime can classify the editor and operating system; to use a proxy, set `NODE_USE_ENV_PROXY=1` together with `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later).
@@ -148,4 +153,4 @@ Copyright &copy; 2026 JularDepick, see [COPYRIGHT](./COPYRIGHT).
 
 ## License
 
-Licensed under the **MIT License**, see [LICENSE](./LICENSE).
+Licensed under the **Apache-2.0 License**, see [LICENSE](./LICENSE).

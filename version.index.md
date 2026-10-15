@@ -16,11 +16,8 @@ src/translation/.example_zh-CN.ini:2
 README.md:5
 README_en-US.md:5
 AGENTS.md:版本号索引段
-README.md:39
-README_en-US.md:39
+README.md:46
+README_en-US.md:46
 docs/v0.2.0-*.md:版本文档文件名与正文
-.agents/smoke.mjs:版本断言(工作目录,不入库)
-.agents/wsl-install.sh:发布物 tarball 路径(工作目录,不入库)
-.agent/NEXT_SESSION.md:版本状态段(工作目录,不入库)
 
-<!-- 允许Agent继续新增需要被同步更新版本号的地方 -->
+<!-- 允许Agent继续新增需要被同步更新版本号的地方(只登记被git追踪的文件) -->

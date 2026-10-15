@@ -20,7 +20,7 @@
     "README_en-US.md",
     "COPYRIGHT"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "JularDepick",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -49,6 +49,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-client-locale": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-renderer": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.2",

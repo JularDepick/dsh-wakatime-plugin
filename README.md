@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/badge/Version-0.2.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.2.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
 [English](./README_en-US.md)
 | [简体中文]
@@ -20,10 +20,13 @@
 
 - 自动追踪,量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
 - API Key 认证: 仅需一个 WakaTime API Key,经本地小后端代理保管,前端永不接触明文
-- 定时批量上报: 启动时上报一次,之后按可配置间隔(默认 60 秒)批量同步
+- 定时批量上报: 启动时推送一轮,之后按可配置间隔(默认 60 秒)循环;积压超过 20 条时按积压量的十分之一合并成一次批量请求(单批不超过 WakaTime 的 25 条上限),每条心跳保留自己的时间戳
+- 推送队列与重试: 未发送的心跳落盘保留,重启不丢;失败自动回到队尾重试,单条最多 3 次,耗尽或遇到 401/403/400 等终态错误即进入上报记录,可在界面上点击该失败行重新排队重试
+- 账号数据隔离: 每个 API Key 各自一份本地数据(战绩累计、云端快照、待发送队列与上报记录),换 Key 不会把上个账号的数据算到新账号;未配置 Key 期间采集的数据由此后首个配置的 Key 认领;任何账号的数据都不会被自动清理,配置页的「API Key 缓存」区可查看每个 Key 各自的战绩并手动移除 30 天未登录过的缓存(界面上的密钥只保留首尾各 8 个字符,其余以 `*` 代替,明文不出本地后端)
+- 战绩显示策略: 可在配置视图切换「全部密钥战绩」与「当前密钥战绩」(默认前者)
 - Token 统计: 精确记录每次 Agent 调用的 input/output Token 数量
-- Agent 协作战绩: 全局汇总提示词总量,LLM 思考总时长,输出 Token,API 有效 Token 消耗等表现指标,在 Web 界面随时查看
-- 配置即改即生效: 在 WakaTime 标签页右上角「配置」切换出配置视图,API Key 变更与上报参数在同一处完成,改动立即生效,无需保存
+- Agent 协作战绩: 全局汇总提示词字符总量,模型思考总时长,输出 TOKEN 总量,有效 TOKEN 消耗量与平均输出速度等表现指标,在 Web 界面随时查看;战绩表支持开关边框显示
+- 配置即改即生效: 在 WakaTime 标签页右上角「配置」切换出配置视图,API Key 变更,上报参数与界面开关在同一处完成,改动立即生效,无需保存
 - 云端同步合并: 配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致;同步结果本地缓存,切换标签页与刷新页面不重复请求云端
 - 会话追踪: 全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别会话工作目录所属项目与 Git 分支(支持子目录与 worktree)
 - 本地累计保留: LLM 思考总时长与提示词 Token 估算等本地独有指标写入本地快照,重启 dsh 后继续累加,不会归零
@@ -72,7 +75,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.0.tgz
 | `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入 API Key(op=set_apikey,仅覆盖不可查看) |
 | `wakatime_logout` | 清除本地 API Key |
 | `wakatime_status` | 查看认证状态(不回显 Key 明文) |
-| `wakatime_stats` | 查看 Agent 协作战绩(提示词,思考时长,Token 消耗) |
+| `wakatime_stats` | 查看 Agent 协作战绩(提示词字符总量,模型思考总时长,输出与有效 TOKEN,平均输出速度,当前战绩显示策略;与界面战绩表同源) |
 
 
 ## 配置
@@ -90,6 +93,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.0.tgz
     includeTokens: true    # 是否上报 Token 用量
     includePrompts: true   # 是否上报提示词长度
     debug: false           # 调试日志开关
+    tableBorders: true     # 战绩表是否显示表格边框(纯展示项)
+    statsScope: all        # 战绩显示策略:all 全部密钥战绩 / current 当前密钥战绩
 ```
 
 环境变量:
@@ -105,7 +110,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.0.tgz
 
 ## 平台与路径
 
-- 运行平台: Windows, macOS, Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;同目录下另有战绩累计量快照 `stats.json`,删除该文件即可重置本地累计量.
+- 运行平台: Windows, macOS, Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;同目录下另有分 Key 数据桶文件 `buckets.json`,每个 API Key 各自一份本地数据(战绩累计、云端快照、待发送队列与上报记录),删除其中某个桶即可重置该账号的本地数据(删除整个文件即清空全部账号的本地数据,云端数据仍可重新同步).
 - 权限: POSIX 平台下配置目录与文件分别收紧为 `0700` 与 `0600`;Windows 无 POSIX 权限位,依赖用户目录 ACL.
 - 项目与分支识别: 以会话工作目录为基准,项目名取 Git 仓库根目录名,会话位于仓库子目录或 worktree 中也归到同一项目;分支名解析 Git 头文件,detached HEAD 时分支留空.
 - 网络: 单次请求超时 30 秒,超时按网络失败重试;上报请求带插件与宿主标识,便于 WakaTime 归类编辑器与操作系统;需要走代理时设置 `NODE_USE_ENV_PROXY=1` 并配置 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上).
@@ -148,4 +153,4 @@ Copyright &copy; 2026 JularDepick,详见 [COPYRIGHT](./COPYRIGHT).
 
 ## 许可证
 
-采用 **MIT License**,详见 [LICENSE](./LICENSE).
+采用 **Apache-2.0 License**,详见 [LICENSE](./LICENSE).
