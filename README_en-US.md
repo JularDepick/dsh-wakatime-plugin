@@ -25,7 +25,7 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Per-account data isolation: every API key keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching keys never credits one account's data to another; data collected while no key is configured is claimed by the first key configured afterwards, and no account's data is ever cleaned up automatically; the "API key caches" section in the config view shows each key's own stats and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
 - Stats display scope: switch between "all API keys" and "current API key" in the config view (the former is the default)
 - Token statistics: precisely record the input/output Token count of each Agent call
-- Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders
+- Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders
 - Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the API key, reporting options, and interface switches in one place; changes apply immediately, with no save button
 - Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
@@ -75,7 +75,7 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 | `wakatime_config` | Read/update plugin config (op=get/set); overwrite the API key (op=set_apikey, overwrite only, never shown) |
 | `wakatime_logout` | Clear the local API key |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
-| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, model thinking duration, output and effective TOKEN, average output speed, current stats display scope; same source as the UI stats table) |
+| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, model thinking duration, output and effective TOKEN, cache hit TOKEN, average output speed, current stats display scope; same source as the UI stats table) |
 
 
 ## Configuration
