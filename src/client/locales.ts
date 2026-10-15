@@ -35,6 +35,8 @@ export type WakatimeKey =
   | 'stats.noteOutput'
   | 'stats.noteApiEffective'
   | 'stats.noteAvgOutputSpeed'
+  | 'stats.cacheHitTokens'
+  | 'stats.noteCacheHitTokens'
   | 'stats.scope'
   | 'stats.scopeAll'
   | 'stats.scopeCurrent'
@@ -122,6 +124,8 @@ export const zh: WakatimeDict = {
   'stats.noteOutput': '官方 ai_output_tokens',
   'stats.noteApiEffective': '输入输出总量,缓存命中不计入',
   'stats.noteAvgOutputSpeed': 'TOKEN输出速度',
+  'stats.cacheHitTokens': '缓存命中TOKEN总量',
+  'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN,官方无对应字段',
   'stats.scope': '战绩显示策略',
   'stats.scopeAll': '全部密钥战绩',
   'stats.scopeCurrent': '当前密钥战绩',
@@ -208,6 +212,8 @@ export const en: WakatimeDict = {
   'stats.noteOutput': 'Official ai_output_tokens',
   'stats.noteApiEffective': 'Input and output total; cache hits excluded',
   'stats.noteAvgOutputSpeed': 'TOKEN output speed',
+  'stats.cacheHitTokens': 'Cache hit TOKEN total',
+  'stats.noteCacheHitTokens': 'Input TOKENs served from the prompt cache; no official field exists',
   'stats.scope': 'Stats display scope',
   'stats.scopeAll': 'All API keys',
   'stats.scopeCurrent': 'Current API key',

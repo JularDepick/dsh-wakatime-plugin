@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import type { MutableRefObject } from 'react'
+import type { CSSProperties, MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
@@ -595,7 +595,7 @@ function WakatimePanels(props: PanelsProps) {
             checked={draft.tableBorders}
             onChange={(value) => { onPatch('tableBorders', value) }}
           />
-          <SelectField
+          <SegmentedField
             label={t('config.statsScope')}
             value={draft.statsScope}
             options={[
@@ -801,6 +801,11 @@ function MetricRows({ t, view }: { t: PanelsProps['t'], view: WebStatusResponse[
         <td data-column="note">{t('stats.noteApiEffective')}</td>
       </tr>
       <tr>
+        <td data-column="metric">{t('stats.cacheHitTokens')}</td>
+        <td data-column="value">{aggregate.cacheReadTokens.toLocaleString()}</td>
+        <td data-column="note">{t('stats.noteCacheHitTokens')}</td>
+      </tr>
+      <tr>
         <td data-column="metric">{t('stats.avgOutputSpeed')}</td>
         <td data-column="value">{`${avgOutputSpeed.toLocaleString()} token/s`}</td>
         <td data-column="note">{t('stats.noteAvgOutputSpeed')}</td>
@@ -896,27 +901,39 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
   }
 }
 
-/* 下拉选择行:标签文本与官方 Select 形态(原生 select 保留键盘与无障碍语义) */
-function SelectField({ label, value, options, onChange }: {
+/* 档位切换条:滑块式二选一控件(radiogroup 语义,选中档由滑块指示,支持键盘聚焦与空格切换) */
+function SegmentedField({ label, value, options, onChange }: {
   label: string
   value: string
   options: readonly { value: string, label: string }[]
   onChange: (value: string) => void
 }) {
+  const activeIndex = Math.max(0, options.findIndex((option) => option.value === value))
   return (
     <div className={css.field}>
       <div className={css.row}>
         <span className={css.fieldLabel}>{label}</span>
-        <select
-          className={css.select}
+        <div
+          className={css.segmented}
+          role="radiogroup"
           aria-label={label}
-          value={value}
-          onChange={(event) => { onChange(event.target.value) }}
+          style={{ '--segment-count': options.length, '--segment-index': activeIndex } as CSSProperties}
         >
+          <span className={css.segmentKnob} aria-hidden="true" />
           {options.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={option.value === value}
+              className={css.segment}
+              data-active={option.value === value}
+              onClick={() => { onChange(option.value) }}
+            >
+              {option.label}
+            </button>
           ))}
-        </select>
+        </div>
       </div>
     </div>
   )

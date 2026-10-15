@@ -266,23 +266,29 @@
   border-bottom: none;
 }
 
-/* 显示表格边框:合并边框模型画满网格(表头线略重于数据行线) */
+/* 显示表格边框:改用分离边框模型,由表格自身画外框并给外圈加圆角
+   (折叠边框模型无法圆角),单元格只画内部横竖线,避免与外框重叠成双线 */
 .table[data-bordered='true'] {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  overflow: hidden;
 }
 
 .table[data-bordered='true'] th,
 .table[data-bordered='true'] td {
-  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 }
 
 .table[data-bordered='true'] th {
   border-color: var(--dsw-alias-border-l2);
 }
 
-/* 合并边框下末行不再省略下边框,否则外框缺边 */
-.table[data-bordered='true'] tbody tr:last-child td {
-  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+/* 末列右边线交给表格外框,避免双线 */
+.table[data-bordered='true'] tr > *:last-child {
+  border-right: none;
 }
 
 /* 战绩表格:指标 / 数值 / 说明 三列;数值列用较强字设与等宽数字 */
@@ -389,26 +395,57 @@
   border-color: var(--dsw-alias-state-business-primary);
 }
 
-.input::placeholder {
-  color: var(--dsw-alias-label-dimmed);
-}
-
-/* 下拉选择(官方 Select 形态的单行变体;项目规范要求文本水平居中) */
-.select {
-  height: 34px;
-  max-width: 100%;
-  padding: 0 8px;
+/* 档位切换条(滑块式二选一):轨道等分若干档,滑块按档位索引平移 */
+.segmented {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 2px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-3);
-  font: var(--dsw-font-xs-13);
-  color: var(--dsw-alias-label-primary);
-  text-align: center;
 }
 
-.select:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-state-business-primary);
+.segmentKnob {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--segment-count, 2));
+  transform: translateX(calc(var(--segment-index, 0) * 100%));
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-shadow-lv1);
+  transition: transform 160ms ease;
+}
+
+.segment {
+  position: relative;
+  z-index: 1;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.segment[data-active='true'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.segment:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.input::placeholder {
+  color: var(--dsw-alias-label-dimmed);
 }
 
 .inputNarrow {
