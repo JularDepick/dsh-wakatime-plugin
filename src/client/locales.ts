@@ -27,12 +27,17 @@ export type WakatimeKey =
   | 'stats.thinking'
   | 'stats.outputTokens'
   | 'stats.apiEffective'
+  | 'stats.avgOutputSpeed'
   | 'stats.colMetric'
   | 'stats.colValue'
   | 'stats.colNote'
   | 'stats.noteThinking'
   | 'stats.noteOutput'
   | 'stats.noteApiEffective'
+  | 'stats.noteAvgOutputSpeed'
+  | 'stats.scope'
+  | 'stats.scopeAll'
+  | 'stats.scopeCurrent'
   | 'cloud.sync'
   | 'cloud.syncing'
   | 'cloud.syncedAt'
@@ -50,6 +55,9 @@ export type WakatimeKey =
   | 'logs.detail'
   | 'logs.success'
   | 'logs.failed'
+  | 'logs.retried'
+  | 'logs.retry'
+  | 'logs.action'
   | 'logs.errNotConfigured'
   | 'config.title'
   | 'config.open'
@@ -60,6 +68,23 @@ export type WakatimeKey =
   | 'config.includeTokens'
   | 'config.includePrompts'
   | 'config.debug'
+  | 'config.tableBorders'
+  | 'config.statsScope'
+  | 'config.statsScopeAll'
+  | 'config.statsScopeCurrent'
+  | 'buckets.title'
+  | 'buckets.hint'
+  | 'buckets.empty'
+  | 'buckets.current'
+  | 'buckets.stale'
+  | 'buckets.recent'
+  | 'buckets.updatedAt'
+  | 'buckets.remove'
+  | 'buckets.removeConfirm'
+  | 'buckets.removeFailed'
+  | 'buckets.errInUse'
+  | 'buckets.errRecent'
+  | 'buckets.errMissing'
   | 'config.saving'
   | 'config.instantHint'
   | 'config.saveFailed'
@@ -84,17 +109,22 @@ export const zh: WakatimeDict = {
   'apikey.placeholder': '粘贴新的 API Key…',
   'apikey.hint': '在 wakatime.com/settings/api-key 生成。',
   'stats.title': 'Agent 协作战绩',
-  'stats.promptChars': '提示词总量(字符)',
-  'stats.promptEstimate': '≈ {n} token(估算)',
-  'stats.thinking': 'LLM 思考总时长',
-  'stats.outputTokens': '输出 TOKEN 总量',
-  'stats.apiEffective': 'API 有效 TOKEN 消耗',
-  'stats.colMetric': '指标',
-  'stats.colValue': '数值',
-  'stats.colNote': '说明',
-  'stats.noteThinking': '步骤开始至首个输出 token',
+  'stats.promptChars': '提示词字符总量',
+  'stats.promptEstimate': '≈ {n} token',
+  'stats.thinking': '模型思考总时长',
+  'stats.outputTokens': '输出TOKEN总量',
+  'stats.apiEffective': '有效TOKEN消耗量',
+  'stats.avgOutputSpeed': '平均输出速度',
+  'stats.colMetric': '指标名称',
+  'stats.colValue': '指标数值',
+  'stats.colNote': '备注',
+  'stats.noteThinking': '步骤开始至首TOKEN输出',
   'stats.noteOutput': '官方 ai_output_tokens',
-  'stats.noteApiEffective': '输入 + 输出,缓存命中不计入',
+  'stats.noteApiEffective': '输入输出总量,缓存命中不计入',
+  'stats.noteAvgOutputSpeed': 'TOKEN输出速度',
+  'stats.scope': '战绩显示策略',
+  'stats.scopeAll': '全部密钥战绩',
+  'stats.scopeCurrent': '当前密钥战绩',
   'cloud.sync': '同步',
   'cloud.syncing': '同步中…',
   'cloud.syncedAt': '同步时间',
@@ -112,6 +142,9 @@ export const zh: WakatimeDict = {
   'logs.detail': '详情',
   'logs.success': '成功',
   'logs.failed': '失败',
+  'logs.retried': '已重试',
+  'logs.retry': '重试',
+  'logs.action': '操作',
   'logs.errNotConfigured': '未配置 API Key',
   'config.title': '配置',
   'config.open': '配置',
@@ -122,6 +155,23 @@ export const zh: WakatimeDict = {
   'config.includeTokens': '上报 Token 用量',
   'config.includePrompts': '上报提示词长度',
   'config.debug': '调试日志',
+  'config.tableBorders': '显示表格边框',
+  'config.statsScope': '战绩显示策略',
+  'config.statsScopeAll': '全部密钥战绩',
+  'config.statsScopeCurrent': '当前密钥战绩',
+  'buckets.title': 'API Key 缓存',
+  'buckets.hint': '每个 API Key 各自一份本地缓存(战绩累计、云端快照与待发送心跳);30 天未登录的缓存可手动移除',
+  'buckets.empty': '暂无 API Key 缓存',
+  'buckets.current': '当前密钥',
+  'buckets.stale': '30 天未登录',
+  'buckets.recent': '使用中',
+  'buckets.updatedAt': '最后更新',
+  'buckets.remove': '移除缓存',
+  'buckets.removeConfirm': '确认移除',
+  'buckets.removeFailed': '移除缓存失败',
+  'buckets.errInUse': '当前密钥的缓存不可移除,请先切换或清除 API Key',
+  'buckets.errRecent': '该密钥 30 天内仍在使用,暂不可移除',
+  'buckets.errMissing': '该缓存已不存在,已刷新列表',
   'config.saving': '保存中…',
   'config.instantHint': '修改立即生效',
   'config.saveFailed': '保存失败',
@@ -145,17 +195,22 @@ export const en: WakatimeDict = {
   'apikey.placeholder': 'Paste a new API key…',
   'apikey.hint': 'Generate one at wakatime.com/settings/api-key.',
   'stats.title': 'Agent collaboration battle stats',
-  'stats.promptChars': 'Prompt length (chars)',
-  'stats.promptEstimate': '≈ {n} tokens (estimated)',
-  'stats.thinking': 'LLM thinking time',
-  'stats.outputTokens': 'Output tokens',
-  'stats.apiEffective': 'API effective token usage',
-  'stats.colMetric': 'Metric',
-  'stats.colValue': 'Value',
+  'stats.promptChars': 'Prompt characters',
+  'stats.promptEstimate': '≈ {n} tokens',
+  'stats.thinking': 'Model thinking time',
+  'stats.outputTokens': 'Output TOKEN total',
+  'stats.apiEffective': 'Effective TOKEN usage',
+  'stats.avgOutputSpeed': 'Average output speed',
+  'stats.colMetric': 'Metric name',
+  'stats.colValue': 'Metric value',
   'stats.colNote': 'Note',
-  'stats.noteThinking': 'From step start to the first output token',
+  'stats.noteThinking': 'Step start to first TOKEN output',
   'stats.noteOutput': 'Official ai_output_tokens',
-  'stats.noteApiEffective': 'Input + output; cache hits excluded',
+  'stats.noteApiEffective': 'Input and output total; cache hits excluded',
+  'stats.noteAvgOutputSpeed': 'TOKEN output speed',
+  'stats.scope': 'Stats display scope',
+  'stats.scopeAll': 'All API keys',
+  'stats.scopeCurrent': 'Current API key',
   'cloud.sync': 'Sync',
   'cloud.syncing': 'Syncing…',
   'cloud.syncedAt': 'Synced at',
@@ -173,6 +228,9 @@ export const en: WakatimeDict = {
   'logs.detail': 'Detail',
   'logs.success': 'OK',
   'logs.failed': 'Failed',
+  'logs.retried': 'Retried',
+  'logs.retry': 'Retry',
+  'logs.action': 'Action',
   'logs.errNotConfigured': 'API key not configured',
   'config.title': 'Configuration',
   'config.open': 'Settings',
@@ -183,6 +241,23 @@ export const en: WakatimeDict = {
   'config.includeTokens': 'Report token usage',
   'config.includePrompts': 'Report prompt length',
   'config.debug': 'Debug logging',
+  'config.tableBorders': 'Show table borders',
+  'config.statsScope': 'Stats display scope',
+  'config.statsScopeAll': 'All API keys',
+  'config.statsScopeCurrent': 'Current API key',
+  'buckets.title': 'API key caches',
+  'buckets.hint': 'Each API key keeps its own local cache (stats totals, cloud snapshot, pending heartbeats); caches unused for 30 days can be removed manually',
+  'buckets.empty': 'No API key cache yet',
+  'buckets.current': 'Current key',
+  'buckets.stale': 'Unused for 30 days',
+  'buckets.recent': 'In use',
+  'buckets.updatedAt': 'Last updated',
+  'buckets.remove': 'Remove cache',
+  'buckets.removeConfirm': 'Confirm removal',
+  'buckets.removeFailed': 'Failed to remove cache',
+  'buckets.errInUse': 'The current key cache cannot be removed; switch or clear the API key first',
+  'buckets.errRecent': 'This key was still in use within the last 30 days, so it cannot be removed yet',
+  'buckets.errMissing': 'That cache no longer exists; the list has been refreshed',
   'config.saving': 'Saving…',
   'config.instantHint': 'Changes apply immediately',
   'config.saveFailed': 'Save failed',

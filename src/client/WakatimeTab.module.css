@@ -22,6 +22,8 @@
   width: 100%;
   /* 左右内边距:按设计要求固定 60px(可按需调整的设计细节),不再取宿主留白变量 */
   --wakatime-tab-inline-padding: 60px;
+  /* 表格字号放大倍数(单一旋钮):相对官方表格字设整体放大,行高同比 */
+  --wakatime-table-font-scale: 1.5;
   padding: 12px var(--wakatime-tab-inline-padding) 24px;
   color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-s-14);
@@ -217,22 +219,29 @@
   opacity: 0.9;
 }
 
-/* ---------- 表格(照抄官方 trajectory 表格,文本按项目规范居中) ---------- */
+/* ---------- 表格(照抄官方 trajectory 表格,文本按项目规范居中) ----------
+   字号在官方字设基础上按 --wakatime-table-font-scale 整体放大(默认 1.5 倍),
+   行高同比放大,行盒由 30px 放宽到 40px;
+   边框由配置项「显示表格边框」驱动(data-bordered),默认开启。 */
 
 .table {
   width: 100%;
   min-width: 0;
   border-spacing: 0;
   font: var(--dsw-font-xxs-12);
+  font-size: calc(var(--dsw-font-xxs-12-font-size) * var(--wakatime-table-font-scale));
+  line-height: calc(var(--dsw-font-xxs-12-line-height) * var(--wakatime-table-font-scale));
   color: var(--dsw-alias-label-primary);
 }
 
 .table th {
   box-sizing: border-box;
-  height: 30px;
+  height: 40px;
   padding: 0 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   font: var(--dsw-font-xxs-strong-12);
+  font-size: calc(var(--dsw-font-xxs-strong-12-font-size) * var(--wakatime-table-font-scale));
+  line-height: calc(var(--dsw-font-xxs-strong-12-line-height) * var(--wakatime-table-font-scale));
   color: var(--dsw-alias-label-tertiary);
   text-align: center;
   white-space: nowrap;
@@ -240,7 +249,7 @@
 
 .table td {
   box-sizing: border-box;
-  height: 30px;
+  height: 40px;
   padding: 0 8px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   text-align: center;
@@ -255,6 +264,25 @@
 
 .table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* 显示表格边框:合并边框模型画满网格(表头线略重于数据行线) */
+.table[data-bordered='true'] {
+  border-collapse: collapse;
+}
+
+.table[data-bordered='true'] th,
+.table[data-bordered='true'] td {
+  border: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.table[data-bordered='true'] th {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* 合并边框下末行不再省略下边框,否则外框缺边 */
+.table[data-bordered='true'] tbody tr:last-child td {
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 }
 
 /* 战绩表格:指标 / 数值 / 说明 三列;数值列用较强字设与等宽数字 */
@@ -286,6 +314,8 @@
 
 .statsTable td[data-column='value'] {
   font: var(--dsw-font-s-strong-14);
+  font-size: calc(var(--dsw-font-s-strong-14-font-size) * var(--wakatime-table-font-scale));
+  line-height: calc(var(--dsw-font-s-strong-14-line-height) * var(--wakatime-table-font-scale));
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-primary);
 }
@@ -361,6 +391,24 @@
 
 .input::placeholder {
   color: var(--dsw-alias-label-dimmed);
+}
+
+/* 下拉选择(官方 Select 形态的单行变体;项目规范要求文本水平居中) */
+.select {
+  height: 34px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-3);
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-primary);
+  text-align: center;
+}
+
+.select:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-state-business-primary);
 }
 
 .inputNarrow {
@@ -490,6 +538,80 @@
   transform: none;
 }
 
+/* 原生 details 形态的折叠区(配置视图的 API Key 缓存明细):与日志区同一套观感 */
+.details {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.detailsRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.detailsRow::-webkit-details-marker {
+  display: none;
+}
+
+.detailsRow:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.detailsRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-xs);
+}
+
+.details[open] .chevron {
+  transform: none;
+}
+
+/* 每个 API Key 缓存一块,块与块之间用 0.5px 分隔线区分 */
+.bucket {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  min-width: 0;
+}
+
+.bucket:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.bucketHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+/* 模糊 API Key:等宽字形,便于逐字符对照 */
+.bucketKey {
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: var(--dsw-font-xs-13-font-size, 13px);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+
 .disclosureBody {
   padding-top: 8px;
   min-width: 0;
@@ -614,6 +736,12 @@
 
   .statsTable col:nth-child(3) {
     width: 30%;
+  }
+
+  /* 数值列在极窄宽度下也允许换行,避免「平均输出速度」的单位被省略号截断 */
+  .statsTable td[data-column='value'] {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   /* 单元格留白收紧,给文字腾出宽度 */

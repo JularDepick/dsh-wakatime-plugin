@@ -2,8 +2,9 @@
  * WakaTime 会话区域标签页组件
  * 作者: JularDepick
  *
- * Agent 协作战绩(全局):提示词总量(字符,官方 ai_prompt_length 口径)、
- * LLM 思考总时长、输出 TOKEN、API 有效 TOKEN 消耗(输入+输出)等;
+ * Agent 协作战绩(全局):提示词字符总量(官方 ai_prompt_length 口径)、
+ * 模型思考总时长、输出 TOKEN 总量、有效 TOKEN 消耗量(输入+输出)、
+ * 平均输出速度(输出 TOKEN ÷ 思考秒数,向下取整)等;
  * API Key 覆盖管理(小后端代理,仅覆盖不可查看);
  * 上报记录日志(可展开/收起,调试级);主视图工具条左侧带只读账号状态,
  * API Key 变更与上报参数同属配置,由右上角按钮切换出的配置视图承载(ESC 切回主视图)。
@@ -18,7 +19,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
+import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
+import type { WebBucketEntry, WebBucketRemoveResponse, WebBucketsResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -34,6 +36,8 @@ interface ConfigDraft {
   includeTokens: boolean
   includePrompts: boolean
   debug: boolean
+  tableBorders: boolean
+  statsScope: 'all' | 'current'
 }
 
 /** 保存结果提示 */
@@ -48,6 +52,9 @@ const APIKEY_PATH = '/api/wakatime/apikey'
 const LOGS_PATH = '/api/wakatime/logs'
 const SYNC_PATH = '/api/wakatime/sync'
 const APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
+const RETRY_PATH = '/api/wakatime/retry'
+const BUCKETS_PATH = '/api/wakatime/buckets'
+const BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 
 /** 清除确认与提示停留时长:与官方 Toast 默认一致(1000ms 淡出另计) */
 const CONFIRM_MS = 3000
@@ -57,17 +64,20 @@ const NOTICE_MS = 3000
  *  切换标签页会重新挂载组件,缓存命中时直接用上次结果,不再请求云端 */
 const CLOUD_CACHE_MS = 5 * 60 * 1000
 
-/* 模块级云端缓存:同一页面会话内跨挂载复用;清空/更换 API Key 时失效 */
-let cloudCache: { at: number; data: WebSyncResponse['data'] } | undefined
+/* 模块级同步时间戳:同一页面会话内切换标签页不重复向小后端发起同步请求;
+   云端数据本身已由服务端写入对应 Key 的数据桶,并另有服务端缓存 SYNC_CACHE_TTL_MS */
+let lastSyncAt = 0
 
-function readCloudCache(): WebSyncResponse['data'] | undefined {
-  if (cloudCache === undefined) return undefined
-  if (Date.now() - cloudCache.at >= CLOUD_CACHE_MS) return undefined
-  return cloudCache.data
+function syncedRecently(): boolean {
+  return Date.now() - lastSyncAt < CLOUD_CACHE_MS
 }
 
-function clearCloudCache(): void {
-  cloudCache = undefined
+function markSynced(): void {
+  lastSyncAt = Date.now()
+}
+
+function clearSynced(): void {
+  lastSyncAt = 0
 }
 
 /** 紧凑次级按钮类名(官方 Button sm + outline) */
@@ -91,14 +101,25 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [notice, setNotice] = useState<Notice>()
   const [keySaving, setKeySaving] = useState(false)
   const [tick, setTick] = useState(0)
-  /* 云端同步(已配置 API Key 时拉取 summaries AI 聚合;命中本地缓存则直接复用) */
-  const [cloud, setCloud] = useState<WebSyncResponse['data'] | null>(() => readCloudCache() ?? null)
+  /* 云端同步状态(战绩数值与云端快照由服务端按数据桶解析后下发) */
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
   const [clearConfirm, setClearConfirm] = useState(false)
   /* 配置视图开关(右上角按钮切换 tab 内容,ESC 切回主视图) */
   const [configOpen, setConfigOpen] = useState(false)
   const configToggleRef = useRef<HTMLButtonElement | null>(null)
+  /* API Key 缓存明细(展开时才拉取):null 表示尚未拉取 */
+  const [buckets, setBuckets] = useState<WebBucketEntry[] | null>(null)
+  const [bucketsOpen, setBucketsOpen] = useState(false)
+  /* 移除某个 Key 缓存的二次确认(3 秒内再次点击确认,超时回归) */
+  const [bucketConfirm, setBucketConfirm] = useState<string | undefined>(undefined)
+
+  /* 移除确认超时回归 */
+  useEffect(() => {
+    if (bucketConfirm === undefined) return
+    const timer = setTimeout(() => { setBucketConfirm(undefined) }, CONFIRM_MS)
+    return () => clearTimeout(timer)
+  }, [bucketConfirm])
 
   /* 清除确认超时回归 */
   useEffect(() => {
@@ -139,30 +160,98 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     fetch(APIKEY_CLEAR_PATH, { method: 'POST' })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        clearCloudCache()
-        setCloud(null)
+        clearSynced()
         setCloudState('idle')
         setTick((value) => value + 1)
       })
       .catch(() => { setNotice({ kind: 'error', text: t('state.loadFailed') }) })
   }
 
-  /* 云端同步:已配置时向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
-     成功写入本地缓存,失败仅置错误态并保留上次结果 */
+  /* 云端同步:向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
+     服务端把结果写入当前 Key 的数据桶并返回解析好的战绩视图,前端直接替换展示数据 */
   const syncCloud = (force = false): void => {
     setCloudState('syncing')
     fetch(force ? `${SYNC_PATH}?force=1` : SYNC_PATH, { cache: 'no-store' })
       .then((response) => response.json() as Promise<WebSyncResponse>)
       .then((result) => {
         if (result.ok && result.data) {
-          cloudCache = { at: Date.now(), data: result.data }
-          setCloud(result.data)
+          markSynced()
+          setData((previous) => (previous ? { ...previous, stats: result.data as WebStatusResponse['stats'] } : previous))
           setCloudState('idle')
         } else {
           setCloudState('error')
         }
       })
       .catch(() => { setCloudState('error') })
+  }
+
+  /* 上报记录:失败行手动重试(移回推送队列并立即尝试一轮) */
+  const retryLog = (id: string): void => {
+    fetch(RETRY_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        setTick((value) => value + 1)
+      })
+      .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
+  }
+
+  /* 移除失败原因:稳定标识映射为字典文案 */
+  const describeBucketError = (error: string | undefined): string => {
+    if (error === 'bucket-in-use') return t('buckets.errInUse')
+    if (error === 'bucket-not-removable') return t('buckets.errRecent')
+    if (error === 'bucket-not-found') return t('buckets.errMissing')
+    return error ?? ''
+  }
+
+  /* 拉取 API Key 缓存清单(含每个 Key 自己的战绩视图,均为服务端按落盘数据实时解析) */
+  const loadBuckets = (): void => {
+    fetch(BUCKETS_PATH, { cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json() as Promise<WebBucketsResponse>
+      })
+      .then((result) => { setBuckets(result.buckets) })
+      .catch((error: unknown) => {
+        setBuckets([])
+        setNotice({ kind: 'error', text: (error as Error).message })
+      })
+  }
+
+  /* 展开/收起缓存明细:展开时才拉取 */
+  const toggleBuckets = (open: boolean): void => {
+    setBucketsOpen(open)
+    if (open) loadBuckets()
+  }
+
+  /* 移除一个 30 天未登录过的 Key 缓存(二次确认在同一按钮上完成);
+     移除后重新拉取清单与状态,使落盘缓存与战绩表同步 */
+  const removeBucket = (key: string): void => {
+    if (bucketConfirm !== key) {
+      setBucketConfirm(key)
+      return
+    }
+    setBucketConfirm(undefined)
+    fetch(BUCKET_REMOVE_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key }),
+    })
+      .then(async (response) => {
+        const result = await response.json() as WebBucketRemoveResponse
+        if (!response.ok || !result.ok) throw new Error(describeBucketError(result.error))
+        return result
+      })
+      .then(() => {
+        loadBuckets()
+        setTick((value) => value + 1)
+      })
+      .catch((error: unknown) => {
+        setNotice({ kind: 'error', text: `${t('buckets.removeFailed')}: ${(error as Error).message}` })
+      })
   }
 
   /* 拉取状态与上报日志;已配置且本地无云端缓存时才同步 */
@@ -176,7 +265,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then((next) => {
         setData(next)
         setDraft(fromConfig(next.config))
-        if (next.configured && readCloudCache() === undefined) syncCloud()
+        if (next.configured && !syncedRecently()) syncCloud()
+        /* 缓存明细区已展开时同步刷新(切换/清除 Key 后当前密钥标记与列表会变) */
+        if (bucketsOpen) loadBuckets()
       })
       .catch((error: unknown) => { setLoadError((error as Error).message) })
     fetch(LOGS_PATH, { cache: 'no-store' })
@@ -247,9 +338,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .then(() => {
         setApiKeyInput('')
-        /* 换了账号:云端缓存(前端与服务端各一份)一律失效,下次按新 Key 重新同步 */
-        clearCloudCache()
-        setCloud(null)
+        /* 换了账号:同步节流与错误态重置,下次按新 Key 重新同步 */
+        clearSynced()
         setCloudState('idle')
         setTick((value) => value + 1)
       })
@@ -275,8 +365,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             draft={draft}
             logs={logs}
             logsOpen={logsOpen}
-            cloud={cloud}
             cloudState={cloudState}
+            buckets={buckets}
+            bucketsOpen={bucketsOpen}
+            bucketConfirm={bucketConfirm}
             apiKeyInput={apiKeyInput}
             keySaving={keySaving}
             clearConfirm={clearConfirm}
@@ -287,6 +379,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
             onToggleConfig={() => { setConfigOpen(!configOpen) }}
             onRefresh={() => { setTick((value) => value + 1) }}
             onSync={() => { syncCloud(true) }}
+            onRetry={retryLog}
+            onBucketsToggle={toggleBuckets}
+            onRemoveBucket={removeBucket}
             onClearApiKey={clearApiKey}
             onApiKeyInput={setApiKeyInput}
             onSaveApiKey={saveApiKey}
@@ -312,8 +407,12 @@ interface PanelsProps {
   draft: ConfigDraft
   logs: readonly WebLogEntry[]
   logsOpen: boolean
-  cloud: WebSyncResponse['data'] | null
   cloudState: 'idle' | 'syncing' | 'error'
+  /* API Key 缓存明细(null 表示尚未拉取) */
+  buckets: readonly WebBucketEntry[] | null
+  bucketsOpen: boolean
+  /* 等待二次确认移除的桶标识 */
+  bucketConfirm: string | undefined
   apiKeyInput: string
   keySaving: boolean
   clearConfirm: boolean
@@ -324,6 +423,9 @@ interface PanelsProps {
   onToggleConfig: () => void
   onRefresh: () => void
   onSync: () => void
+  onRetry: (id: string) => void
+  onBucketsToggle: (open: boolean) => void
+  onRemoveBucket: (key: string) => void
   onClearApiKey: () => void
   onApiKeyInput: (value: string) => void
   onSaveApiKey: () => void
@@ -339,24 +441,32 @@ interface PanelsProps {
  * @returns 当前视图内容。
  */
 function WakatimePanels(props: PanelsProps) {
-  const { t, data, draft, logs, logsOpen, cloud, cloudState } = props
+  const { t, data, draft, logs, logsOpen, cloudState } = props
+  const { buckets, bucketsOpen, bucketConfirm } = props
   const { apiKeyInput, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
-  const { describeLogError, onToggleLogs, onRefresh, onSync, onClearApiKey, onToggleConfig } = props
+  const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onClearApiKey, onToggleConfig } = props
   const { onApiKeyInput, onSaveApiKey, onPatch, onDraft } = props
-  const aggregate = data.stats.aggregate
-  const thinkingMinutes = Math.floor(aggregate.thinkingMs / 60000)
-  const thinkingSeconds = Math.round((aggregate.thinkingMs % 60000) / 1000)
-  /* 云端与本地合并:可对应指标取最大值,保证云端与本地一致性 */
-  const cloudInput = cloud?.inputTokens ?? 0
-  const cloudOutput = cloud?.outputTokens ?? 0
-  const cloudPrompt = cloud?.promptChars ?? 0
-  const mergedPromptChars = Math.max(aggregate.promptChars, cloudPrompt)
-  const mergedOutputTokens = Math.max(aggregate.outputTokens, cloudOutput)
-  const mergedApiEffective = Math.max(effectiveTokens(aggregate), cloudInput + cloudOutput)
-  const cloudMeta = cloud
-    ? `${t('cloud.syncedAt')}: ${formatTime(cloud.syncedAt)}`
+  const { onBucketsToggle, onRemoveBucket } = props
+  /* 战绩视图由服务端按显示策略解析:桶内已与云端取最大,跨桶按策略求和 */
+  const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
+  const bordered = draft.tableBorders ? 'true' : 'false'
+  const cloudMeta = view.cloud
+    ? `${t('cloud.syncedAt')}: ${formatTime(view.cloud.syncedAt)}`
     : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))
+
+  /* 上报记录结果文案:成功 / 失败 / 已重试(重试行不关心重试结果) */
+  const logStateText = (entry: WebLogEntry): string => {
+    if (entry.ok) return t('logs.success')
+    return entry.state === 'retried' ? t('logs.retried') : t('logs.failed')
+  }
+
+  /* 上报记录详情:失败原因(稳定标识映射)与失败任务的心跳对象 */
+  const logDetail = (entry: WebLogEntry): string => {
+    const reason = describeLogError(entry.error)
+    if (entry.entity === undefined) return reason
+    return reason === '' ? entry.entity : `${reason} · ${entry.entity}`
+  }
 
   /* 视图切换按钮:主视图与配置视图共用(靠右,主视图左侧留给只读账号状态) */
   const toggleButton = (
@@ -480,7 +590,76 @@ function WakatimePanels(props: PanelsProps) {
             checked={draft.debug}
             onChange={(value) => { onPatch('debug', value) }}
           />
+          <ToggleField
+            label={t('config.tableBorders')}
+            checked={draft.tableBorders}
+            onChange={(value) => { onPatch('tableBorders', value) }}
+          />
+          <SelectField
+            label={t('config.statsScope')}
+            value={draft.statsScope}
+            options={[
+              { value: 'all', label: t('config.statsScopeAll') },
+              { value: 'current', label: t('config.statsScopeCurrent') },
+            ]}
+            onChange={(value) => { onPatch('statsScope', value === 'current' ? 'current' : 'all') }}
+          />
           <p className={css.muted}>{t('config.instantHint')}</p>
+        </section>
+
+        <section className={css.section}>
+          <details className={css.details} open={bucketsOpen} onToggle={(event) => { onBucketsToggle(event.currentTarget.open) }}>
+            <summary className={css.detailsRow}>
+              <Chevron className={css.chevron} />
+              <span className={css.disclosureTitle}>{t('buckets.title')}</span>
+              <span className={css.muted}>{t('buckets.hint')}</span>
+            </summary>
+            <div className={css.disclosureBody}>
+              {buckets === null
+                ? <p className={css.muted}>{t('state.loading')}</p>
+                : buckets.length === 0
+                  ? <p className={css.muted}>{t('buckets.empty')}</p>
+                  : buckets.map((entry) => (
+                    <div key={entry.key} className={css.bucket}>
+                      <div className={css.bucketHead}>
+                        <code className={css.bucketKey}>{entry.maskedKey}</code>
+                        <span className={css.tag} data-tone={entry.current ? 'success' : 'outline'}>
+                          {entry.current ? t('buckets.current') : (entry.removable ? t('buckets.stale') : t('buckets.recent'))}
+                        </span>
+                        <span className={css.muted}>{t('buckets.updatedAt')}: {formatTime(entry.updatedAt)}</span>
+                        {entry.removable ? (
+                          <button
+                            type="button"
+                            className={bucketConfirm === entry.key
+                              ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
+                              : compactButton}
+                            onClick={() => { onRemoveBucket(entry.key) }}
+                          >
+                            {bucketConfirm === entry.key ? t('buckets.removeConfirm') : t('buckets.remove')}
+                          </button>
+                        ) : null}
+                      </div>
+                      <table className={`${css.table} ${css.statsTable}`} data-bordered={bordered}>
+                        <colgroup>
+                          <col />
+                          <col />
+                          <col />
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            <th>{t('stats.colMetric')}</th>
+                            <th>{t('stats.colValue')}</th>
+                            <th>{t('stats.colNote')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <MetricRows t={t} view={entry.stats} />
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+            </div>
+          </details>
         </section>
       </>
     )
@@ -494,7 +673,10 @@ function WakatimePanels(props: PanelsProps) {
         <div className={css.sectionHead}>
           <h3 className={css.sectionTitle}>{t('stats.title')}</h3>
           <div className={css.actions}>
-            <span className={css.muted}>{cloudMeta}{' · '}{t('cloud.range')}</span>
+            <span className={css.muted}>
+              {t('stats.scope')}: {view.scope === 'current' ? t('stats.scopeCurrent') : t('stats.scopeAll')}
+              {' · '}{cloudMeta}{' · '}{t('cloud.range')}
+            </span>
             <button
               type="button"
               className={compactButton}
@@ -505,7 +687,7 @@ function WakatimePanels(props: PanelsProps) {
             </button>
           </div>
         </div>
-        <table className={`${css.table} ${css.statsTable}`}>
+        <table className={`${css.table} ${css.statsTable}`} data-bordered={bordered}>
           <colgroup>
             <col />
             <col />
@@ -519,26 +701,7 @@ function WakatimePanels(props: PanelsProps) {
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td data-column="metric">{t('stats.promptChars')}</td>
-              <td data-column="value">{mergedPromptChars.toLocaleString()}</td>
-              <td data-column="note">{t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}</td>
-            </tr>
-            <tr>
-              <td data-column="metric">{t('stats.thinking')}</td>
-              <td data-column="value">{`${thinkingMinutes}′${String(thinkingSeconds).padStart(2, '0')}″`}</td>
-              <td data-column="note">{t('stats.noteThinking')}</td>
-            </tr>
-            <tr>
-              <td data-column="metric">{t('stats.outputTokens')}</td>
-              <td data-column="value">{mergedOutputTokens.toLocaleString()}</td>
-              <td data-column="note">{t('stats.noteOutput')}</td>
-            </tr>
-            <tr>
-              <td data-column="metric">{t('stats.apiEffective')}</td>
-              <td data-column="value">{mergedApiEffective.toLocaleString()}</td>
-              <td data-column="note">{t('stats.noteApiEffective')}</td>
-            </tr>
+            <MetricRows t={t} view={view} />
           </tbody>
         </table>
       </section>
@@ -560,8 +723,9 @@ function WakatimePanels(props: PanelsProps) {
               {logs.length === 0
                 ? <p className={css.muted}>{t('logs.empty')}</p>
                 : (
-                  <table className={`${css.table} ${css.logsTable}`}>
+                  <table className={`${css.table} ${css.logsTable}`} data-bordered={bordered}>
                     <colgroup>
+                      <col />
                       <col />
                       <col />
                       <col />
@@ -573,16 +737,28 @@ function WakatimePanels(props: PanelsProps) {
                         <th>{t('logs.records')}</th>
                         <th>{t('logs.result')}</th>
                         <th>{t('logs.detail')}</th>
+                        <th>{t('logs.action')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {/* 展示顺序:时间最近优先(引擎按追加顺序保存,由旧到新) */}
-                      {[...logs].reverse().map((entry, index) => (
-                        <tr key={`${entry.time}-${index}`}>
+                      {[...logs].reverse().map((entry) => (
+                        <tr key={entry.id}>
                           <td>{formatTime(entry.time)}</td>
                           <td>{entry.count} {t('logs.count')}</td>
-                          <td className={entry.ok ? css.ok : css.error}>{entry.ok ? t('logs.success') : t('logs.failed')}</td>
-                          <td className={css.muted}>{describeLogError(entry.error)}</td>
+                          <td className={entry.ok ? css.ok : css.error}>{logStateText(entry)}</td>
+                          <td className={css.muted}>{logDetail(entry)}</td>
+                          <td>
+                            {entry.state === 'failed' && entry.taskId !== undefined ? (
+                              <button
+                                type="button"
+                                className={compactButton}
+                                onClick={() => { onRetry(entry.taskId as string) }}
+                              >
+                                {t('logs.retry')}
+                              </button>
+                            ) : null}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -593,6 +769,42 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       </section>
 
+    </>
+  )
+}
+
+/* 战绩指标行:主战绩表与各 Key 缓存明细表共用同一口径与格式化(见 src/metrics.ts) */
+function MetricRows({ t, view }: { t: PanelsProps['t'], view: WebStatusResponse['stats'] }) {
+  const aggregate = view.aggregate
+  /* 平均输出速度:输出 TOKEN 总量 ÷ 思考总时长(秒)后向下取整 */
+  const avgOutputSpeed = averageOutputSpeed(aggregate.outputTokens, aggregate.thinkingMs)
+  return (
+    <>
+      <tr>
+        <td data-column="metric">{t('stats.promptChars')}</td>
+        <td data-column="value">{aggregate.promptChars.toLocaleString()}</td>
+        <td data-column="note">{t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}</td>
+      </tr>
+      <tr>
+        <td data-column="metric">{t('stats.thinking')}</td>
+        <td data-column="value">{formatThinkingDuration(aggregate.thinkingMs)}</td>
+        <td data-column="note">{t('stats.noteThinking')}</td>
+      </tr>
+      <tr>
+        <td data-column="metric">{t('stats.outputTokens')}</td>
+        <td data-column="value">{aggregate.outputTokens.toLocaleString()}</td>
+        <td data-column="note">{t('stats.noteOutput')}</td>
+      </tr>
+      <tr>
+        <td data-column="metric">{t('stats.apiEffective')}</td>
+        <td data-column="value">{effectiveTokens(aggregate).toLocaleString()}</td>
+        <td data-column="note">{t('stats.noteApiEffective')}</td>
+      </tr>
+      <tr>
+        <td data-column="metric">{t('stats.avgOutputSpeed')}</td>
+        <td data-column="value">{`${avgOutputSpeed.toLocaleString()} token/s`}</td>
+        <td data-column="note">{t('stats.noteAvgOutputSpeed')}</td>
+      </tr>
     </>
   )
 }
@@ -679,16 +891,35 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,
     debug: config.debug,
+    tableBorders: config.tableBorders,
+    statsScope: config.statsScope,
   }
 }
 
-/* API 有效 TOKEN 消耗:输入 + 输出(官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens,
-   缓存命中 Token 无官方字段,不并入,仅本地明细可见) */
-function effectiveTokens(stats: {
-  inputTokens: number
-  outputTokens: number
-}): number {
-  return stats.inputTokens + stats.outputTokens
+/* 下拉选择行:标签文本与官方 Select 形态(原生 select 保留键盘与无障碍语义) */
+function SelectField({ label, value, options, onChange }: {
+  label: string
+  value: string
+  options: readonly { value: string, label: string }[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className={css.field}>
+      <div className={css.row}>
+        <span className={css.fieldLabel}>{label}</span>
+        <select
+          className={css.select}
+          aria-label={label}
+          value={value}
+          onChange={(event) => { onChange(event.target.value) }}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
 }
 
 /* 日期格式:yyyy-MM-dd HH:mm:ss+HH:mm(本地时区) */
