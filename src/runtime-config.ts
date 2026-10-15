@@ -14,7 +14,7 @@ import type { ConfigManager, StoredConfig } from './config-manager'
 export type WebConfigPatch = Partial<Pick<
   Config,
   'enabled' | 'reportInterval' | 'reportEnabled'
-  | 'includeTokens' | 'includePrompts' | 'debug'
+  | 'includeTokens' | 'includePrompts' | 'debug' | 'tableBorders' | 'statsScope'
 >>
 
 /* settings 块中与 Config 字段一致的持久化形态(可缺省,缺失表示未覆盖) */
@@ -70,6 +70,8 @@ export class RuntimeConfig {
       includeTokens: this.current.includeTokens,
       includePrompts: this.current.includePrompts,
       debug: this.current.debug,
+      tableBorders: this.current.tableBorders,
+      statsScope: this.current.statsScope,
     }
     await this.configManager.save({ ...(stored ?? {}), settings })
   }

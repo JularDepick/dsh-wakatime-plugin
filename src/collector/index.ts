@@ -5,33 +5,23 @@
  * 监听 session/event:
  * - user/message:记录提示词长度与 Token 估算(计入会话战绩)
  * - step/start + assistant/message(携带计时流 stream):fold 每步思考时长
- *   (步骤开始 → 首个输出 token,经 assistantStreamFirstTokenTime 读取)
+ *   (步骤开始 → 首个输出 token)
  * - assistant/message:以 AI 编码类别入队主心跳(携带 Token 用量与提示词长度),
  *   并结算该步思考时长
  * - tool/call:以调试类别入队轻量心跳
  * 心跳一律入队本地缓冲,由定时器批量上报(不事件即发)。
+ * 每项数据都经 readers.ts 读取:官方能力优先,自实现兜底(见该文件说明)。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { assistantStreamFirstTokenTime } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR } from '../constants'
 import type { Heartbeat } from '../heartbeat'
 import { machineName } from '../useragent'
+import { readFirstTokenTime, readPromptLength, readUsage } from './readers'
 import type { CollectorOptions } from './types'
 
-/* 计算消息可见文本长度(提示词长度口径:所有 text 块字符数之和) */
-function contentLength(content: readonly { type: string }[]): number {
-  let total = 0
-  for (const block of content) {
-    if (block.type === 'text' && 'text' in block) {
-      total += String(block.text).length
-    }
-  }
-  return total
-}
-
-/* 提示词 Token 估算:字符数 ÷ 系数(无官方 tokenizer 时的近似口径) */
+/* 提示词 Token 估算:字符数 ÷ 系数(官方无 tokenizer 与估算能力,恒为自实现口径) */
 function estimateTokens(chars: number): number {
   return Math.round(chars / PROMPT_TOKEN_ESTIMATE_DIVISOR)
 }
@@ -68,8 +58,8 @@ export class SessionEventCollector {
   private handle(session: Session, event: SessionEvent): void {
     switch (event.type) {
       case 'user/message': {
-        /* user/message 的 data 即 UserMessage 本体 */
-        const promptLength = contentLength(event.data.content)
+        /* user/message 的 data 即 UserMessage 本体(经官方消息投影读取) */
+        const promptLength = readPromptLength(session, event)
         this.promptLengths.set(session.id, promptLength)
         this.options.stats.recordUserMessage(session.id, promptLength, estimateTokens(promptLength))
         break
@@ -82,16 +72,16 @@ export class SessionEventCollector {
         break
       }
       case 'assistant/message': {
-        const usage = event.data.usage
+        const usage = readUsage(event)
         const promptLength = this.promptLengths.get(session.id) ?? 0
         this.options.stats.recordAssistant(session.id, usage, promptLength)
         /* 结算该步思考时长(首 token − 步骤开始):0.1.5 起 assistant/chunk
-           事件移除,assistant/message 自带计时流 stream,官方
-           assistantStreamFirstTokenTime 读取首个输出 token 时刻 */
+           事件移除,assistant/message 自带计时流 stream,首个输出 token 时刻
+           经 readers 读取(官方读取器优先,自实现兜底) */
         const key = stepKey(session.id, event.data.turn, event.data.step)
         const timing = this.stepTimings.get(key)
         this.stepTimings.delete(key)
-        const firstTokenTime = assistantStreamFirstTokenTime(event.data.stream)
+        const firstTokenTime = readFirstTokenTime(event.data.stream)
         if (timing?.stepStartTime != null && firstTokenTime != null) {
           this.options.stats.recordThinking(session.id, firstTokenTime - timing.stepStartTime)
         }

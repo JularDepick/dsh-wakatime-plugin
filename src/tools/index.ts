@@ -13,22 +13,24 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AuthManager } from '../auth'
+import type { StatsView } from '../bucket-store/resolve'
 import { NotAuthenticatedError } from '../errors'
+import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
 import type { RuntimeConfig } from '../runtime-config'
-import type { StatsTracker } from '../stats'
 import { translate } from '../translation'
 
 export interface WakatimeToolsOptions {
   auth: AuthManager
-  stats: StatsTracker
   /* 运行时配置:读取/修改全部配置项 */
   runtimeConfig: RuntimeConfig
+  /* 按当前显示策略解析战绩(与 Web 战绩表同源) */
+  resolveStats: () => StatsView
 }
 
 /* 配置工具可写的键(白名单,与 WebConfigPatch 对齐,不含凭证) */
 const CONFIG_KEYS = [
   'enabled', 'locale', 'reportInterval', 'reportEnabled',
-  'includeTokens', 'includePrompts', 'debug',
+  'includeTokens', 'includePrompts', 'debug', 'tableBorders', 'statsScope',
 ] as const
 
 /* 配置键类型约束 */
@@ -40,6 +42,13 @@ const KEY_TYPES: Record<(typeof CONFIG_KEYS)[number], 'boolean' | 'string' | 'nu
   includeTokens: 'boolean',
   includePrompts: 'boolean',
   debug: 'boolean',
+  tableBorders: 'boolean',
+  statsScope: 'string',
+}
+
+/* 枚举型配置键的合法取值 */
+const KEY_VALUES: Partial<Record<(typeof CONFIG_KEYS)[number], readonly string[]>> = {
+  statsScope: ['all', 'current'],
 }
 
 export class WakatimeTools {
@@ -116,16 +125,19 @@ export class WakatimeTools {
           if (error instanceof NotAuthenticatedError) return translate('status.notConfigured')
           throw error
         }
-        const stats = this.options.stats.aggregate()
-        const minutes = Math.floor(stats.thinkingMs / 60000)
+        const view = this.options.resolveStats()
+        const stats = { ...view.aggregate, sessionId: '(scope)', lastPromptLength: 0 }
+        /* 与 Web 战绩表同名称同口径:时长 hh:MM:ss,平均输出速度为单位 token/s 的整数 */
         return [
           `${translate('stats.title')}:`,
           `${translate('stats.promptChars')}: ${stats.promptChars}`,
           `${translate('stats.promptEstimate')}: ${stats.promptTokens}`,
-          `${translate('stats.thinkingMs')}: ${minutes} ${translate('stats.minutes')} ${Math.round((stats.thinkingMs % 60000) / 1000)} ${translate('stats.seconds')}`,
-          `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
+          `${translate('stats.thinkingMs')}: ${formatThinkingDuration(stats.thinkingMs)}`,
           `${translate('stats.outputTokens')}: ${stats.outputTokens}`,
           `${translate('stats.apiEffectiveTokens')}: ${effectiveTokens(stats)}`,
+          `${translate('stats.avgOutputSpeed')}: ${averageOutputSpeed(stats.outputTokens, stats.thinkingMs)} token/s`,
+          `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
+          `${translate('stats.scope')}: ${view.scope === 'current' ? translate('stats.scopeCurrent') : translate('stats.scopeAll')}`,
         ].join('\n')
       },
     }))
@@ -152,6 +164,8 @@ export class WakatimeTools {
       `includeTokens=${config.includeTokens}`,
       `includePrompts=${config.includePrompts}`,
       `debug=${config.debug}`,
+      `tableBorders=${config.tableBorders}`,
+      `statsScope=${config.statsScope}`,
       `apiKey=${status.configured ? '(configured)' : '(not configured)'}`,
     ]
     return lines.join('\n')
@@ -167,6 +181,10 @@ export class WakatimeTools {
     const type = KEY_TYPES[key as (typeof CONFIG_KEYS)[number]]
     if (typeof value !== type) {
       return `${translate('config.invalidValue')}: ${key} ${translate('config.typeRequired').replace('{type}', type)}`
+    }
+    const allowed = KEY_VALUES[key as (typeof CONFIG_KEYS)[number]]
+    if (allowed !== undefined && !allowed.includes(String(value))) {
+      return `${translate('config.invalidValue')}: ${key} (${allowed.join(' | ')})`
     }
     await this.options.runtimeConfig.update({ [key]: value } as never)
     return `${key}=${String(value)}`
@@ -184,10 +202,4 @@ export class WakatimeTools {
       return translate('apikey.invalid')
     }
   }
-}
-
-/* API 有效 Token 消耗:输入 + 输出(官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens,
-   缓存命中 Token 无官方字段,不并入,仅本地明细可见) */
-export function effectiveTokens(stats: { inputTokens: number; outputTokens: number }): number {
-  return stats.inputTokens + stats.outputTokens
 }

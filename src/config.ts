@@ -9,6 +9,9 @@
 import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_REPORT_INTERVAL_SECONDS } from './constants'
 
+/* 战绩显示策略:全部密钥战绩 / 当前密钥战绩 */
+export type StatsScope = 'all' | 'current'
+
 /* 配置项:用户可在 cordis.yml 的 config 中覆盖,schema 提供默认值 */
 export interface Config {
   /* 是否启用数据上报 */
@@ -25,6 +28,10 @@ export interface Config {
   includePrompts: boolean
   /* 调试日志开关 */
   debug: boolean
+  /* 战绩表是否显示表格边框(Web 配置页可改,纯展示项,不影响上报) */
+  tableBorders: boolean
+  /* 战绩显示策略:全部密钥战绩(all)/ 当前密钥战绩(current) */
+  statsScope: StatsScope
 }
 
 /* Schemastery 校验器:默认值写入 schema,无效配置在加载期响亮失败 */
@@ -36,4 +43,6 @@ export const Config: Schema<Config> = Schema.object({
   includeTokens: Schema.boolean().default(true),
   includePrompts: Schema.boolean().default(true),
   debug: Schema.boolean().default(false),
+  tableBorders: Schema.boolean().default(true),
+  statsScope: Schema.union([Schema.const('all'), Schema.const('current')]).default('all'),
 })

@@ -20,6 +20,10 @@ export interface StoredConfig {
     includeTokens: boolean
     includePrompts: boolean
     debug: boolean
+    /* 战绩表边框开关(Web 配置页可改,纯展示项);旧配置文件无此字段时按 schema 默认值处理 */
+    tableBorders?: boolean
+    /* 战绩显示策略:all 全部密钥战绩 / current 当前密钥战绩 */
+    statsScope?: 'all' | 'current'
     /* Web 设置页可编辑项(经 /api/wakatime/config 写入,重启后合并恢复) */
     locale?: string
   }
