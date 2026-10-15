@@ -7,13 +7,13 @@
  * 有效 TOKEN 消耗量(输入+输出)。本文件无任何依赖,host 与 client 产物均可引用。
  */
 
-/* 时长格式:hh:MM:ss(小时无前导零且不设上限,分与秒各两位) */
+/* 时长格式:hh:MM:ss(小时不足两位补前导零,超过两位不再补零且不设上限;分与秒各两位) */
 export function formatThinkingDuration(millis: number): string {
   const totalSeconds = Math.floor(Math.max(millis, 0) / 1000)
   const pad = (value: number): string => String(value).padStart(2, '0')
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
-  return `${hours}:${pad(minutes)}:${pad(totalSeconds % 60)}`
+  return `${pad(hours)}:${pad(minutes)}:${pad(totalSeconds % 60)}`
 }
 
 /* 平均输出速度:输出 TOKEN 总量 ÷ 思考总时长(秒)后向下取整,单位 token/s;

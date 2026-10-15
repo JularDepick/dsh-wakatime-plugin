@@ -101,6 +101,9 @@ export class SessionEventCollector {
         if (usage) {
           heartbeat.ai_input_tokens = usage.inputTokens
           heartbeat.ai_output_tokens = usage.outputTokens
+          /* 缓存命中 TOKEN(输入侧命中提示词缓存的量):官方心跳字段表无对应项,
+             按自定义扩展字段上报;官方计数字段互斥,inputTokens 本身不含缓存命中量 */
+          heartbeat.ai_cache_read_tokens = usage.cacheReadTokens
         }
         this.options.heartbeat.enqueue(heartbeat)
         break

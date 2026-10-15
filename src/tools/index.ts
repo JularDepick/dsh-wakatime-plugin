@@ -135,6 +135,7 @@ export class WakatimeTools {
           `${translate('stats.thinkingMs')}: ${formatThinkingDuration(stats.thinkingMs)}`,
           `${translate('stats.outputTokens')}: ${stats.outputTokens}`,
           `${translate('stats.apiEffectiveTokens')}: ${effectiveTokens(stats)}`,
+          `${translate('stats.cacheHitTokens')}: ${stats.cacheReadTokens}`,
           `${translate('stats.avgOutputSpeed')}: ${averageOutputSpeed(stats.outputTokens, stats.thinkingMs)} token/s`,
           `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
           `${translate('stats.scope')}: ${view.scope === 'current' ? translate('stats.scopeCurrent') : translate('stats.scopeAll')}`,
