@@ -15,10 +15,29 @@ export const TRANSLATION_DIR = 'translation'
 export const CONFIG_DIR_NAME = 'wakatime'
 export const CONFIG_FILE_NAME = 'config.json'
 
-/* 战绩累计量快照(与配置文件同目录):本地独有指标无云端字段可恢复,故落盘跨重启累加;
+/* 分 Key 数据桶(与配置文件同目录):每个 API Key 一份本地数据(战绩累计、云端快照、
+   待发送队列、失败任务与上报记录),未配置 API Key 期间的数据落在未指派桶;
    写入防抖(毫秒),避免高频统计变更频繁写盘 */
-export const STATS_FILE_NAME = 'stats.json'
-export const STATS_SAVE_DEBOUNCE_MS = 2000
+export const BUCKET_FILE_NAME = 'buckets.json'
+export const BUCKET_FILE_VERSION = 1
+export const BUCKET_SAVE_DEBOUNCE_MS = 2000
+/* 桶静默期:未更新超过该天数的非当前 Key 桶,才允许用户在界面手动移除;
+   本策略不自动清除任何桶(长期不用的 Key 数据保留,由用户决定何时移除) */
+export const BUCKET_STALE_DAYS = 30
+/* 展示用模糊 API Key:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
+export const KEY_MASK_EDGE_CHARS = 8
+/* 待发送队列上限:超过即触发相邻两条合并压缩(保留较早那条 + AI 计数相加) */
+export const PENDING_QUEUE_LIMIT = 5000
+/* 失败任务列表上限与上报记录保留条数 */
+export const FAILED_TASK_LIMIT = 500
+/* 推送队列:积压达到该条数后按 积压 ÷ 该除数 合并成一次批量上报(不超过 bulk 上限) */
+export const PUSH_BATCH_THRESHOLD = 20
+export const PUSH_BATCH_DIVISOR = 10
+/* 单条推送任务的最大尝试次数(含首次),耗尽后进入失败列表等待用户手动重试 */
+export const PUSH_TASK_MAX_ATTEMPTS = 3
+/* 旧版独立快照文件名(仅供一次性迁移读取) */
+export const LEGACY_STATS_FILE_NAME = 'stats.json'
+export const LEGACY_HEARTBEAT_FILE_NAME = 'heartbeats.json'
 
 /* 项目与分支采样:Git 标记名、向上查找的最大层数、分支缓存时长(毫秒) */
 export const GIT_DIR_NAME = '.git'
@@ -77,6 +96,11 @@ export const WEB_APIKEY_PATH = '/api/wakatime/apikey'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
 export const WEB_APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
+/* 手动重试一条失败推送任务 */
+export const WEB_RETRY_PATH = '/api/wakatime/retry'
+/* API Key 缓存(数据桶)清单与手动移除 */
+export const WEB_BUCKETS_PATH = '/api/wakatime/buckets'
+export const WEB_BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 
 /* 环境变量 */
 export const ENV_API_KEY = 'WAKATIME_API_KEY'

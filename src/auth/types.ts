@@ -24,6 +24,10 @@ export interface AuthStatus {
 export interface AuthManager {
   /* 读取 API Key(内存缓存;未配置或环境变量缺失时抛出 NotAuthenticatedError) */
   getApiKey(): Promise<string>
+  /* 读取当前生效的 API Key;未配置时返回 null(供分桶路由使用,不抛错) */
+  tryGetApiKey(): Promise<string | null>
+  /* 订阅 Key 变更(覆盖写入或清除后触发);返回取消订阅函数 */
+  onChange(listener: () => void): () => void
   /* 覆盖设置 API Key:先验证有效性,成功后才持久化并更新内存缓存 */
   setApiKey(apiKey: string): Promise<UserProfile>
   /* 当前认证状态(不回显 Key) */

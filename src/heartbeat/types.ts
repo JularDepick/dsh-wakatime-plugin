@@ -35,26 +35,60 @@ export interface Heartbeat {
   is_write?: boolean
 }
 
-/* 一次定时批量上报的结果记录(调试日志,Web 可展开查看) */
-export interface ReportLogEntry {
-  /* 上报时刻(Unix 毫秒) */
+/* 待发送队列条目:心跳本体、入队时刻(Unix 毫秒)与已尝试次数 */
+export interface PendingHeartbeatEntry {
+  heartbeat: Heartbeat
+  enqueuedAt: number
+  attempts: number
+}
+
+/* 推送失败任务:尝试次数耗尽后移出队列并持久化,可由用户在 Web 上报记录里手动重试 */
+export interface FailedPushTask {
+  /* 任务标识:上报记录行与手动重试入口据此关联 */
+  id: string
+  heartbeat: Heartbeat
+  attempts: number
+  enqueuedAt: number
+  failedAt: number
+}
+
+/* 上报记录条目:batch 为一次批量上报的结果,task 为重试耗尽的单条任务 */
+export interface ReportEntry {
+  id: string
+  /* 记录时刻(Unix 毫秒) */
   time: number
-  /* 本批心跳条数 */
+  kind: 'batch' | 'task'
+  /* 本次涉及的心跳条数(batch 为批量条数,task 恒为 1) */
   count: number
-  /* 是否成功 */
   ok: boolean
-  /* 失败原因(ok=false 时) */
+  /* 失败行状态机:failed 待用户处理,retried 已被用户手动重试过 */
+  state?: 'failed' | 'retried'
   error?: string
+  /* 失败行对应的失败任务 id(仅 task 行,供前端渲染重试入口) */
+  taskId?: string
+}
+
+/* 待发送心跳状态:队列 + 失败任务 + 上报记录(落盘用,重启后继续推送) */
+export interface PendingHeartbeatState {
+  queue: PendingHeartbeatEntry[]
+  failed: FailedPushTask[]
+  report: ReportEntry[]
 }
 
 /* 心跳引擎对外能力 */
 export interface HeartbeatEngine {
-  /* 入队一条心跳(本地缓冲,不立即发送) */
+  /* 入队一条心跳(追加到待发送队列尾部,不立即发送) */
   enqueue(heartbeat: Heartbeat): void
-  /* 定时批量上报:发送缓冲内全部心跳并清空;失败进入离线队列补报 */
-  flushBuffered(): Promise<void>
-  /* 离线队列补报(网络恢复或定时调用) */
-  flushOfflineQueue(): Promise<void>
-  /* 最近上报记录(调试日志) */
-  reportLogs(): readonly ReportLogEntry[]
+  /* 推送一轮:取队首一批发送,成功出队、可重试失败回队尾、失败耗尽进失败列表 */
+  push(): Promise<void>
+  /* 手动重试一条失败任务:移回队列尾并重置尝试次数;返回是否找到该任务 */
+  retryFailedTask(id: string): boolean
+  /* 载入待发送状态并与当前队列合并(启动时用;不丢弃启动瞬间已入队的心跳) */
+  restorePending(state: PendingHeartbeatState): void
+  /* 替换待发送状态(切换数据桶时用:清空后载入目标桶) */
+  replacePending(state: PendingHeartbeatState): void
+  /* 当前待发送状态快照(供落盘) */
+  pendingState(): PendingHeartbeatState
+  /* 上报记录(时间最近优先由前端处理) */
+  reportLog(): readonly ReportEntry[]
 }

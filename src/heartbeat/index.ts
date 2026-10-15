@@ -1,19 +1,48 @@
 /*
- * 心跳上报引擎实现
+ * 心跳推送引擎实现
  * 作者: JularDepick
  *
- * 定时批量模式:采集面把心跳入队本地缓冲(不立即发送);
- * 定时器(启动时一次 + 每 reportInterval 秒)调用 flushBuffered,
- * 把缓冲内全部心跳批量上报(bulk)并清空。发送失败(网络错误)
- * 进入内存离线队列(上限 OFFLINE_QUEUE_LIMIT,溢出丢最旧),由外部
- * 定时调用 flushOfflineQueue 补报;429/5xx 由 HTTP 层指数退避重试。
- * 未认证(未配置 API Key)时缓冲直接丢弃,配置 Key 后自然恢复。
+ * 单队列推送模型:采集面把心跳追加到待发送队列尾部(不立即发送),
+ * 推送轮(push)从队首取一批发送:
+ * - 批量大小 = 积压 < PUSH_BATCH_THRESHOLD 时取 1 条;否则取 积压 ÷ PUSH_BATCH_DIVISOR
+ *   (向下取整,并以 WakaTime bulk 上限 BULK_HEARTBEAT_LIMIT 截断),整批放进同一次请求,
+ *   每条心跳保留自己的身份与时间戳(零失真);
+ * - 成功:整批出队并记一条 batch 上报记录;
+ * - 可重试失败(429/5xx/网络):整批回队尾,逐条累加尝试次数,达到 PUSH_TASK_MAX_ATTEMPTS
+ *   的进入失败列表并各记一条 task 失败记录;
+ * - 终态失败(401/403/400/404/422):不重试,直接进失败列表并记录;
+ * - 未配置 API Key:不算失败、不计尝试次数,整批放回队首并结束本轮(换 Key 后自然续推)。
+ * 未达到队列上限时不做任何压缩,心跳数量与时间戳保持原样。
+ * 队列、失败列表与上报记录经 onPendingChange 通知调用方落盘(防抖),
+ * 启动与切换数据桶时经 restorePending 载入。
  */
 
-import { BULK_HEARTBEAT_LIMIT, HEARTBEATS_BULK_PATH, HEARTBEATS_PATH, OFFLINE_QUEUE_LIMIT, REPORT_LOG_LIMIT } from '../constants'
+import { randomUUID } from 'node:crypto'
+import {
+  BULK_HEARTBEAT_LIMIT,
+  FAILED_TASK_LIMIT,
+  HEARTBEATS_BULK_PATH,
+  HEARTBEATS_PATH,
+  PENDING_QUEUE_LIMIT,
+  PUSH_BATCH_DIVISOR,
+  PUSH_BATCH_THRESHOLD,
+  PUSH_TASK_MAX_ATTEMPTS,
+  REPORT_LOG_LIMIT,
+} from '../constants'
 import { NotAuthenticatedError } from '../errors'
 import type { HttpClient } from '../http'
-import type { Heartbeat, HeartbeatEngine, ReportLogEntry } from './types'
+import { WakaTimeError } from '../http'
+import { compressPendingQueue } from './compress'
+import type {
+  FailedPushTask,
+  Heartbeat,
+  HeartbeatCategory,
+  HeartbeatEngine,
+  HeartbeatEntityType,
+  PendingHeartbeatEntry,
+  PendingHeartbeatState,
+  ReportEntry,
+} from './types'
 
 /* 令牌提供者:每次请求前由调用方确保有效令牌 */
 export type TokenProvider = () => Promise<string>
@@ -33,12 +62,8 @@ export interface HeartbeatEngineOptions {
   /* 是否携带提示词长度字段 */
   includePrompts: boolean
   logger?: EngineLogger
-}
-
-/* 离线队列条目:携带发送失败原因与入队时间 */
-interface QueuedHeartbeat {
-  heartbeat: Heartbeat
-  enqueuedAt: number
+  /* 待发送状态变更回调(供落盘;调用方自行防抖) */
+  onPendingChange?: (state: PendingHeartbeatState) => void
 }
 
 export class HeartbeatEngineImpl implements HeartbeatEngine {
@@ -46,12 +71,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private readonly tokenProvider: TokenProvider
   /* 可变选项:Web 设置页写入后经 updateOptions 即时生效 */
   private options: HeartbeatEngineOptions
-  /* 待上报缓冲(定时批量发送后清空) */
-  private readonly buffer: Heartbeat[] = []
-  /* 离线队列 */
-  private readonly queue: QueuedHeartbeat[] = []
-  /* 最近上报记录(调试日志) */
-  private readonly logs: ReportLogEntry[] = []
+  /* 待发送队列(队首优先推送) */
+  private queue: PendingHeartbeatEntry[] = []
+  /* 失败任务(尝试次数耗尽,等待用户手动重试) */
+  private failed: FailedPushTask[] = []
+  /* 上报记录(调试级,最近 REPORT_LOG_LIMIT 条) */
+  private report: ReportEntry[] = []
+  /* 推送轮重入保护:同一时刻只允许一轮推送 */
+  private pushing = false
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -59,58 +86,138 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.options = options
   }
 
-  /* 更新运行选项(enabled/字段裁剪),不替换 logger */
+  /* 更新运行选项(enabled/字段裁剪),不替换 logger 与落盘回调 */
   updateOptions(patch: Partial<HeartbeatEngineOptions>): void {
     this.options = { ...this.options, ...patch }
   }
 
-  /* 入队一条心跳;未启用时直接丢弃 */
+  /* 入队一条心跳:追加到队尾并按上限压缩(仅在超限时) */
   enqueue(heartbeat: Heartbeat): void {
     if (!this.options.enabled) return
-    this.buffer.push(this.prepare(heartbeat))
+    this.queue.push({ heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 })
+    this.compressIfNeeded()
+    this.notifyPending()
   }
 
-  /* 定时批量上报:发送缓冲内全部心跳并清空;未认证时丢弃缓冲 */
-  async flushBuffered(): Promise<void> {
+  /* 推送一轮:取队首一批发送并结算结果 */
+  async push(): Promise<void> {
     if (!this.options.enabled) return
-    if (this.buffer.length === 0) return
-    const pending = this.buffer.splice(0, this.buffer.length)
+    if (this.pushing) return
+    const size = this.batchSize()
+    if (size === 0) return
+    this.pushing = true
+    const batch = this.queue.splice(0, size)
     try {
-      await this.deliver(pending)
-      this.recordLog({ time: Date.now(), count: pending.length, ok: true })
-      this.log('info', `[wakatime] scheduled report of ${pending.length} heartbeats`)
+      await this.deliver(batch.map((entry) => entry.heartbeat))
+      this.appendReport({ kind: 'batch', count: batch.length, ok: true })
+      this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
-      /* 未认证:缓冲不积压,登录后自然恢复 */
+      /* 未配置 API Key:不丢失、不计尝试次数,整批放回队首保持顺序 */
       if (error instanceof NotAuthenticatedError) {
-        this.recordLog({ time: Date.now(), count: pending.length, ok: false, error: 'auth-missing' })
-        this.log('info', '[wakatime] not authenticated, heartbeat dropped')
+        this.queue.unshift(...batch)
+        this.log('info', '[wakatime] API key not configured, heartbeat kept in queue')
         return
       }
-      /* 其余失败入离线队列补报 */
-      for (const heartbeat of pending) this.enqueueOffline(heartbeat, (error as Error).message)
-      this.recordLog({ time: Date.now(), count: pending.length, ok: false, error: (error as Error).message })
-    }
-  }
-
-  /* 离线队列补报:逐条补报,绕过批量缓冲 */
-  async flushOfflineQueue(): Promise<void> {
-    if (!this.options.enabled) return
-    if (this.queue.length === 0) return
-    const pending = this.queue.splice(0, this.queue.length)
-    for (const entry of pending) {
-      try {
-        await this.deliver([entry.heartbeat])
-      } catch (error) {
-        /* 未认证时丢弃补报,其余仍失败则重新入队(可能已满,超限丢最旧) */
-        if (error instanceof NotAuthenticatedError) continue
-        this.enqueueOffline(entry.heartbeat, 'requeue still failing')
+      const message = (error as Error).message
+      const terminal = isTerminalError(error)
+      for (const entry of batch) {
+        const attempts = entry.attempts + 1
+        if (terminal || attempts >= PUSH_TASK_MAX_ATTEMPTS) {
+          this.appendFailedTask({ ...entry, attempts }, message)
+        } else {
+          this.queue.push({ ...entry, attempts })
+        }
       }
+      this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message })
+      this.log('warn', `[wakatime] push failed (${terminal ? 'terminal' : 'retryable'}): ${message}`)
+    } finally {
+      this.pushing = false
+      this.compressIfNeeded()
+      this.notifyPending()
     }
   }
 
-  /* 最近上报记录(调试日志,Web 展示) */
-  reportLogs(): readonly ReportLogEntry[] {
-    return this.logs
+  /* 手动重试一条失败任务:移回队尾并重置尝试次数,原失败记录标记为已重试 */
+  retryFailedTask(id: string): boolean {
+    const index = this.failed.findIndex((task) => task.id === id)
+    if (index < 0) return false
+    const [task] = this.failed.splice(index, 1)
+    if (!task) return false
+    this.queue.push({ heartbeat: task.heartbeat, enqueuedAt: Date.now(), attempts: 0 })
+    for (const entry of this.report) {
+      if (entry.taskId === id && entry.state === 'failed') entry.state = 'retried'
+    }
+    this.log('info', `[wakatime] failed task ${id} requeued for retry`)
+    this.notifyPending()
+    return true
+  }
+
+  /* 载入待发送状态并与当前队列合并:启动时用,启动瞬间已入队的心跳不会被覆盖 */
+  restorePending(state: PendingHeartbeatState): void {
+    this.queue = [...state.queue.map((entry) => ({ ...entry })), ...this.queue]
+    this.failed = [...state.failed.map((task) => ({ ...task })), ...this.failed]
+    this.report = [...state.report.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
+    this.compressIfNeeded()
+    this.notifyPending()
+  }
+
+  /* 替换待发送状态(切换数据桶时用:清空后载入目标桶) */
+  replacePending(state: PendingHeartbeatState): void {
+    this.queue = state.queue.map((entry) => ({ ...entry }))
+    this.failed = state.failed.map((task) => ({ ...task }))
+    this.report = state.report.map((entry) => ({ ...entry }))
+    this.compressIfNeeded()
+    this.notifyPending()
+  }
+
+  /* 当前待发送状态快照(供落盘;返回副本) */
+  pendingState(): PendingHeartbeatState {
+    return {
+      queue: this.queue.map((entry) => ({ ...entry })),
+      failed: this.failed.map((task) => ({ ...task })),
+      report: this.report.map((entry) => ({ ...entry })),
+    }
+  }
+
+  /* 上报记录(追加顺序,由前端按时间倒序展示) */
+  reportLog(): readonly ReportEntry[] {
+    return this.report
+  }
+
+  /* 本批推送条数:积压不足阈值时逐条,达到阈值后按积压 ÷ 除数(受 bulk 上限截断) */
+  private batchSize(): number {
+    const backlog = this.queue.length
+    if (backlog === 0) return 0
+    if (backlog < PUSH_BATCH_THRESHOLD) return 1
+    return Math.max(1, Math.min(BULK_HEARTBEAT_LIMIT, Math.floor(backlog / PUSH_BATCH_DIVISOR)))
+  }
+
+  /* 队列超限时做一次相邻两条合并压缩(保留较早那条 + AI 计数相加) */
+  private compressIfNeeded(): void {
+    if (this.queue.length <= PENDING_QUEUE_LIMIT) return
+    const result = compressPendingQueue(this.queue, PENDING_QUEUE_LIMIT)
+    this.queue = result.queue
+    this.log('warn', `[wakatime] pending queue over limit, compressed ${result.merged} heartbeats`)
+  }
+
+  /* 记一条上报记录 */
+  private appendReport(entry: Omit<ReportEntry, 'id' | 'time'>): void {
+    this.report.push({ ...entry, id: randomUUID(), time: Date.now() })
+    if (this.report.length > REPORT_LOG_LIMIT) this.report.splice(0, this.report.length - REPORT_LOG_LIMIT)
+  }
+
+  /* 记一条失败任务(附一条可点击重试的 task 记录) */
+  private appendFailedTask(entry: PendingHeartbeatEntry, error: string): void {
+    const task: FailedPushTask = {
+      id: randomUUID(),
+      heartbeat: entry.heartbeat,
+      attempts: entry.attempts,
+      enqueuedAt: entry.enqueuedAt,
+      failedAt: Date.now(),
+    }
+    this.failed.push(task)
+    if (this.failed.length > FAILED_TASK_LIMIT) this.failed.splice(0, this.failed.length - FAILED_TASK_LIMIT)
+    this.appendReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id })
   }
 
   /* 上报一批:单条走 heartbeats,多条走 bulk */
@@ -121,16 +228,18 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         method: 'POST',
         body: heartbeats[0],
         basicAuth: token,
+        noRetry: true,
       })
-    } else {
-      for (let index = 0; index < heartbeats.length; index += BULK_HEARTBEAT_LIMIT) {
-        const chunk = heartbeats.slice(index, index + BULK_HEARTBEAT_LIMIT)
-        await this.http.request(HEARTBEATS_BULK_PATH, {
-          method: 'POST',
-          body: chunk,
-          basicAuth: token,
-        })
-      }
+      return
+    }
+    for (let index = 0; index < heartbeats.length; index += BULK_HEARTBEAT_LIMIT) {
+      const chunk = heartbeats.slice(index, index + BULK_HEARTBEAT_LIMIT)
+      await this.http.request(HEARTBEATS_BULK_PATH, {
+        method: 'POST',
+        body: chunk,
+        basicAuth: token,
+        noRetry: true,
+      })
     }
   }
 
@@ -159,19 +268,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     return copy
   }
 
-  /* 入队离线:超限丢最旧 */
-  private enqueueOffline(heartbeat: Heartbeat, reason: string): void {
-    this.queue.push({ heartbeat, enqueuedAt: Date.now() })
-    if (this.queue.length > OFFLINE_QUEUE_LIMIT) {
-      this.queue.shift()
-      this.log('warn', '[wakatime] offline queue full, dropping oldest heartbeat')
-    }
-    this.log('warn', `[wakatime] heartbeat queued for requeue (${reason})`)
-  }
-
-  private recordLog(entry: ReportLogEntry): void {
-    this.logs.push(entry)
-    if (this.logs.length > REPORT_LOG_LIMIT) this.logs.shift()
+  /* 待发送状态变更通知(落盘由调用方防抖) */
+  private notifyPending(): void {
+    this.options.onPendingChange?.(this.pendingState())
   }
 
   private log(level: 'info' | 'warn' | 'error', message: string): void {
@@ -179,4 +278,116 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   }
 }
 
-export type { Heartbeat, HeartbeatCategory, HeartbeatEntityType, HeartbeatEngine, ReportLogEntry } from './types'
+/* 终态失败判定:认证/载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */
+function isTerminalError(error: unknown): boolean {
+  if (!(error instanceof WakaTimeError)) return false
+  return error.status === 400 || error.status === 401 || error.status === 403
+    || error.status === 404 || error.status === 422
+}
+
+/* 心跳实体类型与分类的合法取值(恢复快照时的白名单) */
+const ENTITY_TYPES: readonly HeartbeatEntityType[] = ['file', 'app', 'domain', 'url']
+const CATEGORIES: readonly HeartbeatCategory[] = ['coding', 'debugging', 'researching', 'ai coding', 'learning']
+/* 快照中的字符串字段与数值字段白名单(其余字段一律丢弃) */
+const STRING_FIELDS = ['project', 'branch', 'ai_session', 'machine_name', 'language'] as const
+const NUMBER_FIELDS = ['ai_input_tokens', 'ai_output_tokens', 'ai_prompt_length', 'ai_line_changes', 'lines'] as const
+
+/* 单条心跳归一化:只接受白名单字段与合法类型,损坏或被篡改的文件内容不会进入上报载荷 */
+function normalizeHeartbeat(value: unknown): Heartbeat | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const raw = value as Record<string, unknown>
+  if (typeof raw.entity !== 'string' || raw.entity === '') return undefined
+  if (typeof raw.type !== 'string' || !ENTITY_TYPES.includes(raw.type as HeartbeatEntityType)) return undefined
+  if (typeof raw.time !== 'number' || !Number.isFinite(raw.time) || raw.time <= 0) return undefined
+  const heartbeat: Heartbeat = {
+    entity: raw.entity,
+    type: raw.type as HeartbeatEntityType,
+    time: raw.time,
+  }
+  if (typeof raw.category === 'string' && CATEGORIES.includes(raw.category as HeartbeatCategory)) {
+    heartbeat.category = raw.category as HeartbeatCategory
+  }
+  for (const key of STRING_FIELDS) {
+    const field = raw[key]
+    if (typeof field === 'string') heartbeat[key] = field
+  }
+  for (const key of NUMBER_FIELDS) {
+    const field = raw[key]
+    if (typeof field === 'number' && Number.isFinite(field) && field >= 0) heartbeat[key] = field
+  }
+  if (typeof raw.is_write === 'boolean') heartbeat.is_write = raw.is_write
+  return heartbeat
+}
+
+/* 非负整数归一化 */
+function nonNegative(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+/* 待发送状态归一化:丢弃无效条目,队列与失败列表按上限只保留最新一批 */
+export function normalizePendingState(value: unknown): PendingHeartbeatState {
+  const state: PendingHeartbeatState = { queue: [], failed: [], report: [] }
+  if (typeof value !== 'object' || value === null) return state
+  const raw = value as { queue?: unknown, buffer?: unknown, failed?: unknown, report?: unknown }
+  /* buffer 为旧版字段(单缓冲模型),按队列条目迁移 */
+  const legacyBuffer = Array.isArray(raw.buffer) ? raw.buffer : []
+  const queueRaw = [...legacyBuffer, ...(Array.isArray(raw.queue) ? raw.queue : [])].slice(-PENDING_QUEUE_LIMIT)
+  for (const item of queueRaw) {
+    if (typeof item !== 'object' || item === null) continue
+    /* 旧版条目是裸心跳,新版是 { heartbeat, enqueuedAt, attempts } */
+    const candidate = 'heartbeat' in item ? (item as { heartbeat?: unknown, enqueuedAt?: unknown, attempts?: unknown }) : undefined
+    const heartbeat = normalizeHeartbeat(candidate ? candidate.heartbeat : item)
+    if (!heartbeat) continue
+    state.queue.push({
+      heartbeat,
+      enqueuedAt: nonNegative(candidate?.enqueuedAt, 0),
+      attempts: nonNegative(candidate?.attempts, 0),
+    })
+  }
+  if (Array.isArray(raw.failed)) {
+    for (const item of raw.failed.slice(-FAILED_TASK_LIMIT)) {
+      if (typeof item !== 'object' || item === null) continue
+      const candidate = item as { id?: unknown, heartbeat?: unknown, attempts?: unknown, enqueuedAt?: unknown, failedAt?: unknown }
+      const heartbeat = normalizeHeartbeat(candidate.heartbeat)
+      if (!heartbeat) continue
+      state.failed.push({
+        id: typeof candidate.id === 'string' && candidate.id !== '' ? candidate.id : randomUUID(),
+        heartbeat,
+        attempts: nonNegative(candidate.attempts, PUSH_TASK_MAX_ATTEMPTS),
+        enqueuedAt: nonNegative(candidate.enqueuedAt, 0),
+        failedAt: nonNegative(candidate.failedAt, 0),
+      })
+    }
+  }
+  if (Array.isArray(raw.report)) {
+    for (const item of raw.report.slice(-REPORT_LOG_LIMIT)) {
+      if (typeof item !== 'object' || item === null) continue
+      const candidate = item as Record<string, unknown>
+      const kind = candidate.kind === 'task' ? 'task' : 'batch'
+      const state2 = candidate.state === 'failed' || candidate.state === 'retried' ? candidate.state : undefined
+      const entry: ReportEntry = {
+        id: typeof candidate.id === 'string' && candidate.id !== '' ? candidate.id : randomUUID(),
+        time: nonNegative(candidate.time, 0),
+        kind,
+        count: nonNegative(candidate.count, 1),
+        ok: candidate.ok === true,
+      }
+      if (state2 !== undefined) entry.state = state2
+      if (typeof candidate.error === 'string') entry.error = candidate.error
+      if (typeof candidate.taskId === 'string') entry.taskId = candidate.taskId
+      state.report.push(entry)
+    }
+  }
+  return state
+}
+
+export type {
+  FailedPushTask,
+  Heartbeat,
+  HeartbeatCategory,
+  HeartbeatEntityType,
+  HeartbeatEngine,
+  PendingHeartbeatEntry,
+  PendingHeartbeatState,
+  ReportEntry,
+} from './types'

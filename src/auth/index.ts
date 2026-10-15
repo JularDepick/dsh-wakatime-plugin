@@ -47,12 +47,21 @@ export function pickUsername(user: ProfileFields): string | undefined {
 export class AuthManagerImpl implements AuthManager {
   /* 内存缓存:避免每次请求读盘;覆盖写入后同步更新 */
   private apiKeyCache: string | null = null
+  /* Key 变更订阅者(切换数据桶等副作用由调用方处理) */
+  private readonly listeners = new Set<() => void>()
 
   constructor(
     private readonly http: HttpClient,
     private readonly configManager: ConfigManager,
   ) {}
 
+  /* 订阅 Key 变更(覆盖写入或清除后触发);返回取消订阅函数 */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  /* 当前生效的 API Key:未配置时抛 NotAuthenticatedError */
   async getApiKey(): Promise<string> {
     const fromEnv = process.env[ENV_API_KEY]
     if (fromEnv) return fromEnv
@@ -61,6 +70,15 @@ export class AuthManagerImpl implements AuthManager {
     if (!stored?.apiKey) throw new NotAuthenticatedError()
     this.apiKeyCache = stored.apiKey
     return stored.apiKey
+  }
+
+  /* 当前生效的 API Key;未配置时返回 null(供分桶路由使用,不抛错) */
+  async tryGetApiKey(): Promise<string | null> {
+    try {
+      return await this.getApiKey()
+    } catch {
+      return null
+    }
   }
 
   async setApiKey(apiKey: string): Promise<UserProfile> {
@@ -77,6 +95,7 @@ export class AuthManagerImpl implements AuthManager {
       settings: stored?.settings ?? defaultSettings(),
     })
     this.apiKeyCache = trimmed
+    this.notify()
     return profile
   }
 
@@ -94,6 +113,12 @@ export class AuthManagerImpl implements AuthManager {
       await this.configManager.save({ ...stored, apiKey: undefined })
     }
     this.apiKeyCache = null
+    this.notify()
+  }
+
+  /* 通知订阅者 Key 已变更 */
+  private notify(): void {
+    for (const listener of [...this.listeners]) listener()
   }
 
   /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时借已存 Key 重新解析并回写,

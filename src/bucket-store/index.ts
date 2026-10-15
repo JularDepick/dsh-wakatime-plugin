@@ -1,0 +1,280 @@
+/*
+ * 分 Key 数据桶持久化
+ * 作者: JularDepick
+ *
+ * 每个 API Key 一份本地数据(本地战绩累计、该 Key 的云端快照、待发送队列、
+ * 失败任务与上报记录),统一落盘在凭证目录的 BUCKET_FILE_NAME(与配置文件同目录、
+ * 同权限收紧);未配置 API Key 期间的数据落在未指派桶,由此后首个配置的 Key 认领。
+ * 桶标识取 API Key 的 sha256 摘要前 16 位,桶内另存展示用模糊 Key(首尾各 8 字符,
+ * 其余以 * 代替),两者都不含密钥明文,明文只在配置与请求头里短暂出现。
+ * 写入防抖(BUCKET_SAVE_DEBOUNCE_MS),初始读取完成前忽略写入;
+ * 本模块不自动清除任何桶:非当前 Key 且超过 BUCKET_STALE_DAYS 未更新的桶
+ * 只是被标记为"可由用户移除"(判定交给界面与 Web 后端,删除动作由用户触发)。
+ * 首次升级时把旧版独立快照(stats.json / heartbeats.json)一次性并入当前桶。
+ */
+
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  BUCKET_FILE_NAME,
+  BUCKET_FILE_VERSION,
+  BUCKET_SAVE_DEBOUNCE_MS,
+  BUCKET_STALE_DAYS,
+  FAILED_TASK_LIMIT,
+  KEY_MASK_EDGE_CHARS,
+  LEGACY_HEARTBEAT_FILE_NAME,
+  LEGACY_STATS_FILE_NAME,
+  REPORT_LOG_LIMIT,
+} from '../constants'
+import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
+import { normalizePendingState } from '../heartbeat'
+import type { PendingHeartbeatState } from '../heartbeat'
+import { emptyTotals, normalizeTotals } from '../stats'
+import type { StatsTotals } from '../stats'
+import type { CloudSummary } from '../sync'
+import { UNASSIGNED_BUCKET } from './types'
+import type { BucketFile, DataBucket } from './types'
+
+/* 桶标识:API Key 的 sha256 摘要前 16 位(文件内不出现密钥明文) */
+export function bucketKeyOf(apiKey: string): string {
+  return createHash('sha256').update(apiKey).digest('hex').slice(0, 16)
+}
+
+/* 展示用模糊 API Key:保留首尾各 KEY_MASK_EDGE_CHARS 个字符,其余以 * 代替;
+   短于两倍保留长度的串整体打码(避免把整串都露出来) */
+export function maskApiKey(apiKey: string): string {
+  const key = apiKey.trim()
+  const edge = KEY_MASK_EDGE_CHARS
+  if (key.length <= edge * 2) return '*'.repeat(key.length)
+  return `${key.slice(0, edge)}${'*'.repeat(key.length - edge * 2)}${key.slice(-edge)}`
+}
+
+/* 新建空桶 */
+function emptyBucket(): DataBucket {
+  return {
+    updatedAt: 0,
+    stats: emptyTotals(),
+    cloud: null,
+    pending: { queue: [], failed: [], report: [] },
+  }
+}
+
+/* 云端快照归一化:字段缺失或非法时按 0,整体不可用时返回 null */
+function normalizeCloud(value: unknown): CloudSummary | null {
+  if (typeof value !== 'object' || value === null) return null
+  const raw = value as Record<string, unknown>
+  const num = (key: string): number => {
+    const field = raw[key]
+    return typeof field === 'number' && Number.isFinite(field) && field >= 0 ? field : 0
+  }
+  return {
+    syncedAt: num('syncedAt'),
+    inputTokens: num('inputTokens'),
+    outputTokens: num('outputTokens'),
+    promptChars: num('promptChars'),
+    sessions: num('sessions'),
+    promptEvents: num('promptEvents'),
+  }
+}
+
+/* 单个桶归一化:缺失字段按空值补齐,损坏内容不污染统计与上报 */
+function normalizeBucket(value: unknown): DataBucket | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const raw = value as Record<string, unknown>
+  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) && raw.updatedAt > 0
+    ? raw.updatedAt
+    : 0
+  const bucket: DataBucket = {
+    updatedAt,
+    stats: normalizeTotals(raw.stats),
+    cloud: normalizeCloud(raw.cloud),
+    pending: normalizePendingState(raw.pending),
+  }
+  /* 模糊 Key 只接受受限长度与字符集的字符串(界面标识用,不参与任何请求) */
+  const masked = raw.maskedKey
+  if (typeof masked === 'string' && masked.length > 0 && masked.length <= 128 && /^[A-Za-z0-9*_-]+$/.test(masked)) {
+    bucket.maskedKey = masked
+  }
+  return bucket
+}
+
+/* 文件归一化:非法桶整条丢弃 */
+export function normalizeBucketFile(value: unknown): BucketFile {
+  const file: BucketFile = { version: BUCKET_FILE_VERSION, buckets: {} }
+  if (typeof value !== 'object' || value === null) return file
+  const raw = (value as { buckets?: unknown }).buckets
+  if (typeof raw !== 'object' || raw === null) return file
+  for (const [key, bucket] of Object.entries(raw as Record<string, unknown>)) {
+    if (key === '') continue
+    const normalized = normalizeBucket(bucket)
+    if (normalized) file.buckets[key] = normalized
+  }
+  return file
+}
+
+export class BucketStore {
+  /* 初始读取完成前不写入,避免启动瞬间用空文件覆盖历史数据 */
+  private ready = false
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private data: BucketFile = { version: BUCKET_FILE_VERSION, buckets: {} }
+
+  /* 读取数据桶文件;文件不存在时尝试迁移旧版快照到当前桶 */
+  async load(currentKey: string): Promise<void> {
+    try {
+      const text = await readFile(this.path(), 'utf-8')
+      this.data = normalizeBucketFile(JSON.parse(text))
+    } catch {
+      this.data = { version: BUCKET_FILE_VERSION, buckets: {} }
+      await this.migrateLegacy(currentKey)
+    }
+    this.ready = true
+    this.scheduleSave()
+  }
+
+  /* 取桶(不存在则创建;不落 updatedAt,由写入方触发) */
+  ensure(key: string): DataBucket {
+    let bucket = this.data.buckets[key]
+    if (!bucket) {
+      bucket = emptyBucket()
+      this.data.buckets[key] = bucket
+    }
+    return bucket
+  }
+
+  /* 全部桶(含未指派桶) */
+  buckets(): Readonly<Record<string, DataBucket>> {
+    return this.data.buckets
+  }
+
+  /* 写入展示用模糊 API Key(每次该 Key 生效时刷新,兼作历史桶的回填) */
+  setMaskedKey(key: string, maskedKey: string): void {
+    this.touch(key).maskedKey = maskedKey
+  }
+
+  /* 写入本地战绩累计量 */
+  setStats(key: string, totals: StatsTotals): void {
+    this.touch(key).stats = totals
+  }
+
+  /* 写入该 Key 的云端快照 */
+  setCloud(key: string, cloud: CloudSummary | null): void {
+    this.touch(key).cloud = cloud
+  }
+
+  /* 写入待发送状态 */
+  setPending(key: string, pending: PendingHeartbeatState): void {
+    this.touch(key).pending = pending
+  }
+
+  /* 认领未指派桶:把未登录期间的数据并入目标 Key 的桶并删除未指派桶 */
+  claimUnassigned(targetKey: string): boolean {
+    const source = this.data.buckets[UNASSIGNED_BUCKET]
+    if (!source) return false
+    const target = this.touch(targetKey)
+    const stats = { ...target.stats }
+    for (const key of Object.keys(stats) as (keyof StatsTotals)[]) {
+      stats[key] = (target.stats[key] ?? 0) + (source.stats[key] ?? 0)
+    }
+    target.stats = stats
+    target.cloud = target.cloud ?? source.cloud
+    target.pending = {
+      queue: [...source.pending.queue, ...target.pending.queue],
+      failed: [...source.pending.failed, ...target.pending.failed].slice(-FAILED_TASK_LIMIT),
+      report: [...source.pending.report, ...target.pending.report].slice(-REPORT_LOG_LIMIT),
+    }
+    target.updatedAt = Math.max(target.updatedAt, source.updatedAt)
+    delete this.data.buckets[UNASSIGNED_BUCKET]
+    this.scheduleSave()
+    return true
+  }
+
+  /* 该桶是否已超过静默期(非当前 Key 且 BUCKET_STALE_DAYS 天未更新);仅作界面判定,不自动删除 */
+  isStale(key: string, now: number = Date.now()): boolean {
+    const bucket = this.data.buckets[key]
+    if (!bucket) return false
+    const deadline = now - BUCKET_STALE_DAYS * 24 * 60 * 60 * 1000
+    return bucket.updatedAt < deadline
+  }
+
+  /* 移除一个数据桶(用户手动触发;调用方负责校验是否允许移除);返回是否存在 */
+  removeBucket(key: string): boolean {
+    if (key === UNASSIGNED_BUCKET) return false
+    if (!this.data.buckets[key]) return false
+    delete this.data.buckets[key]
+    this.scheduleSave()
+    return true
+  }
+
+  /* 标记有变更并防抖落盘 */
+  save(): void {
+    this.scheduleSave()
+  }
+
+  /* 立即落盘(卸载时调用);失败静默,不影响插件运行 */
+  async flush(): Promise<void> {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    if (!this.ready) return
+    const dir = resolveConfigDir()
+    const path = this.path()
+    try {
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      await writeFile(path, JSON.stringify(this.data, null, 2), { mode: 0o600 })
+      await hardenPathPermissions(dir, path)
+    } catch {
+      /* 尽力而为:落盘失败不影响统计与上报 */
+    }
+  }
+
+  /* 取桶并刷新最后更新时刻 */
+  private touch(key: string): DataBucket {
+    const bucket = this.ensure(key)
+    bucket.updatedAt = Date.now()
+    this.scheduleSave()
+    return bucket
+  }
+
+  private scheduleSave(): void {
+    if (!this.ready) return
+    if (this.timer !== undefined) return
+    this.timer = setTimeout(() => { void this.flush() }, BUCKET_SAVE_DEBOUNCE_MS)
+    this.timer.unref?.()
+  }
+
+  private path(): string {
+    return join(resolveConfigDir(), BUCKET_FILE_NAME)
+  }
+
+  /* 旧版独立快照迁移:stats.json(全局累计量)与 heartbeats.json(待发送状态)并入当前桶 */
+  private async migrateLegacy(currentKey: string): Promise<void> {
+    const dir = resolveConfigDir()
+    let migrated = false
+    try {
+      const totals = normalizeTotals(JSON.parse(await readFile(join(dir, LEGACY_STATS_FILE_NAME), 'utf-8')))
+      const bucket = this.ensure(currentKey)
+      bucket.stats = totals
+      bucket.updatedAt = Date.now()
+      migrated = true
+    } catch {
+      /* 无旧版累计量快照 */
+    }
+    try {
+      const pending = normalizePendingState(JSON.parse(await readFile(join(dir, LEGACY_HEARTBEAT_FILE_NAME), 'utf-8')))
+      const bucket = this.ensure(currentKey)
+      bucket.pending = pending
+      bucket.updatedAt = Date.now()
+      migrated = true
+    } catch {
+      /* 无旧版待发送快照 */
+    }
+    if (migrated) this.scheduleSave()
+  }
+}
+
+export { UNASSIGNED_BUCKET } from './types'
+export type { BucketFile, DataBucket } from './types'
+export { resolveStatsView } from './resolve'
+export type { StatsView } from './resolve'

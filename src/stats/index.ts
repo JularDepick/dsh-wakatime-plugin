@@ -168,6 +168,14 @@ export class StatsTracker {
     return stats
   }
 
+  /* 取走当前全部累计量并清空实时会话(切换数据桶前把数据归入旧桶) */
+  drain(): StatsTotals {
+    const totals = this.totals()
+    this.sessions.clear()
+    this.carried = emptyTotals()
+    return totals
+  }
+
   /* 当前累计量:保留量 + 全部实时会话(持久化与聚合的共同口径) */
   totals(): StatsTotals {
     const merged = { ...this.carried }
