@@ -15,7 +15,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR } from '../constants'
+import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR, STEP_TIMING_LIMIT } from '../constants'
 import type { Heartbeat } from '../heartbeat'
 import { machineName } from '../useragent'
 import { readFirstTokenTime, readPromptLength, readUsage } from './readers'
@@ -69,6 +69,11 @@ export class SessionEventCollector {
         this.stepTimings.set(stepKey(session.id, event.data.turn, event.data.step), {
           stepStartTime: event.time,
         })
+        /* 步骤被中断(无 assistant/message 结算)时不会自行清理:超限淘汰最旧的计时 */
+        if (this.stepTimings.size > STEP_TIMING_LIMIT) {
+          const oldest = this.stepTimings.keys().next().value
+          if (oldest !== undefined) this.stepTimings.delete(oldest)
+        }
         break
       }
       case 'assistant/message': {

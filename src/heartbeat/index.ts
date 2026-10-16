@@ -79,6 +79,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private report: ReportEntry[] = []
   /* 推送轮重入保护:同一时刻只允许一轮推送 */
   private pushing = false
+  /* 在途推送的完成信号:切换数据桶前用 whenIdle 等待它结算 */
+  private inFlight: Promise<void> | undefined
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -106,6 +108,24 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const size = this.batchSize()
     if (size === 0) return
     this.pushing = true
+    const task = this.deliverBatch(size)
+    this.inFlight = task
+    try {
+      await task
+    } finally {
+      this.pushing = false
+      this.inFlight = undefined
+    }
+  }
+
+  /* 等待在途推送结束(无在途时立即返回):切换数据桶前调用,
+     让在途批次的出队/重排/上报记录仍然结算在旧桶 */
+  async whenIdle(): Promise<void> {
+    while (this.inFlight !== undefined) await this.inFlight.catch(() => {})
+  }
+
+  /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
+  private async deliverBatch(size: number): Promise<void> {
     const batch = this.queue.splice(0, size)
     try {
       await this.deliver(batch.map((entry) => entry.heartbeat))
@@ -131,7 +151,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message })
       this.log('warn', `[wakatime] push failed (${terminal ? 'terminal' : 'retryable'}): ${message}`)
     } finally {
-      this.pushing = false
       this.compressIfNeeded()
       this.notifyPending()
     }
@@ -254,6 +273,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       branch: heartbeat.branch,
       language: heartbeat.language,
       lines: heartbeat.lines,
+      /* 队列压缩会把相邻两条的 AI 计数(含行变动)相加,故裁剪时需一并转发 */
+      ai_line_changes: heartbeat.ai_line_changes,
       is_write: heartbeat.is_write,
       ai_session: heartbeat.ai_session,
       machine_name: heartbeat.machine_name,

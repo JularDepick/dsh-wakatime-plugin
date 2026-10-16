@@ -84,6 +84,8 @@ export interface HeartbeatEngine {
   enqueue(heartbeat: Heartbeat): void
   /* 推送一轮:取队首一批发送,成功出队、可重试失败回队尾、失败耗尽进失败列表 */
   push(): Promise<void>
+  /* 等待在途推送结束(切换数据桶前调用,避免在途批次被并入新桶) */
+  whenIdle(): Promise<void>
   /* 手动重试一条失败任务:移回队列尾并重置尝试次数;返回是否找到该任务 */
   retryFailedTask(id: string): boolean
   /* 载入待发送状态并与当前队列合并(启动时用;不丢弃启动瞬间已入队的心跳) */

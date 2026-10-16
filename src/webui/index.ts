@@ -76,16 +76,27 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
   const registerRoutes = (): void => {
     const webServer = ctx.get('webServer', false) as WebServerLike | undefined
     if (!webServer) return
+    /* 统一兜底:处理器异常(如落盘失败)时回 500,避免请求悬挂与未处理的 Promise 拒绝 */
+    const safe = (handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>) =>
+      (req: IncomingMessage, res: ServerResponse): void => {
+        void handler(req, res).catch(() => {
+          if (res.headersSent) {
+            if (!res.writableEnded) res.end()
+            return
+          }
+          writeJson(res, 500, { ok: false, error: 'internal error' })
+        })
+      }
     const disposers = [
-      webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: (req, res) => void handleStatus(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: (req, res) => void handleConfig(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: (req, res) => void handleApiKey(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: (req, res) => void handleLogs(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: (req, res) => void handleRetry(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_BUCKETS_PATH, handler: (req, res) => void handleBuckets(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_BUCKET_REMOVE_PATH, handler: (req, res) => void handleBucketRemove(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: (req, res) => void handleSync(req, res, deps) }),
-      webServer.register({ kind: 'exact', path: WEB_APIKEY_CLEAR_PATH, handler: (req, res) => void handleApiKeyClear(req, res, deps) }),
+      webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: safe((req, res) => handleStatus(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: safe((req, res) => handleConfig(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: safe((req, res) => handleApiKey(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_BUCKETS_PATH, handler: safe((req, res) => handleBuckets(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_BUCKET_REMOVE_PATH, handler: safe((req, res) => handleBucketRemove(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: safe((req, res) => handleSync(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_APIKEY_CLEAR_PATH, handler: safe((req, res) => handleApiKeyClear(req, res, deps)) }),
     ]
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
@@ -233,7 +244,8 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     writeJson(res, 404, body)
     return
   }
-  void deps.heartbeat.push()
+  /* 等待本轮推送结算后再响应:前端刷新上报记录即可看到重试结果 */
+  await deps.heartbeat.push()
   const body: WebRetryResponse = { ok: true }
   writeJson(res, 200, body)
 }
@@ -285,15 +297,18 @@ async function handleBuckets(req: IncomingMessage, res: ServerResponse, deps: We
   await deps.syncBucket()
   const current = deps.currentBucket()
   const now = Date.now()
-  const buckets: WebBucketEntry[] = Object.entries(deps.store.buckets()).map(([key, bucket]) => ({
-    key,
-    /* 模糊 Key 只在此接口下发;旧版桶没有该字段时回退为摘要标识 */
-    maskedKey: bucket.maskedKey ?? `#${key.slice(0, 8)}`,
-    updatedAt: bucket.updatedAt,
-    current: key === current,
-    removable: key !== current && deps.store.isStale(key, now),
-    stats: resolveStatsView(deps.store.buckets(), 'current', key),
-  }))
+  const buckets: WebBucketEntry[] = Object.entries(deps.store.buckets())
+    /* 未指派桶不是真实 API Key:既不在缓存清单展示,也不可移除 */
+    .filter(([key]) => key !== UNASSIGNED_BUCKET)
+    .map(([key, bucket]) => ({
+      key,
+      /* 模糊 Key 只在此接口下发;旧版桶没有该字段时回退为摘要标识 */
+      maskedKey: bucket.maskedKey ?? `#${key.slice(0, 8)}`,
+      updatedAt: bucket.updatedAt,
+      current: key === current,
+      removable: key !== current && deps.store.isStale(key, now),
+      stats: resolveStatsView(deps.store.buckets(), 'current', key),
+    }))
   buckets.sort((left, right) => {
     if (left.current !== right.current) return left.current ? -1 : 1
     return right.updatedAt - left.updatedAt

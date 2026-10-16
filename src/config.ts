@@ -14,13 +14,14 @@ export type StatsScope = 'all' | 'current'
 
 /* 配置项:用户可在 cordis.yml 的 config 中覆盖,schema 提供默认值 */
 export interface Config {
-  /* 是否启用数据上报 */
+  /* 是否启用数据上报:关闭时心跳直接丢弃(总开关) */
   enabled: boolean
   /* 界面语言,取值如 zh-CN / en-US(host 工具文案;Web UI 语言跟随 dsh web) */
   locale: string
   /* 定时上报间隔(秒):启动加载时上报一次,之后按此间隔循环 */
   reportInterval: number
-  /* 是否开启定时上报 */
+  /* 是否开启定时上报:仅控制自动推送轮(启动/定时/补推),
+     关闭时心跳留在待发送队列,重新开启后继续推送 */
   reportEnabled: boolean
   /* 是否上报 Token 用量 */
   includeTokens: boolean

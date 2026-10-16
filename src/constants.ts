@@ -9,7 +9,6 @@
 /* 翻译文件相关 */
 export const DEFAULT_LANGUAGE = 'zh-CN'
 export const FALLBACK_LANGUAGE = 'zh-CN'
-export const TRANSLATION_DIR = 'translation'
 
 /* 凭证与配置存放位置(dsh home 的 plugins 下) */
 export const CONFIG_DIR_NAME = 'wakatime'
@@ -72,8 +71,7 @@ export const RETRY_MAX_DELAY_MS = 30000
 export const RETRY_BACKOFF_MULTIPLIER = 2
 /* 单次请求超时(毫秒;超时按网络失败进入重试,避免挂起阻塞上报循环) */
 export const REQUEST_TIMEOUT_MS = 30000
-export const OFFLINE_QUEUE_LIMIT = 1000
-/* 离线队列补报周期(毫秒) */
+/* 补报周期(毫秒):单队列多挂一个更高频的推送轮 */
 export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 /* 上报记录日志保留条数(调试级,Web 展示) */
 export const REPORT_LOG_LIMIT = 50
@@ -88,6 +86,9 @@ export const AI_SESSION_GLOBAL_ID = 'dsh_waka_time_plugin'
 
 /* 提示词 Token 估算系数:字符数 ÷ 系数 ≈ Token 数(无官方 tokenizer 时的近似口径) */
 export const PROMPT_TOKEN_ESTIMATE_DIVISOR = 1.5
+
+/* 会话采集:进行中的步骤计时缓存上限(被中断的步骤不会继续累积,超限淘汰最旧的计时) */
+export const STEP_TIMING_LIMIT = 512
 
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'
@@ -109,5 +110,3 @@ export const ENV_DEBUG = 'WAKATIME_DEBUG'
 export const ENV_CONFIG_DIR = 'WAKATIME_CONFIG_DIR'
 /* dsh home 覆盖项(默认 home 推导用,与 dsh 本体的 DSH_HOME 对齐) */
 export const ENV_DSH_HOME = 'DSH_HOME'
-/* 环境代理开关提示:Node 24 起官方支持 NODE_USE_ENV_PROXY=1 让 fetch 读取代理变量 */
-export const ENV_USE_ENV_PROXY = 'NODE_USE_ENV_PROXY'

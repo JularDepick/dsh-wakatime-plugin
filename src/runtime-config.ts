@@ -72,6 +72,8 @@ export class RuntimeConfig {
       debug: this.current.debug,
       tableBorders: this.current.tableBorders,
       statsScope: this.current.statsScope,
+      /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
+      locale: this.current.locale,
     }
     await this.configManager.save({ ...(stored ?? {}), settings })
   }

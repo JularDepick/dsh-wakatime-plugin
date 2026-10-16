@@ -66,6 +66,14 @@ export function apply(ctx: Context, config: ConfigType) {
   const configManager = new ConfigManagerImpl()
   const http = new FetchHttpClient()
   const runtimeConfig = new RuntimeConfig(config, configManager)
+  /* 调试开关(配置项或环境变量):info 级插件日志受它控制,warn/error 始终转发,
+     开关改动即时生效 */
+  const isDebug = (): boolean => runtimeConfig.get().debug || process.env[ENV_DEBUG] === '1'
+  const pluginLogger = logger === undefined ? undefined : {
+    info: (message: string) => { if (isDebug()) logger.info?.(message) },
+    warn: (message: string) => { logger.warn?.(message) },
+    error: (message: string) => { logger.error?.(message) },
+  }
   const auth = new AuthManagerImpl(http, configManager)
   const store = new BucketStore()
   /* 当前数据桶:未配置 API Key 时为未指派桶 */
@@ -74,7 +82,7 @@ export function apply(ctx: Context, config: ConfigType) {
     enabled: config.enabled,
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,
-    logger,
+    logger: pluginLogger,
     onPendingChange: (state) => { store.setPending(currentBucket, state) },
   })
   const stats = new StatsTracker({ onChange: (totals) => { store.setStats(currentBucket, totals) } })
@@ -87,6 +95,9 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 切换数据桶:把当前桶的实时累计量与待发送状态落库,再载入目标桶;
      同时刷新展示用模糊 Key(值不同才写,避免无谓的落盘) */
   let switching = false
+  /* 启动载入完成信号:载入完成前不切换数据桶、不推送,避免与初始载入互相覆盖丢数 */
+  let markStoreReady!: () => void
+  const storeReady = new Promise<void>((resolve) => { markStoreReady = resolve })
   const applyBucket = async (next: string, maskedKey?: string): Promise<void> => {
     const refreshMask = (): void => {
       if (maskedKey === undefined) return
@@ -100,6 +111,8 @@ export function apply(ctx: Context, config: ConfigType) {
     if (switching) return
     switching = true
     try {
+      /* 等在途推送结算完毕再归仓:其失败重排与上报记录仍记在旧桶 */
+      await heartbeat.whenIdle()
       store.setStats(currentBucket, stats.drain())
       store.setPending(currentBucket, heartbeat.pendingState())
       currentBucket = next
@@ -118,6 +131,8 @@ export function apply(ctx: Context, config: ConfigType) {
 
   /* 按当前生效的 API Key 对齐数据桶(未配置时切到未指派桶) */
   const syncBucket = async (): Promise<void> => {
+    /* 先等启动载入完成:此前的数据桶切换会与初始载入竞争,可能丢掉激活窗口内的战绩 */
+    await storeReady
     const apiKey = await auth.tryGetApiKey()
     if (apiKey === null) {
       await applyBucket(UNASSIGNED_BUCKET)
@@ -129,6 +144,10 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 推送一轮前先对齐数据桶,避免换了 Key 还往旧桶写 */
   const pushOnce = async (): Promise<void> => {
     await syncBucket()
+    /* 定时上报关闭:不自动推送(心跳留在队列,重新开启后继续);手动重试不受此限 */
+    if (!runtimeConfig.get().reportEnabled) return
+    /* 数据桶切换期间不推送,避免旧桶的心跳用新 Key 上报 */
+    if (switching) return
     await heartbeat.push()
   }
 
@@ -167,7 +186,7 @@ export function apply(ctx: Context, config: ConfigType) {
 
   /* 启动时读取数据桶:确定当前桶、认领未指派数据、恢复战绩与待发送状态
      (用合并语义:启动瞬间已入队的心跳不会被覆盖) */
-  void (async () => {
+  const restoreBuckets = async (): Promise<void> => {
     const apiKey = await auth.tryGetApiKey()
     currentBucket = apiKey === null ? UNASSIGNED_BUCKET : bucketKeyOf(apiKey)
     await store.load(currentBucket)
@@ -180,7 +199,9 @@ export function apply(ctx: Context, config: ConfigType) {
     store.setStats(currentBucket, stats.totals())
     store.setPending(currentBucket, heartbeat.pendingState())
     store.save()
-  })()
+  }
+  /* 载入完成(成功或失败)后才放开数据桶切换与推送 */
+  void restoreBuckets().catch(() => { /* 载入失败已在内部静默降级 */ }).finally(() => { markStoreReady() })
 
   /* 首轮推送 + 定时推送循环;待发送队列补推独立定时(留出重试节奏) */
   ctx.effect(() => {
@@ -211,8 +232,7 @@ export function apply(ctx: Context, config: ConfigType) {
     syncBucket,
   })
 
-  const debug = config.debug || process.env[ENV_DEBUG] === '1'
-  if (debug) {
+  if (isDebug()) {
     logger?.info?.('[wakatime] plugin active')
   }
 }
