@@ -289,16 +289,16 @@
 | 类别 | 选型 |
 |:---:|:---:|
 | 语言 | TypeScript(ESM) |
-| 插件框架 | dsh 0.2.0-rc.2(基于 Cordis,`@deepseek-ai/cordis` ^4.0.4) |
+| 插件框架 | dsh 0.2.0-rc.2 与 0.2.1-rc.1(双版本兼容;基于 Cordis,`@deepseek-ai/cordis` ^4.0.4) |
 | 配置校验 | `@deepseek-ai/schemastery` ^3.18.4 |
-| 事件采集 | `@deepseek-ai/dsh-session` ^0.2.0-rc.2(`session/event` 类型与声明合并) |
-| 工具注册 | `@deepseek-ai/dsh-tools` ^0.2.0-rc.2(`defineTool`) |
+| 事件采集 | `@deepseek-ai/dsh-session` ^0.2.0-rc.2 || ^0.2.1-rc.1(`session/event` 类型与声明合并) |
+| 工具注册 | `@deepseek-ai/dsh-tools` ^0.2.0-rc.2 || ^0.2.1-rc.1(`defineTool`) |
 | Web UI(浏览器端) | React 18 + `@deepseek-ai/dsh-client-ui-slots` slot 核心 + `@deepseek-ai/dsh-client-ui-renderer` 运行时(平台模块由宿主提供) |
 | 样式 | CSS Modules(lightningcss 内联编译,`--dsw-alias-*` 语义 token) |
 | 网络 | Node 内置 fetch(无第三方 HTTP 依赖) |
 | 包管理 | pnpm |
 | 构建 | tsdown(产物 `.mjs/.d.mts` 与 `client.js`,生态包外部化由宿主提供) |
-| 目标环境 | Node.js(dsh 宿主)+ 浏览器(dsh web GUI) |
+| 目标环境 | Node.js(dsh 宿主,随宿主运行时为 24.x)+ 浏览器(dsh web GUI) |
 
 > 当项目技术栈发生变化时需要自主更新并告知用户
 
@@ -413,6 +413,7 @@ dsh-wakatime-plugin/
 - Web UI: 浏览器端在会话区域视图标签栏注册 wakatime 标签页(`conversation.view` 槽,id `wakatime`,order `20`);主视图工具条左侧带只读账号状态(状态标签 + 账号名,与配置视图同源且不含写操作),其下为 Agent 协作战绩(云端同步合并取最大值,标题行含同步状态与按钮)与上报记录日志;右上角「配置」按钮切换出的配置视图承载 API Key 变更(状态标签,账号名,覆盖写入,清除)与上报参数及界面开关(上报开关与间隔,战绩表边框,战绩显示策略档位切换条;改动按单键写入即时生效,无保存按钮,数字字段失焦或回车才写入以避免中间值生效);另含「API Key 缓存」折叠明细区(见设计细节「API Key 缓存明细与手动移除」);上报记录表新增「操作」列,失败行可点击重试(经 `POST /api/wakatime/retry` 把任务移回队列并立即推送一轮),已重试行显示「已重试」状态;战绩区标题行显示当前显示策略与同步状态;小后端经 webserver 服务挂载 `GET /api/wakatime/status`,`POST /api/wakatime/config`,`POST /api/wakatime/apikey`,`GET /api/wakatime/logs`,`POST /api/wakatime/retry`,`GET /api/wakatime/buckets`,`POST /api/wakatime/bucket/remove`,`GET /api/wakatime/sync`(带缓存,`?force=1` 强制刷新),`POST /api/wakatime/apikey/clear`(仅 web profile);client 产物 `dist/client.js`(`exports["./client"]` 声明,host 自动扫描)
 - 标签页视觉基准与信息层级: 以 dsh web 官方界面为基准(不引入品牌色),不自建卡片,内容直接铺在 tab 下;顶部工具条左侧放只读账号状态(状态标签 + 账号名,过长省略),右侧放「配置」切换按钮(靠 `margin-left:auto` 固定右端),主视图分区顺序为战绩 → 上报记录,配置视图分区顺序为 API Key → 上报参数,分区之间用 `0.5px` 分隔线区分;根元素内边距 `12px 60px 24px`(左右 `60px` 为按需调整的设计细节,隔离为单一旋钮 `--wakatime-tab-inline-padding`,不再取宿主留白变量),不做内容列最大宽度约束(宿主 viewArea 不给内边距/滚动/最大宽度/背景);内容列声明为宽度查询容器,宿主拖动宽度手柄调整对话区域宽度时由 `@container` 规则重排列宽并让信息列换行(窄宽度下宁可占两行也不截断成无意义片段),工具条/分区标题/API Key 行在放不下时换行而不是把控件压没;查询容器只包内容列,不含提示层(避免布局包含改变 `position: fixed` 提示的包含块);战绩为独立三列表格(指标名称/指标数值/备注,固定布局,列宽 34/26/40),数值列用等宽数字;配置表单放在右上角按钮切换出的配置视图里(与主视图互斥渲染,不用遮罩浮层与浏览器原生弹窗;切回主视图后焦点回到切换按钮,ESC 在捕获阶段监听并阻断继续传播);字设与配色继承 profile,字号/行高/字重取 `--dsw-font-*` 令牌(strong 变体只到 base-strong-16,且 `--dsw-font-m-18`/`--dsw-font-l-20` 的名字与实际 px 不一致:实际分别是 16px 与 20px),颜色只取 `--dsw-alias-*` 语义令牌;表格照官方 trajectory(表头与行高 40px,`0.5px` 分隔线,末行不画线)但文本按项目规范居中,字号在官方字设基础上按单一旋钮 `--wakatime-table-font-scale`(默认 `1.5` 倍)整体放大(取官方 token 的字号/行高子变量做 calc,不写死字号),表格满格边框由配置项 `tableBorders`(默认开启)经 `data-bordered` 属性驱动,开启时改用分离边框模型由表格自身画外框并加 `--dsw-radius-md` 圆角(折叠边框模型无法圆角),单元格只画内部横竖线、末列右边线与末行下边线交给外框以避免双线,关闭时退回仅横向分隔线;开关/输入/按钮/状态标签/档位切换条按官方 primitives 的标记与样式在插件内自制(二选一档位用滑块式 `role="radiogroup"` 切换条:轨道等分若干档、滑块按档位索引平移并带 160ms 过渡,不使用原生 `select`;官方守则禁止 value-import Harness Client 包,只依赖 token);提示为组件内 `position: fixed` 顶部居中元素(toast-bg/label,shadow-lv3,160ms 入场 + 3000ms 停留 + 1000ms 淡出),不改用浏览器原生弹窗,不写 document.body
 - 环境变量: `WAKATIME_API_KEY`/`WAKATIME_DEBUG`/`WAKATIME_CONFIG_DIR`;另识别 dsh 的 `DSH_HOME`(凭证目录默认位置)与 Node 的 `NODE_USE_ENV_PROXY`(环境代理开关);`debug` 配置项与 `WAKATIME_DEBUG` 共同控制插件 info 级日志转发(warn/error 始终转发,开关即时生效)
+- dsh 版本兼容声明: 包清单同时面向 dsh 0.2.0-rc.2 与 0.2.1-rc.1,声明分成两处: (1) `engines.dsh` 取 `>=0.2.0-rc.2 <0.3.0-0`,0.2.1-rc.1 起启动器优先用它判定组合包兼容性并忽略 peerDependencies,0.2.0-rc.2 不识别该字段而改看 peer;(2) 七个宿主包(`dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-slots`)的 peer 范围写成 `^0.2.0-rc.2 || ^0.2.1-rc.1`,原因是包管理器默认语义下 `^0.2.0-rc.2` 不匹配 0.2.1-rc.1 这类预发布(需同一 `主.次.修订` 三元组才放行),peer 不满足会触发自动安装宿主包副本,导致 `TOOL_RUNTIME_SCHEDULER` 符号分裂、全部工具调用失效;启动器侧走的是 `includePrerelease` 语义,故启动器兼容不代表安装侧安全.两处声明须成对维护: 新增支持的 dsh 版本时同时补 `engines.dsh` 上界与对应 `^主.次.修订-预发布` 分支;`cordis`/`schemastery` 的 `^` 弯曲范围已覆盖 4.0.4→4.0.5 与 3.18.4→3.18.5,无需改动.另有一处配套约定: devDependencies 中的宿主包跟随最新支持的 dsh 版本(当前 `^0.2.1-rc.1`),只用于本地类型检查与构建基线,对外承诺看 peer 范围;`@types/node` 取 `^24.19.2` 对齐 dsh 宿主运行时(24.x),不跟随本机工具链 Node 版本
 
 设计细节均隔离于 `src/constants.ts`(索引: 默认语言/回退语言,凭证目录/文件名,数据桶文件名/防抖/静默期判定天数/模糊 Key 保留长度/队列上限/失败列表上限,推送批量阈值与除数/单任务尝试次数/上报记录条数,bulk 上限/请求超时/补报周期,心跳类别/AI 会话全局标识/提示词估算系数/步骤计时缓存上限,WakaTime API 端点(含 summaries 与云端同步区间)与匿名账号占位显示名,云端同步缓存时长,Git 标记名与仓库查找深度,分支缓存时长,Web UI 路由路径(含同步与重试),环境变量名);另有隔离于配置 schema 的界面项默认值(战绩表边框 `tableBorders` 默认开启,战绩显示策略 `statsScope` 默认 `all`)与隔离于前端样式的缩放旋钮(`--wakatime-table-font-scale`,`--wakatime-tab-inline-padding`).
 
@@ -420,13 +421,13 @@ dsh-wakatime-plugin/
 
 ### 版本号索引
 
-- 当前版本: `v0.2.0`
+- 当前版本: `v0.2.1`
 
 > 版本号中 `x` 表示十进制数,不限制位数,无前导 0
 
-- 项目正在开发 0.2.1 版本,开发结束后才更新版本号;开发期间源码与此处保持 `v0.2.0`,不得自行迭代
+- 0.2.1 已定版: 本版本带来 dsh 0.2.0-rc.2 与 0.2.1-rc.1 双版本兼容,后续迭代版本号须由用户明确指定,不得自行迭代
 - 版本格式遵循 `docs/repo-spec/tag-release-spec.md`(Tag `<版本号>`,Release `<版本号>-dsh-<dsh版本号>`)
-- 版本号迭代时,同步更新 `version.index.md` 所列文件(见该文件同步清单)
+- 版本号迭代时,同步更新 `version.index.md` 所列文件(见该文件同步清单);版本文档(`v*-*.md`)按版本新建,旧版本文档不改名也不改正文
 
 ### 快捷命令
 
@@ -446,9 +447,9 @@ pnpm run pack
 新会话接手项目时按以下流程启动:
 
 1. 完整阅读根目录 `AGENTS.md`: 守则区为硬约束;项目绑定区(概述/技术栈/架构/目录结构/设计细节/版本号索引)随项目状态懒维护
-2. 读 `version.index.md` 与 `git log`,确认当前真实版本号并向用户汇报确认;注意本项目正在开发 0.2.1,开发期间源码版本号保持 0.2.0,勿自行迭代
+2. 读 `version.index.md` 与 `git log`,确认当前真实版本号并向用户汇报确认;当前源码版本号为 0.2.1,勿自行迭代
 3. 读核心 README(中文版 `README.md`)与项目技术文档(`docs/tech-spec/`),掌握既定机制设计,机制细节遵循 specs 不重复抄录
-4. 读 `docs/dsh-dev-docs/<版本>/` 已收录的 dsh 插件开发文档: 先读 `index.agent.md` 速查表,涉及框架机制时精读基础篇与框架篇;未收录时回官方仓库 `docs/user/develop` 查阅
+4. 读 `docs/dsh-dev-docs/<版本>/` 已收录的 dsh 插件开发文档(已收录 0.2.0-rc.2 与 0.2.1-rc.1 两套): 先读 `index.agent.md` 速查表,涉及框架机制时精读基础篇与框架篇;未收录时回官方仓库 `docs/user/develop` 查阅
 5. 动手前的关键技术决策先列给用户裁决;涉及安装/构建/测试须经授权
 
 ### 开发经验
@@ -462,7 +463,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - 服务与依赖: 服务是挂在 `ctx` 上的命名能力;`inject` 声明必需依赖,可选依赖用 `ctx.get()`;服务消失会触发依赖插件自动卸载并在恢复后重载
 - 事件: `ctx.on`/`ctx.emit`,四种模式(emit 广播/bail 短路/serial 顺序/waterfall 流水线,waterfall 监听器必须调用 `next()`);类型安全用声明合并扩展事件接口;监听器也是效果,卸载自动移除
 - bundle 打包: 包清单声明 `dsh.bundle` 与 patch 层(`cordis.patch.yml`);patch 以插件包名插入插件行,加载顺序按 profile bundles 列表;后应用的层按行胜出(整行替换,不深度合并);`dsh plugin --profile <name> add <包>` 安装;git 安装只拉源码,需 `prepare` 脚本且用户授权构建
-- 版本对齐: dsh 各包版本须与本地运行环境对齐(本地实测 0.2.0-rc.2 系列: `dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 0.2.0-rc.2,`cordis` 4.0.4,`schemastery` 3.18.4);带 rc 的包需核对 registry 的 next 标签;三次历史升级的破坏性判定: 0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除,`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`,`dsh-client-runtime` 拆分消失,`dsh-client-ui-slots` 变纯类型核心,`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件,`assistantStreamFirstTokenTime`,`defineTool`,`ctx.slots.register/inject`,`ctx.locale.register/bind`,`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费),webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响);0.1.7-rc.2→0.2.0-rc.2 同样**无破坏性改动**(官方 `docs/user/develop/` 两版逐字节相同,`git hash-object` 校验与上游两个 tag 的 blob 一致,故该文档集不能作为安全依据,结论以发布包 `lib/types` 逐文件哈希对比为准: `dsh-tools`/`dsh-llm`/`dsh-client-ui-slots`/`dsh-client-ui-renderer`/`dsh-client-locale`/`dsh-client-ui-settings` 声明层零改动;`dsh-session` 仅新增导出 `ToolCallRecovery`;`dsh-client-ui-conversation` 新增 `input/submission-analytics` 与 composer/input 面若干声明,`conversation.view` 槽声明逐行未变;平台模块表与 `/client` 子路径契约未变),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`)
+- 版本对齐: dsh 各包版本须与本地运行环境对齐;devDependencies 现行基线为 0.2.1-rc.1 系列(`dsh-tools`/`dsh-session`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation`/`dsh-client-ui-renderer`/`dsh-client-ui-settings`/`dsh-client-ui-slots` 均 `^0.2.1-rc.1`),`cordis` `^4.0.4` 解析到 4.0.5,`schemastery` `^3.18.4` 解析到 3.18.5;本机已安装的 dsh 桌面版仍可能低于该基线(实测 0.2.0-rc.2),故验证须覆盖 peer 声明的两端;带 rc 的包需核对 registry 的 next 标签(这些包的 `latest` 标签停在 `0.0.1-rc.1`,真实发布走 `next`,按显式版本号声明最稳);三次历史升级的破坏性判定: 0.1.1-rc.2→0.1.5-rc.1 是次版本升级,类型声明有破坏性改动(`assistant/chunk` 事件移除,`isTokenDelta` 移至 `@deepseek-ai/dsh-llm/assistant-stream`,`dsh-client-runtime` 拆分消失,`dsh-client-ui-slots` 变纯类型核心,`ctx.slots` 声明移至 `dsh-client-ui-renderer/client`);0.1.5-rc.1→0.1.7-rc.2 对本插件**无破坏性改动**(`session/event` 四类事件,`assistantStreamFirstTokenTime`,`defineTool`,`ctx.slots.register/inject`,`ctx.locale.register/bind`,`conversation.view` 槽(list/session,owner props 改为 `inspectCall`/`viewRequest`/`openView`/`completeViewRequest`,本插件不消费),webserver `register` 均未变;新增的 Slot Factory 机制与 `conversation.view` 无关;`dsh-client-locale` 客户端新增对 `@deepseek-ai/dsh-package-manifest` 与 `dsh-client-ui-settings/client` 的类型引用,`skipLibCheck` 下无影响);0.1.7-rc.2→0.2.0-rc.2 同样**无破坏性改动**(官方 `docs/user/develop/` 两版逐字节相同,`git hash-object` 校验与上游两个 tag 的 blob 一致,故该文档集不能作为安全依据,结论以发布包 `lib/types` 逐文件哈希对比为准: `dsh-tools`/`dsh-llm`/`dsh-client-ui-slots`/`dsh-client-ui-renderer`/`dsh-client-locale`/`dsh-client-ui-settings` 声明层零改动;`dsh-session` 仅新增导出 `ToolCallRecovery`;`dsh-client-ui-conversation` 新增 `input/submission-analytics` 与 composer/input 面若干声明,`conversation.view` 槽声明逐行未变;平台模块表与 `/client` 子路径契约未变),适配后 typecheck/build/smoke 全过且产物字节数不变(升级前先下载 tarball 哈希对比,脚本见 `.agents/compare-pkgs.mjs`);0.2.0-rc.2→0.2.1-rc.1 对本插件同样**无破坏性改动**,结论仍以发布包 `lib/types` 逐文件哈希对比为准: `dsh-llm` 的 `assistant-stream`/`message` 声明逐字节未变;`dsh-tools` 只改注释并移除 `both` 展示模式、新增 PTC 相关声明;`dsh-session` 的 `SessionEventMap` 事件键集合完全一致,仅新增 `plugin:` 记录机制与 typert 资源合并;`dsh-client-ui-slots` 仅新增 `inline` 字段;`dsh-client-ui-renderer` 仅扩宽 keyed hook 的参数;`dsh-client-ui-conversation` 仅新增 user-text 槽与 draft 类型,`conversation.view` 槽逐行未变;`dsh-host-webserver.register` 签名未变;`cordis` 4.0.4→4.0.5 与 `schemastery` 3.18.4→3.18.5 除版本号字段外逐字节相同;宿主平台模块表新增 `zod` 与 `@tanstack/react-virtual` 两个 seed,本插件未使用故 external 列表无需变化.该版本的兼容性风险不在代码而在包清单: 启动器自 0.2.1-rc.1 起支持 `engines.dsh`(存在该字段时判定只看它、忽略 peer),没有该字段时才按 `includePrerelease` 语义逐个校验 dsh peer,而包管理器默认语义不接受 `^0.2.0-rc.2` 匹配 0.2.1-rc.1,peer 不满足会引入宿主包副本,故双版本支持必须同时补 `engines.dsh` 与 peer 的 `^0.2.0-rc.2 || ^0.2.1-rc.1` 分支(校验脚本 `.agents/check-compat-ranges.mjs`;跨版本类型校验先用 `.agents/build-type-env.mjs <版本>` 拉取类型闭包,再以 `temp/tsconfig-<版本>.json` 的 paths 映射跑 tsc)
 - pnpm 11 坑(升级依赖时踩过): (1) 用户主目录存在 `pnpm-workspace.yaml`(仅 `allowBuilds` 配置)时,pnpm 11 会把它当 workspace 根,子项目报「No projects found」, 在项目根创建 `pnpm-workspace.yaml`(`packages: ['.']`)声明独立 workspace 即可;(2) 刚发布的 rc 包会触发 `minimumReleaseAge` 供应链策略报「entries that the active policies reject」,在项目 `pnpm-workspace.yaml` 置 `minimumReleaseAge: 0` 放宽;(3)`pnpm install` 触发 `prepare` 脚本 spawn 会被沙箱 EPERM 拦截,用 `--ignore-scripts` 装完后单独 `pnpm build`
 - pnpm 12 沙箱不可用(0.2.0-rc.2 升级实测): pnpm 12.6 的 install 固定要在 `%LOCALAPPDATA%\pnpm-store-operation-locks\all-stores.lock` 开 store 操作锁,沙箱拒绝写入(`ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK`,os error 5),`--store-dir`/`--state-dir`/重定向 `LOCALAPPDATA` 均无法改道该路径;改用 `$PNPM_HOME\.tools\pnpm\11.9.0\bin\pnpm.CMD` 安装(无该锁机制),并显式带 `--store-dir <ws>\.pnpm-store`,`CI=true`,`--no-frozen-lockfile`(改依赖后 frozen 会报 `ERR_PNPM_OUTDATED_LOCKFILE`;`CI=true` 亦用于免交互确认删除旧 `node_modules`,`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`)
 - 构建与打包: `pnpm build` 经 `scripts/build.mjs` 把构建链临时目录固定到工作区内 `temp/` 后执行 tsdown(声明生成插件默认写系统 `%TEMP%`,受限环境下报 `TS5033` 使 dts 阶段失败;现象具欺骗性,日志前半段已显示 client 面构建成功).故 `pnpm build` 与 `pnpm pack` 均无需外部环境变量重定向;`pnpm pack` 会触发 `prepare` 再次构建.注意构建以 `clean` 开头,中断会先删掉产物,失败后须重新构建以恢复 `dist/` 全部 6 个产物
@@ -477,7 +478,7 @@ dsh 插件开发与构建测试要点(浓缩自模板初始化经验,项目实�
 - 维护规则: 按需检查 dsh 插件开发者文档是否过时,过时则按官方收录流程更新到 `docs/dsh-dev-docs/<新版本>/`
 - Web UI 插件: 给 dsh web 新增 tab/UI 的完整机制与踩坑见 `docs/tech-spec/dsh-web-tab-experience.md`(client 产物格式,平台模块表,slot 纪律,数据通道选型);项目实例细节另见 `.agents/web-tab-experience.md`
 - WSL 部署与真机验证:基线环境,两种部署流程,启动命令,服务端与浏览器端验证清单与常见问题排查保存在 Agent 工作目录内(经验文档不入库,换工作区时需随会话迁移);**构建与部署默认全部由用户执行**(用户明确: Agent 不构建,不部署,只改代码与做语法/类型校验;历史上"仅安装"的单次授权不跨会话复用),Agent 不请求 WSL 权限升级,复验结论按该经验文档的复验节回写;`add` 会先解析 profile 内全部既有依赖,任一 `file:` 依赖的 tarball 缺失即整体报 pnpm ENOENT
-- Agent 工作目录 `.agents/`: 经验文档(`web-tab-experience.md`,`ui-research-dsh-web-styling.md`)与脚本(`smoke.mjs`/`compare-client.mjs`/`compare-pkgs.mjs`/`check-tokens.mjs`,末者用 lightningcss 编译样式并核对 `--dsw-*` 令牌是否都有定义)均置于 `.agents/`(守则第 6/16 章: 临时与工作文档优先 `temp/`,`.agent/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
+- Agent 工作目录 `.agents/`: 经验文档(`web-tab-experience.md`,`ui-research-dsh-web-styling.md`)与脚本(`smoke.mjs`/`compare-client.mjs`/`compare-pkgs.mjs`/`check-tokens.mjs`,末者用 lightningcss 编译样式并核对 `--dsw-*` 令牌是否都有定义;`compare-events.mjs` 对比两版 `SessionEventMap` 事件键,`dl-pkgs.mjs` 下载指定版本 tarball,`build-type-env.mjs` 按类型声明闭包拉取某版本包,`check-compat-ranges.mjs` 校验包清单对目标 dsh 版本的兼容声明)均置于 `.agents/`(守则第 6/16 章: 临时与工作文档优先 `temp/`,`.agent/` 或 `.agents/`;整个目录已 gitignore,换工作区时需自行迁移)
 - 外部插件依赖纪律: 宿主包(`@deepseek-ai/cordis`,`dsh-tools`,`dsh-session`,`dsh-llm`,`schemastery`)必须声明为 peerDependencies(+ devDependencies 镜像用于本地构建),**严禁放 dependencies**, 否则 pnpm 把副本装进 profile(nodeLinker: hoisted 平铺),宿主 loader 解析内置行命中副本,dsh-tools 的 `TOOL_RUNTIME_SCHEDULER`(unique symbol)分裂,agent-loop 取不到 scheduler,全部工具调用崩溃(`Cannot read properties of undefined (reading 'prepare')`);正确模式参照 dsh-github-plugin
 - WakaTime API 事实(0.2.0-rc.2 期间查证官方文档): 心跳 POST(`/users/current/heartbeats` 与 `.bulk`)的成功响应是 **202 Accepted**(响应体带新建心跳的 `id`),故判定按「2xx 即成功」而非硬编码 202;bulk **单请求上限 25 条**;心跳**没有**幂等键,官方只在 External Durations 上提供 `external_id` 防重,因此重复发送会重复计数,推送必须"成功才出队";文档未给出心跳时间戳的上限,官方 CLI 本身就把离线心跳存进 `$HOME/.wakatime/offline_heartbeats.bdb` 之后再同步(离线补报是官方做法);限流为"任意 5 分钟窗口内平均少于 10 请求/秒",429 时应当拉长间隔;心跳文档化的 AI 字段只有 `ai_input_tokens`/`ai_output_tokens`/`ai_prompt_length`/`ai_line_changes`/`ai_session`/`ai_subscription_plan` 与 `human_line_changes`,**没有任何缓存类字段**(summaries/stats 侧同样没有),故缓存命中 TOKEN 只能以自定义扩展字段 `ai_cache_read_tokens` 上报:官方 CLI 本身也会发送文档未列出的字段(如 `machine_name`),说明多余字段被容忍;若官方改为严格校验并回 400,该批心跳会按终态失败进入失败列表(界面可见且可重试),而本地桶始终保留该指标
 - 官方数据采集能力盘点(0.2.0-rc.2,以发布包类型声明为准,全量检索已装 dsh 包): 官方提供首个输出 token 时刻(`assistantStreamFirstTokenTime`)、计时流读取器(`assistantStreamChunks`/`lastAssistantStreamChunk`/`isTokenDelta`/`isVisibleChunk`/`expandAssistantStream`/`joinAssistantStreamText`/`runFirstTokenTime`)、`assistant/message` 的 `usage?: TokenUsage`(另有可选 `totalTokens`;官方文档明确「无独立 usage 事件」)、事件消息投影(`session.deriveEventMessage()` 实例方法与模块函数 `deriveEventMessage`,后者不含插件消息投影)、事件校验与快照(`validateSessionEventData`/`snapshotSessionEvent`/`adoptSessionEvent`);官方**不提供**提示词字符长度口径与提示词 Token 估算,也没有任何遥测/WakaTime 字段(已装包内检索 `wakatime`/`telemetry`/`ai_output_tokens` 零命中),故这两项恒为自实现;`user/message` 的 `source.kind` 可区分真人提示词与合成注入,但内置只有 `user` 一种 kind(其余 kind 由各插件声明合并),当前实现不区分,全部计入提示词字符总量
