@@ -12,6 +12,9 @@ import { DEFAULT_REPORT_INTERVAL_SECONDS } from './constants'
 /* 战绩显示策略:全部密钥战绩 / 当前密钥战绩 */
 export type StatsScope = 'all' | 'current'
 
+/* 数位分隔符:千位(每 3 位一组)/ 万位(每 4 位一组),两者都用英文逗号分隔 */
+export type DigitGrouping = 'thousand' | 'myriad'
+
 /* 配置项:用户可在 cordis.yml 的 config 中覆盖,schema 提供默认值 */
 export interface Config {
   /* 是否启用数据上报:关闭时心跳直接丢弃(总开关) */
@@ -33,6 +36,8 @@ export interface Config {
   tableBorders: boolean
   /* 战绩显示策略:全部密钥战绩(all)/ 当前密钥战绩(current) */
   statsScope: StatsScope
+  /* 数位分隔符:千位(thousand)/ 万位(myriad),纯展示项,不影响上报数据 */
+  digitGrouping: DigitGrouping
 }
 
 /* Schemastery 校验器:默认值写入 schema,无效配置在加载期响亮失败 */
@@ -46,4 +51,5 @@ export const Config: Schema<Config> = Schema.object({
   debug: Schema.boolean().default(false),
   tableBorders: Schema.boolean().default(true),
   statsScope: Schema.union([Schema.const('all'), Schema.const('current')]).default('all'),
+  digitGrouping: Schema.union([Schema.const('thousand'), Schema.const('myriad')]).default('thousand'),
 })

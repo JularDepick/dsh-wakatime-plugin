@@ -352,6 +352,15 @@
   width: 38%;
 }
 
+/* 详情列内容较长(本批心跳的类别与项目/分支,失败行还带原因):允许换行而不是用省略号截断 */
+.logsTable td[data-column='detail'] {
+  height: auto;
+  padding: 7px 8px;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- 表单字段(官方 settings-form fields 范式) ---------- */
 
 .field {

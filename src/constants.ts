@@ -76,6 +76,9 @@ export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 /* 上报记录日志保留条数(调试级,Web 展示) */
 export const REPORT_LOG_LIMIT = 50
 
+/* 数位分隔符的每组位数:千位 3 位一组,万位 4 位一组,统一插入英文逗号 */
+export const DIGIT_GROUP_SIZES = { thousand: 3, myriad: 4 } as const
+
 /* 心跳类别(对齐 WakaTime category 语义) */
 export const HEARTBEAT_CATEGORY_AI = 'ai coding'
 export const HEARTBEAT_CATEGORY_TOOL = 'debugging'

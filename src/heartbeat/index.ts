@@ -129,7 +129,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const batch = this.queue.splice(0, size)
     try {
       await this.deliver(batch.map((entry) => entry.heartbeat))
-      this.appendReport({ kind: 'batch', count: batch.length, ok: true })
+      this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
       /* 未配置 API Key:不丢失、不计尝试次数,整批放回队首保持顺序 */
@@ -148,7 +148,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
           this.queue.push({ ...entry, attempts })
         }
       }
-      this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message })
+      this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
       this.log('warn', `[wakatime] push failed (${terminal ? 'terminal' : 'retryable'}): ${message}`)
     } finally {
       this.compressIfNeeded()
@@ -236,7 +236,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     }
     this.failed.push(task)
     if (this.failed.length > FAILED_TASK_LIMIT) this.failed.splice(0, this.failed.length - FAILED_TASK_LIMIT)
-    this.appendReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id })
+    this.appendReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id, ...detailOf([entry]) })
   }
 
   /* 上报一批:单条走 heartbeats,多条走 bulk */
@@ -299,6 +299,31 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private log(level: 'info' | 'warn' | 'error', message: string): void {
     this.options.logger?.[level]?.(message)
   }
+}
+
+/* 上报记录详情:心跳类别计数与项目/分支(失败行的原因另记 error,由界面并列展示)。
+   内容只由心跳字段拼成,不含自然语言,故不随界面语言变化 */
+function describeHeartbeats(entries: readonly PendingHeartbeatEntry[]): string {
+  const counts = new Map<string, number>()
+  const projects = new Set<string>()
+  const branches = new Set<string>()
+  for (const { heartbeat } of entries) {
+    if (heartbeat.category !== undefined) counts.set(heartbeat.category, (counts.get(heartbeat.category) ?? 0) + 1)
+    if (heartbeat.project !== undefined && heartbeat.project !== '') projects.add(heartbeat.project)
+    if (heartbeat.branch !== undefined && heartbeat.branch !== '') branches.add(heartbeat.branch)
+  }
+  const parts = [...counts].map(([category, count]) => (count > 1 ? `${category} ×${count}` : category))
+  /* 项目与分支只有在本批完全一致时才写,混合批次只保留类别计数 */
+  const project = projects.size === 1 ? [...projects][0] : undefined
+  const branch = branches.size === 1 ? [...branches][0] : undefined
+  if (project !== undefined) parts.push(branch !== undefined ? `${project}@${branch}` : project)
+  return parts.join(' · ')
+}
+
+/* 详情字段的就绪形态:无内容时不写该字段(旧记录与空批次保持原样) */
+function detailOf(entries: readonly PendingHeartbeatEntry[]): { detail?: string } {
+  const detail = describeHeartbeats(entries)
+  return detail === '' ? {} : { detail }
 }
 
 /* 终态失败判定:认证/载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */
@@ -397,6 +422,7 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
       }
       if (state2 !== undefined) entry.state = state2
       if (typeof candidate.error === 'string') entry.error = candidate.error
+      if (typeof candidate.detail === 'string' && candidate.detail !== '') entry.detail = candidate.detail
       if (typeof candidate.taskId === 'string') entry.taskId = candidate.taskId
       state.report.push(entry)
     }

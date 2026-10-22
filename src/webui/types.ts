@@ -7,7 +7,7 @@
  */
 
 import type { StatsView } from '../bucket-store/resolve'
-import type { StatsScope } from '../config'
+import type { DigitGrouping, StatsScope } from '../config'
 
 /* 状态接口响应:认证状态 + 生效配置 + 按显示策略解析好的战绩视图 */
 export interface WebStatusResponse {
@@ -23,6 +23,7 @@ export interface WebStatusResponse {
     debug: boolean
     tableBorders: boolean
     statsScope: StatsScope
+    digitGrouping: DigitGrouping
   }
   /* 战绩视图(桶内已与云端取最大,跨桶按策略求和;渲染无需再合并) */
   stats: StatsView
@@ -38,6 +39,7 @@ export interface WebConfigPayload {
   debug?: boolean
   tableBorders?: boolean
   statsScope?: StatsScope
+  digitGrouping?: DigitGrouping
 }
 
 /* API Key 覆盖写入请求(仅覆盖,不提供查看) */
@@ -62,6 +64,8 @@ export interface WebLogEntry {
   /* 失败行状态机:failed 待处理,retried 已被用户重试过 */
   state?: 'failed' | 'retried'
   error?: string
+  /* 上报内容摘要(心跳类别计数与项目/分支) */
+  detail?: string
   /* 失败任务标识:前端据此渲染手动重试入口 */
   taskId?: string
   /* 失败任务对应的心跳对象与已尝试次数 */

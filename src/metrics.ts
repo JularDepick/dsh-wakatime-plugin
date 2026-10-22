@@ -16,6 +16,19 @@ export function formatThinkingDuration(millis: number): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(totalSeconds % 60)}`
 }
 
+/* 数位分隔:每 groupSize 位一组插入英文逗号(千位=3,万位=4);
+   非有限值按 0 处理,负号只留在最前(战绩数值恒为非负,负值仅为兜底) */
+export function groupDigits(value: number, groupSize: number): string {
+  const safe = Number.isFinite(value) ? Math.trunc(value) : 0
+  const digits = Math.abs(safe).toString()
+  const size = Math.max(1, Math.trunc(groupSize))
+  const groups: string[] = []
+  for (let end = digits.length; end > 0; end -= size) {
+    groups.unshift(digits.slice(Math.max(0, end - size), end))
+  }
+  return `${safe < 0 ? '-' : ''}${groups.join(',')}`
+}
+
 /* 平均输出速度:输出 TOKEN 总量 ÷ 思考总时长(秒)后向下取整,单位 token/s;
    思考时长为 0(或为负的异常值)时记 0,避免除零与无穷值 */
 export function averageOutputSpeed(outputTokens: number, thinkingMs: number): number {

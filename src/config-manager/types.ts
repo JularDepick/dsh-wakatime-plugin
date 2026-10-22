@@ -24,6 +24,8 @@ export interface StoredConfig {
     tableBorders?: boolean
     /* 战绩显示策略:all 全部密钥战绩 / current 当前密钥战绩 */
     statsScope?: 'all' | 'current'
+    /* 数位分隔符:thousand 千位一组 / myriad 万位一组(纯展示项) */
+    digitGrouping?: 'thousand' | 'myriad'
     /* Web 设置页可编辑项(经 /api/wakatime/config 写入,重启后合并恢复) */
     locale?: string
   }

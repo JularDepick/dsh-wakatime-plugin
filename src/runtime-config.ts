@@ -14,7 +14,7 @@ import type { ConfigManager, StoredConfig } from './config-manager'
 export type WebConfigPatch = Partial<Pick<
   Config,
   'enabled' | 'reportInterval' | 'reportEnabled'
-  | 'includeTokens' | 'includePrompts' | 'debug' | 'tableBorders' | 'statsScope'
+  | 'includeTokens' | 'includePrompts' | 'debug' | 'tableBorders' | 'statsScope' | 'digitGrouping'
 >>
 
 /* settings 块中与 Config 字段一致的持久化形态(可缺省,缺失表示未覆盖) */
@@ -72,6 +72,7 @@ export class RuntimeConfig {
       debug: this.current.debug,
       tableBorders: this.current.tableBorders,
       statsScope: this.current.statsScope,
+      digitGrouping: this.current.digitGrouping,
       /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
       locale: this.current.locale,
     }

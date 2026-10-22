@@ -67,6 +67,7 @@ const PATCH_FIELDS: Record<keyof WebConfigPatch, { type: 'boolean' | 'string' | 
   debug: { type: 'boolean' },
   tableBorders: { type: 'boolean' },
   statsScope: { type: 'string', values: ['all', 'current'] },
+  digitGrouping: { type: 'string', values: ['thousand', 'myriad'] },
 }
 
 /* 挂载 Web UI 路由;返回的清理函数随插件卸载调用 */
@@ -133,6 +134,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
       debug: config.debug,
       tableBorders: config.tableBorders,
       statsScope: config.statsScope,
+      digitGrouping: config.digitGrouping,
     },
     stats: resolveView(deps),
   }
@@ -212,6 +214,7 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
       ok: entry.ok,
       ...(entry.state !== undefined ? { state: entry.state } : {}),
       ...(entry.error !== undefined ? { error: entry.error } : {}),
+      ...(entry.detail !== undefined ? { detail: entry.detail } : {}),
       ...(entry.taskId !== undefined ? { taskId: entry.taskId } : {}),
       ...(task !== undefined ? { entity: task.heartbeat.entity, attempts: task.attempts } : {}),
     }

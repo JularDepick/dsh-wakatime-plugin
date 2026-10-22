@@ -74,6 +74,9 @@ export type WakatimeKey =
   | 'config.statsScope'
   | 'config.statsScopeAll'
   | 'config.statsScopeCurrent'
+  | 'config.digitGrouping'
+  | 'config.digitGroupingThousand'
+  | 'config.digitGroupingMyriad'
   | 'buckets.title'
   | 'buckets.hint'
   | 'buckets.empty'
@@ -125,7 +128,7 @@ export const zh: WakatimeDict = {
   'stats.noteApiEffective': '输入输出总量,缓存命中不计入',
   'stats.noteAvgOutputSpeed': 'TOKEN输出速度',
   'stats.cacheHitTokens': '缓存命中TOKEN总量',
-  'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN,官方无对应字段',
+  'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN',
   'stats.scope': '战绩显示策略',
   'stats.scopeAll': '全部密钥战绩',
   'stats.scopeCurrent': '当前密钥战绩',
@@ -163,6 +166,9 @@ export const zh: WakatimeDict = {
   'config.statsScope': '战绩显示策略',
   'config.statsScopeAll': '全部密钥战绩',
   'config.statsScopeCurrent': '当前密钥战绩',
+  'config.digitGrouping': '数位分隔符',
+  'config.digitGroupingThousand': '千位',
+  'config.digitGroupingMyriad': '万位',
   'buckets.title': 'API Key 缓存',
   'buckets.hint': '每个 API Key 各自一份本地缓存(战绩累计、云端快照与待发送心跳);30 天未登录的缓存可手动移除',
   'buckets.empty': '暂无 API Key 缓存',
@@ -213,7 +219,7 @@ export const en: WakatimeDict = {
   'stats.noteApiEffective': 'Input and output total; cache hits excluded',
   'stats.noteAvgOutputSpeed': 'TOKEN output speed',
   'stats.cacheHitTokens': 'Cache hit TOKEN total',
-  'stats.noteCacheHitTokens': 'Input TOKENs served from the prompt cache; no official field exists',
+  'stats.noteCacheHitTokens': 'Input TOKENs served from the prompt cache',
   'stats.scope': 'Stats display scope',
   'stats.scopeAll': 'All API keys',
   'stats.scopeCurrent': 'Current API key',
@@ -251,6 +257,9 @@ export const en: WakatimeDict = {
   'config.statsScope': 'Stats display scope',
   'config.statsScopeAll': 'All API keys',
   'config.statsScopeCurrent': 'Current API key',
+  'config.digitGrouping': 'Digit grouping',
+  'config.digitGroupingThousand': 'Thousands',
+  'config.digitGroupingMyriad': 'Ten thousands',
   'buckets.title': 'API key caches',
   'buckets.hint': 'Each API key keeps its own local cache (stats totals, cloud snapshot, pending heartbeats); caches unused for 30 days can be removed manually',
   'buckets.empty': 'No API key cache yet',

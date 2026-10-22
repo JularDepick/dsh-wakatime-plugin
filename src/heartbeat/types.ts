@@ -67,6 +67,8 @@ export interface ReportEntry {
   /* 失败行状态机:failed 待用户处理,retried 已被用户手动重试过 */
   state?: 'failed' | 'retried'
   error?: string
+  /* 上报内容摘要(心跳类别计数与项目/分支):详情列在失败原因之后展示 */
+  detail?: string
   /* 失败行对应的失败任务 id(仅 task 行,供前端渲染重试入口) */
   taskId?: string
 }

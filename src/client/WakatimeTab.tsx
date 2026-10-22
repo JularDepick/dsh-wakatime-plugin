@@ -19,7 +19,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
+import { DIGIT_GROUP_SIZES } from '../constants'
+import type { DigitGrouping } from '../config'
+import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
 import type { WebBucketEntry, WebBucketRemoveResponse, WebBucketsResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
@@ -38,6 +40,8 @@ interface ConfigDraft {
   debug: boolean
   tableBorders: boolean
   statsScope: 'all' | 'current'
+  /* 数位分隔符:千位(3 位一组)/ 万位(4 位一组),纯展示项 */
+  digitGrouping: DigitGrouping
 }
 
 /** 保存结果提示 */
@@ -451,6 +455,8 @@ function WakatimePanels(props: PanelsProps) {
   /* 战绩视图由服务端按显示策略解析:桶内已与云端取最大,跨桶按策略求和 */
   const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
   const bordered = draft.tableBorders ? 'true' : 'false'
+  /* 数值展示的每组位数:千位 3 位、万位 4 位(两者都用英文逗号分隔) */
+  const groupSize = DIGIT_GROUP_SIZES[draft.digitGrouping]
   const cloudMeta = view.cloud
     ? `${t('cloud.syncedAt')}: ${formatTime(view.cloud.syncedAt)}`
     : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))
@@ -461,11 +467,13 @@ function WakatimePanels(props: PanelsProps) {
     return entry.state === 'retried' ? t('logs.retried') : t('logs.failed')
   }
 
-  /* 上报记录详情:失败原因(稳定标识映射)与失败任务的心跳对象 */
+  /* 上报记录详情:失败原因(稳定标识映射)与本次上报内容摘要(类别计数与项目/分支);
+     旧版记录没有摘要时回退为心跳对象 */
   const logDetail = (entry: WebLogEntry): string => {
     const reason = describeLogError(entry.error)
-    if (entry.entity === undefined) return reason
-    return reason === '' ? entry.entity : `${reason} · ${entry.entity}`
+    const content = entry.detail ?? entry.entity ?? ''
+    if (reason === '') return content
+    return content === '' ? reason : `${reason} · ${content}`
   }
 
   /* 视图切换按钮:主视图与配置视图共用(靠右,主视图左侧留给只读账号状态) */
@@ -604,6 +612,15 @@ function WakatimePanels(props: PanelsProps) {
             ]}
             onChange={(value) => { onPatch('statsScope', value === 'current' ? 'current' : 'all') }}
           />
+          <SegmentedField
+            label={t('config.digitGrouping')}
+            value={draft.digitGrouping}
+            options={[
+              { value: 'thousand', label: t('config.digitGroupingThousand') },
+              { value: 'myriad', label: t('config.digitGroupingMyriad') },
+            ]}
+            onChange={(value) => { onPatch('digitGrouping', value === 'myriad' ? 'myriad' : 'thousand') }}
+          />
           <p className={css.muted}>{t('config.instantHint')}</p>
         </section>
 
@@ -653,7 +670,7 @@ function WakatimePanels(props: PanelsProps) {
                           </tr>
                         </thead>
                         <tbody>
-                          <MetricRows t={t} view={entry.stats} />
+                          <MetricRows t={t} view={entry.stats} groupSize={groupSize} />
                         </tbody>
                       </table>
                     </div>
@@ -701,7 +718,7 @@ function WakatimePanels(props: PanelsProps) {
             </tr>
           </thead>
           <tbody>
-            <MetricRows t={t} view={view} />
+            <MetricRows t={t} view={view} groupSize={groupSize} />
           </tbody>
         </table>
       </section>
@@ -745,9 +762,9 @@ function WakatimePanels(props: PanelsProps) {
                       {[...logs].reverse().map((entry) => (
                         <tr key={entry.id}>
                           <td>{formatTime(entry.time)}</td>
-                          <td>{entry.count} {t('logs.count')}</td>
+                          <td>{groupDigits(entry.count, groupSize)} {t('logs.count')}</td>
                           <td className={entry.ok ? css.ok : css.error}>{logStateText(entry)}</td>
-                          <td className={css.muted}>{logDetail(entry)}</td>
+                          <td className={css.muted} data-column="detail">{logDetail(entry)}</td>
                           <td>
                             {entry.state === 'failed' && entry.taskId !== undefined ? (
                               <button
@@ -773,8 +790,13 @@ function WakatimePanels(props: PanelsProps) {
   )
 }
 
-/* 战绩指标行:主战绩表与各 Key 缓存明细表共用同一口径与格式化(见 src/metrics.ts) */
-function MetricRows({ t, view }: { t: PanelsProps['t'], view: WebStatusResponse['stats'] }) {
+/* 战绩指标行:主战绩表与各 Key 缓存明细表共用同一口径与格式化(见 src/metrics.ts);
+   数位分隔符由配置项决定(千位 3 位一组 / 万位 4 位一组),数值列与备注一起生效 */
+function MetricRows({ t, view, groupSize }: {
+  t: PanelsProps['t']
+  view: WebStatusResponse['stats']
+  groupSize: number
+}) {
   const aggregate = view.aggregate
   /* 平均输出速度:输出 TOKEN 总量 ÷ 思考总时长(秒)后向下取整 */
   const avgOutputSpeed = averageOutputSpeed(aggregate.outputTokens, aggregate.thinkingMs)
@@ -782,8 +804,8 @@ function MetricRows({ t, view }: { t: PanelsProps['t'], view: WebStatusResponse[
     <>
       <tr>
         <td data-column="metric">{t('stats.promptChars')}</td>
-        <td data-column="value">{aggregate.promptChars.toLocaleString()}</td>
-        <td data-column="note">{t('stats.promptEstimate').replace('{n}', aggregate.promptTokens.toLocaleString())}</td>
+        <td data-column="value">{groupDigits(aggregate.promptChars, groupSize)}</td>
+        <td data-column="note">{t('stats.promptEstimate').replace('{n}', groupDigits(aggregate.promptTokens, groupSize))}</td>
       </tr>
       <tr>
         <td data-column="metric">{t('stats.thinking')}</td>
@@ -792,22 +814,22 @@ function MetricRows({ t, view }: { t: PanelsProps['t'], view: WebStatusResponse[
       </tr>
       <tr>
         <td data-column="metric">{t('stats.outputTokens')}</td>
-        <td data-column="value">{aggregate.outputTokens.toLocaleString()}</td>
+        <td data-column="value">{groupDigits(aggregate.outputTokens, groupSize)}</td>
         <td data-column="note">{t('stats.noteOutput')}</td>
       </tr>
       <tr>
         <td data-column="metric">{t('stats.apiEffective')}</td>
-        <td data-column="value">{effectiveTokens(aggregate).toLocaleString()}</td>
+        <td data-column="value">{groupDigits(effectiveTokens(aggregate), groupSize)}</td>
         <td data-column="note">{t('stats.noteApiEffective')}</td>
       </tr>
       <tr>
         <td data-column="metric">{t('stats.cacheHitTokens')}</td>
-        <td data-column="value">{aggregate.cacheReadTokens.toLocaleString()}</td>
+        <td data-column="value">{groupDigits(aggregate.cacheReadTokens, groupSize)}</td>
         <td data-column="note">{t('stats.noteCacheHitTokens')}</td>
       </tr>
       <tr>
         <td data-column="metric">{t('stats.avgOutputSpeed')}</td>
-        <td data-column="value">{`${avgOutputSpeed.toLocaleString()} token/s`}</td>
+        <td data-column="value">{`${groupDigits(avgOutputSpeed, groupSize)} token/s`}</td>
         <td data-column="note">{t('stats.noteAvgOutputSpeed')}</td>
       </tr>
     </>
@@ -898,6 +920,7 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
     debug: config.debug,
     tableBorders: config.tableBorders,
     statsScope: config.statsScope,
+    digitGrouping: config.digitGrouping,
   }
 }
 

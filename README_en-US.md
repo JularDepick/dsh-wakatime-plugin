@@ -21,11 +21,11 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Automatically track, quantify, and report AI Agent work data in DSH to WakaTime
 - API key authentication: one WakaTime API key, guarded by a local mini-backend, never exposed to the frontend
 - Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
-- Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it
+- Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
 - Per-account data isolation: every API key keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching keys never credits one account's data to another; data collected while no key is configured is claimed by the first key configured afterwards, and no account's data is ever cleaned up automatically; the "API key caches" section in the config view shows each key's own stats and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
 - Stats display scope: switch between "all API keys" and "current API key" in the config view (the former is the default)
 - Token statistics: precisely record the input/output Token count of each Agent call
-- Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders
+- Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders, and numbers can be grouped by thousands or ten thousands
 - Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the API key, reporting options, and interface switches in one place; changes apply immediately, with no save button
 - Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
@@ -103,6 +103,7 @@ Plugin configuration is provided through the DSH `cordis.yml`:
     debug: false           # Debug logging switch
     tableBorders: true     # Whether the stats table shows cell borders (display only)
     statsScope: all        # Stats display scope: all = every API key, current = current API key
+    digitGrouping: thousand # Digit grouping: thousand (groups of 3) or myriad (groups of 4); display only
 ```
 
 Environment variables:

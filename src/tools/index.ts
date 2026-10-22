@@ -30,7 +30,7 @@ export interface WakatimeToolsOptions {
 /* 配置工具可写的键(白名单,与 WebConfigPatch 对齐,不含凭证) */
 const CONFIG_KEYS = [
   'enabled', 'locale', 'reportInterval', 'reportEnabled',
-  'includeTokens', 'includePrompts', 'debug', 'tableBorders', 'statsScope',
+  'includeTokens', 'includePrompts', 'debug', 'tableBorders', 'statsScope', 'digitGrouping',
 ] as const
 
 /* 配置键类型约束 */
@@ -44,11 +44,13 @@ const KEY_TYPES: Record<(typeof CONFIG_KEYS)[number], 'boolean' | 'string' | 'nu
   debug: 'boolean',
   tableBorders: 'boolean',
   statsScope: 'string',
+  digitGrouping: 'string',
 }
 
 /* 枚举型配置键的合法取值 */
 const KEY_VALUES: Partial<Record<(typeof CONFIG_KEYS)[number], readonly string[]>> = {
   statsScope: ['all', 'current'],
+  digitGrouping: ['thousand', 'myriad'],
 }
 
 export class WakatimeTools {
@@ -167,6 +169,7 @@ export class WakatimeTools {
       `debug=${config.debug}`,
       `tableBorders=${config.tableBorders}`,
       `statsScope=${config.statsScope}`,
+      `digitGrouping=${config.digitGrouping}`,
       `apiKey=${status.configured ? '(configured)' : '(not configured)'}`,
     ]
     return lines.join('\n')
