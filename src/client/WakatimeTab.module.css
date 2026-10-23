@@ -20,11 +20,11 @@
 .tab {
   box-sizing: border-box;
   width: 100%;
-  /* 左右内边距:按设计要求固定 60px(可按需调整的设计细节),不再取宿主留白变量 */
+  /* 左右留白上限:宽窗口下保持 60px(可按需调整的设计细节) */
   --wakatime-tab-inline-padding: 60px;
   /* 表格字号放大倍数(单一旋钮):相对官方表格字设整体放大,行高同比 */
   --wakatime-table-font-scale: 1.5;
-  padding: 12px var(--wakatime-tab-inline-padding) 24px;
+  padding: 12px 0 24px;
   color: var(--dsw-alias-label-primary);
   font: var(--dsw-font-s-14);
 }
@@ -37,6 +37,17 @@
   min-width: 0;
   container-type: inline-size;
   container-name: wakatime-tab;
+}
+
+/* 左右留白随内容列宽度收缩:宽窗口封顶 60px,窄窗口按 6cqi 递减但不小于 12px,
+   避免固定 60px 在窄对话区域里吃掉可用宽度(cqi 相对上面的查询容器取值);
+   留白放在内容包裹层上,分区之间的 0.5px 分隔线才不会被铺到 tab 两侧 */
+.content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding-inline: clamp(12px, 6cqi, var(--wakatime-tab-inline-padding));
 }
 
 /* ---------- 顶部工具条(左侧只读账号状态,右侧配置视图切换入口) ---------- */
@@ -336,20 +347,30 @@
   table-layout: fixed;
 }
 
+/* 五列:时间 / 条数 / 结果 / 详情 / 操作,百分比合计 100 */
 .logsTable col:nth-child(1) {
-  width: 34%;
+  width: 26%;
 }
 
 .logsTable col:nth-child(2) {
-  width: 14%;
+  width: 12%;
 }
 
 .logsTable col:nth-child(3) {
-  width: 14%;
+  width: 12%;
 }
 
 .logsTable col:nth-child(4) {
-  width: 38%;
+  width: 40%;
+}
+
+/* 操作列必须留出按钮宽度:固定表格布局下缺省宽度的列会被压成 0,重试按钮被裁掉 */
+.logsTable col:nth-child(5) {
+  width: 10%;
+}
+
+.logsTable td[data-column='action'] {
+  padding: 0 6px;
 }
 
 /* 详情列内容较长(本批心跳的类别与项目/分支,失败行还带原因):允许换行而不是用省略号截断 */
@@ -740,19 +761,23 @@
   }
 
   .logsTable col:nth-child(1) {
-    width: 30%;
+    width: 24%;
   }
 
   .logsTable col:nth-child(2) {
-    width: 16%;
+    width: 11%;
   }
 
   .logsTable col:nth-child(3) {
-    width: 16%;
+    width: 11%;
   }
 
   .logsTable col:nth-child(4) {
-    width: 38%;
+    width: 42%;
+  }
+
+  .logsTable col:nth-child(5) {
+    width: 12%;
   }
 
   /* 指标名与上报详情改为换行:窄宽度下宁可占两行,也不截断成无意义片段 */
@@ -782,6 +807,27 @@
 
   .statsTable col:nth-child(3) {
     width: 30%;
+  }
+
+  /* 极窄宽度下把时间列让给详情与操作列,避免重试按钮被压掉 */
+  .logsTable col:nth-child(1) {
+    width: 22%;
+  }
+
+  .logsTable col:nth-child(2) {
+    width: 10%;
+  }
+
+  .logsTable col:nth-child(3) {
+    width: 10%;
+  }
+
+  .logsTable col:nth-child(4) {
+    width: 44%;
+  }
+
+  .logsTable col:nth-child(5) {
+    width: 14%;
   }
 
   /* 数值列在极窄宽度下也允许换行,避免「平均输出速度」的单位被省略号截断 */

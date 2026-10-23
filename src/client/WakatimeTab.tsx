@@ -354,45 +354,47 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   return (
     <div className={css.tab}>
       <div className={css.column}>
-        {loadError !== undefined && data === null ? (
-          <p className={css.error} role="status">
-            {t('state.loadFailed')}:{loadError}
-          </p>
-        ) : null}
+        <div className={css.content}>
+          {loadError !== undefined && data === null ? (
+            <p className={css.error} role="status">
+              {t('state.loadFailed')}:{loadError}
+            </p>
+          ) : null}
 
-        {data === null || draft === null ? (
-          loadError === undefined ? <p className={css.muted}>{t('state.loading')}</p> : null
-        ) : (
-          <WakatimePanels
-            t={t}
-            data={data}
-            draft={draft}
-            logs={logs}
-            logsOpen={logsOpen}
-            cloudState={cloudState}
-            buckets={buckets}
-            bucketsOpen={bucketsOpen}
-            bucketConfirm={bucketConfirm}
-            apiKeyInput={apiKeyInput}
-            keySaving={keySaving}
-            clearConfirm={clearConfirm}
-            configOpen={configOpen}
-            configToggleRef={configToggleRef}
-            describeLogError={describeLogError}
-            onToggleLogs={() => { setLogsOpen(!logsOpen) }}
-            onToggleConfig={() => { setConfigOpen(!configOpen) }}
-            onRefresh={() => { setTick((value) => value + 1) }}
-            onSync={() => { syncCloud(true) }}
-            onRetry={retryLog}
-            onBucketsToggle={toggleBuckets}
-            onRemoveBucket={removeBucket}
-            onClearApiKey={clearApiKey}
-            onApiKeyInput={setApiKeyInput}
-            onSaveApiKey={saveApiKey}
-            onPatch={patch}
-            onDraft={draftOnly}
-          />
-        )}
+          {data === null || draft === null ? (
+            loadError === undefined ? <p className={css.muted}>{t('state.loading')}</p> : null
+          ) : (
+            <WakatimePanels
+              t={t}
+              data={data}
+              draft={draft}
+              logs={logs}
+              logsOpen={logsOpen}
+              cloudState={cloudState}
+              buckets={buckets}
+              bucketsOpen={bucketsOpen}
+              bucketConfirm={bucketConfirm}
+              apiKeyInput={apiKeyInput}
+              keySaving={keySaving}
+              clearConfirm={clearConfirm}
+              configOpen={configOpen}
+              configToggleRef={configToggleRef}
+              describeLogError={describeLogError}
+              onToggleLogs={() => { setLogsOpen(!logsOpen) }}
+              onToggleConfig={() => { setConfigOpen(!configOpen) }}
+              onRefresh={() => { setTick((value) => value + 1) }}
+              onSync={() => { syncCloud(true) }}
+              onRetry={retryLog}
+              onBucketsToggle={toggleBuckets}
+              onRemoveBucket={removeBucket}
+              onClearApiKey={clearApiKey}
+              onApiKeyInput={setApiKeyInput}
+              onSaveApiKey={saveApiKey}
+              onPatch={patch}
+              onDraft={draftOnly}
+            />
+          )}
+        </div>
       </div>
 
       {notice ? (
@@ -765,7 +767,7 @@ function WakatimePanels(props: PanelsProps) {
                           <td>{groupDigits(entry.count, groupSize)} {t('logs.count')}</td>
                           <td className={entry.ok ? css.ok : css.error}>{logStateText(entry)}</td>
                           <td className={css.muted} data-column="detail">{logDetail(entry)}</td>
-                          <td>
+                          <td data-column="action">
                             {entry.state === 'failed' && entry.taskId !== undefined ? (
                               <button
                                 type="button"
