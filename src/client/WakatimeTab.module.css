@@ -43,6 +43,7 @@
    避免固定 60px 在窄对话区域里吃掉可用宽度(cqi 相对上面的查询容器取值);
    留白放在内容包裹层上,分区之间的 0.5px 分隔线才不会被铺到 tab 两侧 */
 .content {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -425,7 +426,9 @@
   border-color: var(--dsw-alias-state-business-primary);
 }
 
-/* 档位切换条(滑块式二选一):轨道等分若干档,滑块按档位索引平移 */
+/* 档位切换条(滑块式二选一):轨道等分若干档,滑块按档位索引平移
+   轨道与滑块必须取在两套主题下都为实心的令牌: 浅色主题 bg-layer-1/2/3 全等于 #fff,
+   两者同用 layer 令牌会让滑块与轨道同色而完全看不见, 只剩文字变色 */
 .segmented {
   position: relative;
   display: grid;
@@ -434,19 +437,21 @@
   padding: 2px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-3);
+  background: var(--dsw-alias-interactive-bg-hover-solid);
 }
 
 .segmentKnob {
+  box-sizing: border-box;
   position: absolute;
   top: 2px;
   bottom: 2px;
   left: 2px;
   width: calc((100% - 4px) / var(--segment-count, 2));
   transform: translateX(calc(var(--segment-index, 0) * 100%));
+  border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-bg-layer-1);
-  box-shadow: var(--dsw-shadow-lv1);
+  background: var(--dsw-alias-button-elevated-fill);
+  box-shadow: var(--dsw-shadow-lv2);
   transition: transform 160ms ease;
 }
 
