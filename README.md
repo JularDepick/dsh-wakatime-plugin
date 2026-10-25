@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.2.2-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.2.2)
+[![Version](https://img.shields.io/badge/Version-0.3.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.3.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
@@ -43,7 +43,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # 或使用发布 tarball 本地安装(预构建产物,无需构建)
-dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.2.tgz
+dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 ```
 
 > 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本;pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败: 把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
@@ -58,8 +58,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.2.tgz
 
 ## 兼容性
 
-- dsh 版本: 支持实测过的 0.2.0-rc.2, 0.2.1-rc.1 与 0.2.1-rc.2,共用同一份产物,无需按版本分别安装.
-- 安装校验: 包清单以 `engines.dsh` 与宿主包对等依赖声明精确的实测版本列表;若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本尚未实测,不在支持列表内.
+- dsh 版本: 支持实测过的 0.2.1-rc.1 至 0.2.1-rc.3(含 0.2.1-rc.2),共用同一份产物,无需按版本分别安装.
+- 安装校验: 包清单以 `engines.dsh` 与宿主包对等依赖声明实测版本区间 `>=0.2.1-rc.1 <=0.2.1-rc.3`;若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本尚未实测,不在区间内.
 - 后续版本: dsh 0.3.x 起需要使用对应更新的插件产物.
 - 从 v0.2.0 升级: 配置与 API Key 延续使用;旧版的 `stats.json` 与 `heartbeats.json` 在首次启动时自动并入当前 API Key 的数据桶,原文件保留但不再写入;新增配置项都有默认值(`tableBorders` 默认开启,`statsScope` 默认 `all`),旧 `cordis.yml` 无需改动.
 

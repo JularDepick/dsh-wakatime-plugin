@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.2.2-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.2.2)
+[![Version](https://img.shields.io/badge/Version-0.3.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.3.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
@@ -43,7 +43,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # Or install from the released tarball locally (prebuilt, no build required)
-dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.2.tgz
+dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 ```
 
 > Installing from the GitHub source fetches source code rather than build artifacts, and pnpm runs the package's `prepare` build script on install. pnpm 10+ refuses to run git dependencies' build scripts until explicitly allowed, so the first `add` will fail: add the package key printed by pnpm (like `dsh-wakatime-plugin`) to that profile's `pnpm-workspace.yaml`, then re-run:
@@ -58,8 +58,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.2.2.tgz
 
 ## Compatibility
 
-- dsh versions: supports the tested 0.2.0-rc.2, 0.2.1-rc.1 and 0.2.1-rc.2; all share one artifact, so no per-version install is needed.
-- Install check: the manifest declares an exact list of tested versions in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the list.
+- dsh versions: supports the tested 0.2.1-rc.1 through 0.2.1-rc.3 (including 0.2.1-rc.2); all share one artifact, so no per-version install is needed.
+- Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.1-rc.3` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
 - Later versions: dsh 0.3.x requires a matching newer plugin artifact.
 - Upgrading from v0.2.0: configuration and API keys carry over; the old `stats.json` and `heartbeats.json` are merged into the current API key's data bucket on first start and are kept on disk but no longer written; new config fields have defaults (`tableBorders` on, `statsScope` `all`), so an existing `cordis.yml` needs no change.
 
