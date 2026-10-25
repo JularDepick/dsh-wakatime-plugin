@@ -64,17 +64,18 @@ export class WakatimeTools {
   register(ctx: Context): void {
     ctx.tools.register(defineTool({
       name: 'wakatime_config',
-      description: 'Read or update WakaTime plugin configuration. The API key can be overwritten but never read back.',
+      description: 'Read or update WakaTime plugin configuration. The API key or OAuth access token can be overwritten but never read back.',
       parameters: {
         op: {
           type: 'string',
-          enum: ['get', 'set', 'set_apikey'],
-          description: 'get: read config; set: update one config key; set_apikey: overwrite the API key',
+          enum: ['get', 'set', 'set_apikey', 'set_token'],
+          description: 'get: read config; set: update one config key; set_apikey: overwrite the API key; set_token: overwrite the OAuth access token',
           required: true,
         },
         key: { type: 'string', description: 'Config key for op=set' },
         value: { type: 'json', description: 'Config value for op=set' },
         apiKey: { type: 'string', description: 'New API key for op=set_apikey (overwrite only)' },
+        token: { type: 'string', description: 'New OAuth access token for op=set_token (overwrite only)' },
       },
       output: {
         schema: { type: 'string' },
@@ -84,20 +85,20 @@ export class WakatimeTools {
     }))
     ctx.tools.register(defineTool({
       name: 'wakatime_logout',
-      description: 'Clear the locally stored WakaTime API key.',
+      description: 'Clear the locally stored WakaTime credentials (API key and OAuth access token).',
       parameters: {},
       output: {
         schema: { type: 'string' },
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
-        await this.options.auth.clearApiKey()
+        await this.options.auth.clearCredential()
         return translate('apikey.cleared')
       },
     }))
     ctx.tools.register(defineTool({
       name: 'wakatime_status',
-      description: 'Show the current WakaTime API key configuration status.',
+      description: 'Show the current WakaTime credential configuration status.',
       parameters: {},
       output: {
         schema: { type: 'string' },
@@ -122,7 +123,8 @@ export class WakatimeTools {
       },
       execute: async () => {
         try {
-          await this.options.auth.getApiKey()
+          /* 任一凭证已配置即可查看战绩(令牌单独配置时同样成立) */
+          if ((await this.options.auth.getCredentialSecret()) === null) return translate('status.notConfigured')
         } catch (error) {
           if (error instanceof NotAuthenticatedError) return translate('status.notConfigured')
           throw error
@@ -152,6 +154,7 @@ export class WakatimeTools {
     if (op === 'get') return this.describeConfig()
     if (op === 'set') return this.setConfig(args)
     if (op === 'set_apikey') return this.setApiKey(String(args.apiKey ?? ''))
+    if (op === 'set_token') return this.setToken(String(args.token ?? ''))
     return `${translate('config.writeError')}: ${translate('config.unknownOp')}`
   }
 
@@ -170,7 +173,8 @@ export class WakatimeTools {
       `tableBorders=${config.tableBorders}`,
       `statsScope=${config.statsScope}`,
       `digitGrouping=${config.digitGrouping}`,
-      `apiKey=${status.configured ? '(configured)' : '(not configured)'}`,
+      `apiKey=${status.apiKeyConfigured ? '(configured)' : '(not configured)'}`,
+      `oauthToken=${status.oauthConfigured ? '(configured)' : '(not configured)'}`,
     ]
     return lines.join('\n')
   }
@@ -192,6 +196,19 @@ export class WakatimeTools {
     }
     await this.options.runtimeConfig.update({ [key]: value } as never)
     return `${key}=${String(value)}`
+  }
+
+  /* set_token:覆盖写入 OAuth 访问令牌(Agent 可代替用户配置,仅覆盖不可查看) */
+  private async setToken(token: string): Promise<string> {
+    if (!token.trim()) return translate('config.invalidValue') + ': token'
+    try {
+      const profile = await this.options.auth.setOauthToken(token)
+      return profile.username
+        ? translate('apikey.setOk') + ': ' + profile.username
+        : translate('apikey.setOk')
+    } catch {
+      return translate('token.invalid')
+    }
   }
 
   /* set_apikey:覆盖写入 API Key(Agent 可代替用户配置,仅覆盖不可查看) */

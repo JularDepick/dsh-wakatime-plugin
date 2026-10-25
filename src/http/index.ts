@@ -37,7 +37,7 @@ export class FetchHttpClient implements HttpClient {
       /* WakaTime 从 User-Agent 解析 Editor 与 OS(缺失时报表显示 Unknown) */
       'User-Agent': userAgent(),
     }
-    if (options.basicAuth) headers.Authorization = `Basic ${options.basicAuth}`
+    if (options.auth) headers.Authorization = options.auth.scheme + ' ' + options.auth.value
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
     const init: RequestInit = { method, headers }
@@ -103,4 +103,4 @@ export class FetchHttpClient implements HttpClient {
 }
 
 export { WakaTimeError } from './types'
-export type { HttpClient, RequestOptions } from './types'
+export type { AuthHeader, HttpClient, RequestOptions } from './types'

@@ -2,19 +2,18 @@
  * 云端同步模块
  * 作者: JularDepick
  *
- * 已配置 API Key 时,拉取 WakaTime summaries 的 AI 聚合字段
+ * 已配置凭证时(读取面首选 OAuth 令牌),拉取 WakaTime summaries 的 AI 聚合字段
  * (最近 CLOUD_SUMMARY_RANGE),供前端战绩区同步展示云端最新数据;
  * 未配置 Key、网络异常或云端返回异常时静默返回 null,不阻塞插件。
  * 仅做读取式同步,不修改云端数据。
  * 结果在进程内缓存 SYNC_CACHE_TTL_MS:窗口内复用(切换标签页、刷新页面不重复请求云端),
- * 缓存与 API Key 绑定(换 Key 或清除 Key 后自动失效),force 选项用于手动刷新。
+ * 缓存与凭证绑定(换凭证或清除凭证后自动失效),force 选项用于手动刷新。
  */
 
 import { CLOUD_SUMMARY_RANGE, SUMMARIES_PATH, SYNC_CACHE_TTL_MS } from '../constants'
-import { NotAuthenticatedError } from '../errors'
 import type { AuthManager } from '../auth'
+import type { ResolvedCredential } from '../auth/types'
 import type { HttpClient } from '../http'
-import { basicAuthOf } from '../auth'
 
 /* 云端 AI 聚合结果(summaries grand_total 的 AI 字段,7 天窗口) */
 export interface CloudSummary {
@@ -51,9 +50,9 @@ export interface SyncOptions {
   force?: boolean
 }
 
-/* 进程内缓存条目:与产生它的 API Key 绑定,避免换账号后串用旧数据 */
+/* 进程内缓存条目:与产生它的凭证绑定,避免换账号后串用旧数据 */
 interface SyncCacheEntry {
-  apiKey: string
+  secret: string
   summary: CloudSummary
 }
 
@@ -67,18 +66,20 @@ export class CloudSync {
 
   /* 拉取云端 AI 聚合;缓存窗口内直接复用;任何失败(未配置/网络/解析)均返回 null */
   async sync(options: SyncOptions = {}): Promise<CloudSummary | null> {
-    let apiKey: string
+    let credential: ResolvedCredential
+    let secret: string
     try {
-      apiKey = await this.auth.getApiKey()
-    } catch (error) {
-      /* 未配置 Key 与网络/云端异常同等待遇:静默失败 */
-      if (error instanceof NotAuthenticatedError) return null
+      credential = await this.auth.getCredential('other_use')
+      secret = (await this.auth.getCredentialSecret()) ?? ''
+    } catch {
+      /* 未配置凭证:与网络/云端异常同等待遇,静默失败 */
       return null
     }
+    if (!secret) return null
     const cached = this.cache
     if (
       cached !== undefined
-      && cached.apiKey === apiKey
+      && cached.secret === secret
       && options.force !== true
       && Date.now() - cached.summary.syncedAt < SYNC_CACHE_TTL_MS
     ) {
@@ -87,7 +88,7 @@ export class CloudSync {
     try {
       const data = await this.http.request<SummariesResponse>(
         `${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`,
-        { method: 'GET', basicAuth: basicAuthOf(apiKey), noRetry: true },
+        { method: 'GET', auth: credential.header, noRetry: true },
       )
       const totals = data?.data ?? []
       const sum = (pick: (grand: GrandTotal) => number | null | undefined): number =>
@@ -100,7 +101,7 @@ export class CloudSync {
         sessions: sum((g) => g.ai_sessions),
         promptEvents: sum((g) => g.ai_prompt_events_total),
       }
-      this.cache = { apiKey, summary }
+      this.cache = { secret, summary }
       return summary
     } catch {
       /* 网络/云端异常:保留既有缓存供窗口内继续展示,本次返回失败 */

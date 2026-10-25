@@ -53,6 +53,7 @@ interface Notice {
 const STATUS_PATH = '/api/wakatime/status'
 const CONFIG_PATH = '/api/wakatime/config'
 const APIKEY_PATH = '/api/wakatime/apikey'
+const TOKEN_PATH = '/api/wakatime/token'
 const LOGS_PATH = '/api/wakatime/logs'
 const SYNC_PATH = '/api/wakatime/sync'
 const APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
@@ -98,7 +99,10 @@ const CONFIG_PANEL_ID = 'wakatime-config-panel'
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
   const [draft, setDraft] = useState<ConfigDraft | null>(null)
+  /* 输入框内容(插件密钥或 OAuth 访问令牌,随所选凭证类型变化) */
   const [apiKeyInput, setApiKeyInput] = useState('')
+  /* 正在配置的凭证类型:插件密钥走 API Key 路由, OAuth 令牌走令牌路由 */
+  const [credKind, setCredKind] = useState<'api_key' | 'oauth'>('api_key')
   const [logs, setLogs] = useState<readonly WebLogEntry[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
   const [loadError, setLoadError] = useState<string>()
@@ -154,7 +158,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     return () => { window.removeEventListener('keydown', onKeyDown, true) }
   }, [configOpen])
 
-  /* 清除本地 API Key(回退未登录)并刷新状态 */
+  /* 清除本地全部凭证(回退未登录)并刷新状态 */
   const clearApiKey = (): void => {
     if (!clearConfirm) {
       setClearConfirm(true)
@@ -321,17 +325,18 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
   }
 
-  /* API Key 覆盖写入:小后端先验证,失败不保存并回报;成功后清空输入框,
-     状态行经刷新展示「登录成功, 当前账号:xxx」(不弹成功飘窗) */
-  const saveApiKey = (): void => {
-    const key = apiKeyInput.trim()
-    if (!key) return
+  /* 凭证覆盖写入:按所选凭证类型投递到对应路由,小后端先验证,失败不保存并回报;
+     成功后清空输入框, 状态行经刷新展示「登录成功, 当前账号:xxx」(不弹成功飘窗) */
+  const saveCredential = (): void => {
+    const value = apiKeyInput.trim()
+    if (!value) return
+    const oauth = credKind === 'oauth'
     setKeySaving(true)
     setNotice(undefined)
-    fetch(APIKEY_PATH, {
+    fetch(oauth ? TOKEN_PATH : APIKEY_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ apiKey: key }),
+      body: JSON.stringify(oauth ? { token: value } : { apiKey: value }),
     })
       .then(async (response) => {
         const result = await response.json() as { ok: boolean; username?: string | null; error?: string }
@@ -347,7 +352,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setCloudState('idle')
         setTick((value) => value + 1)
       })
-      .catch((error: unknown) => { setNotice({ kind: 'error', text: `${t('apikey.invalid')} (${(error as Error).message})` }) })
+      .catch((error: unknown) => {
+        const label = oauth ? t('credential.invalidOauth') : t('credential.invalidApiKey')
+        setNotice({ kind: 'error', text: label + ' (' + (error as Error).message + ')' })
+      })
       .finally(() => { setKeySaving(false) })
   }
 
@@ -375,6 +383,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               bucketsOpen={bucketsOpen}
               bucketConfirm={bucketConfirm}
               apiKeyInput={apiKeyInput}
+              credKind={credKind}
               keySaving={keySaving}
               clearConfirm={clearConfirm}
               configOpen={configOpen}
@@ -389,7 +398,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               onRemoveBucket={removeBucket}
               onClearApiKey={clearApiKey}
               onApiKeyInput={setApiKeyInput}
-              onSaveApiKey={saveApiKey}
+              onCredKind={setCredKind}
+              onSaveCredential={saveCredential}
               onPatch={patch}
               onDraft={draftOnly}
             />
@@ -420,6 +430,8 @@ interface PanelsProps {
   /* 等待二次确认移除的桶标识 */
   bucketConfirm: string | undefined
   apiKeyInput: string
+  /* 正在配置的凭证类型 */
+  credKind: 'api_key' | 'oauth'
   keySaving: boolean
   clearConfirm: boolean
   configOpen: boolean
@@ -434,7 +446,8 @@ interface PanelsProps {
   onRemoveBucket: (key: string) => void
   onClearApiKey: () => void
   onApiKeyInput: (value: string) => void
-  onSaveApiKey: () => void
+  onCredKind: (kind: 'api_key' | 'oauth') => void
+  onSaveCredential: () => void
   onPatch: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
   onDraft: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
 }
@@ -449,10 +462,10 @@ interface PanelsProps {
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloudState } = props
   const { buckets, bucketsOpen, bucketConfirm } = props
-  const { apiKeyInput, keySaving, clearConfirm } = props
+  const { apiKeyInput, credKind, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
   const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onClearApiKey, onToggleConfig } = props
-  const { onApiKeyInput, onSaveApiKey, onPatch, onDraft } = props
+  const { onApiKeyInput, onCredKind, onSaveCredential, onPatch, onDraft } = props
   const { onBucketsToggle, onRemoveBucket } = props
   /* 战绩视图由服务端按显示策略解析:桶内已与云端取最大,跨桶按策略求和 */
   const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
@@ -506,11 +519,11 @@ function WakatimePanels(props: PanelsProps) {
     </span>
   )
 
-  /* API Key 变更属于配置:与上报参数一并放在配置视图(容器 id 供切换按钮 aria-controls 指向) */
-  const apiKeySection = (
+  /* 凭证变更属于配置:与上报参数一并放在配置视图(容器 id 供切换按钮 aria-controls 指向) */
+  const credentialSection = (
     <section id={CONFIG_PANEL_ID} className={css.section}>
       <div className={css.sectionHead}>
-        <h3 className={css.sectionTitle}>{t('apikey.title')}</h3>
+        <h3 className={css.sectionTitle}>{t('credential.title')}</h3>
         <div className={css.actions}>
           <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
             {data.configured ? t('status.configured') : t('status.notConfigured')}
@@ -523,7 +536,7 @@ function WakatimePanels(props: PanelsProps) {
                 : compactButton}
               onClick={onClearApiKey}
             >
-              {clearConfirm ? t('apikey.clearConfirm') : t('apikey.clear')}
+              {clearConfirm ? t('credential.clearConfirm') : t('credential.clear')}
             </button>
           ) : null}
           <button type="button" className={compactButton} onClick={onRefresh}>
@@ -536,15 +549,32 @@ function WakatimePanels(props: PanelsProps) {
           {t('status.loginSuccess')}{t('status.account')}:{data.username}
         </p>
       ) : null}
+      <p className={css.muted}>
+        {data.apiKeyConfigured ? t('credential.keyConfigured') : t('credential.keyMissing')}
+        {' · '}
+        {data.oauthConfigured ? t('credential.oauthConfigured') : t('credential.oauthMissing')}
+      </p>
+      <SegmentedField
+        label={t('credential.kind')}
+        value={credKind}
+        options={[
+          { value: 'api_key', label: t('credential.kindApiKey') },
+          { value: 'oauth', label: t('credential.kindOauth') },
+        ]}
+        onChange={(value) => { onCredKind(value === 'oauth' ? 'oauth' : 'api_key') }}
+      />
       <div className={css.field}>
-        <span className={css.fieldLabel}>{t('apikey.save')}</span>
-        <span className={css.muted}>{t('apikey.hint')}{t('apikey.overwrite')}</span>
+        <span className={css.fieldLabel}>{credKind === 'oauth' ? t('credential.saveOauth') : t('credential.saveApiKey')}</span>
+        <span className={css.muted}>
+          {credKind === 'oauth' ? t('credential.hintOauth') : t('credential.hintApiKey')}
+          {t('credential.overwrite')}
+        </span>
         <div className={css.apiKeyRow}>
           <input
             className={css.input}
             type="password"
             autoComplete="off"
-            placeholder={t('apikey.placeholder')}
+            placeholder={credKind === 'oauth' ? t('credential.placeholderOauth') : t('credential.placeholderApiKey')}
             value={apiKeyInput}
             onChange={(event) => { onApiKeyInput(event.target.value) }}
           />
@@ -552,9 +582,9 @@ function WakatimePanels(props: PanelsProps) {
             type="button"
             className={`${css.button} ${css.buttonPrimary}`}
             disabled={keySaving || apiKeyInput.trim() === ''}
-            onClick={onSaveApiKey}
+            onClick={onSaveCredential}
           >
-            {keySaving ? t('config.saving') : t('apikey.save')}
+            {keySaving ? t('config.saving') : (credKind === 'oauth' ? t('credential.saveOauth') : t('credential.saveApiKey'))}
           </button>
         </div>
       </div>
@@ -566,7 +596,7 @@ function WakatimePanels(props: PanelsProps) {
     return (
       <>
         <div className={css.toolbar}>{toggleButton}</div>
-        {apiKeySection}
+        {credentialSection}
         <section className={css.section}>
           <h3 className={css.sectionTitle}>{t('config.title')}</h3>
           <ToggleField

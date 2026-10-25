@@ -11,7 +11,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { AuthManagerImpl, basicAuthOf } from './auth'
+import { AuthManagerImpl } from './auth'
 import { bucketKeyOf, BucketStore, maskApiKey, UNASSIGNED_BUCKET } from './bucket-store'
 import { resolveStatsView } from './bucket-store/resolve'
 import { SessionEventCollector } from './collector'
@@ -37,7 +37,7 @@ export const inject = ['tools']
 export { Config }
 
 /* 导出模块类:便于复用与测试 */
-export { AuthManagerImpl, basicAuthOf, pickUsername } from './auth'
+export { AuthManagerImpl, authHeaderOf, basicAuthValueOf, bearerHeaderOf, pickUsername } from './auth'
 export { bucketKeyOf, BucketStore, maskApiKey, UNASSIGNED_BUCKET } from './bucket-store'
 export { resolveStatsView } from './bucket-store/resolve'
 export type { StatsView } from './bucket-store/resolve'
@@ -78,7 +78,7 @@ export function apply(ctx: Context, config: ConfigType) {
   const store = new BucketStore()
   /* 当前数据桶:未配置 API Key 时为未指派桶 */
   let currentBucket: string = UNASSIGNED_BUCKET
-  const heartbeat = new HeartbeatEngineImpl(http, async () => basicAuthOf(await auth.getApiKey()), {
+  const heartbeat = new HeartbeatEngineImpl(http, async () => (await auth.getCredential('plugin_write')).header, {
     enabled: config.enabled,
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,
@@ -129,16 +129,16 @@ export function apply(ctx: Context, config: ConfigType) {
     }
   }
 
-  /* 按当前生效的 API Key 对齐数据桶(未配置时切到未指派桶) */
+  /* 按当前生效的凭证对齐数据桶(未配置时切到未指派桶) */
   const syncBucket = async (): Promise<void> => {
     /* 先等启动载入完成:此前的数据桶切换会与初始载入竞争,可能丢掉激活窗口内的战绩 */
     await storeReady
-    const apiKey = await auth.tryGetApiKey()
-    if (apiKey === null) {
+    const secret = await auth.getCredentialSecret()
+    if (secret === null) {
       await applyBucket(UNASSIGNED_BUCKET)
       return
     }
-    await applyBucket(bucketKeyOf(apiKey), maskApiKey(apiKey))
+    await applyBucket(bucketKeyOf(secret), maskApiKey(secret))
   }
 
   /* 推送一轮前先对齐数据桶,避免换了 Key 还往旧桶写 */
@@ -187,10 +187,10 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 启动时读取数据桶:确定当前桶、认领未指派数据、恢复战绩与待发送状态
      (用合并语义:启动瞬间已入队的心跳不会被覆盖) */
   const restoreBuckets = async (): Promise<void> => {
-    const apiKey = await auth.tryGetApiKey()
-    currentBucket = apiKey === null ? UNASSIGNED_BUCKET : bucketKeyOf(apiKey)
+    const secret = await auth.getCredentialSecret()
+    currentBucket = secret === null ? UNASSIGNED_BUCKET : bucketKeyOf(secret)
     await store.load(currentBucket)
-    if (apiKey !== null) store.setMaskedKey(currentBucket, maskApiKey(apiKey))
+    if (secret !== null) store.setMaskedKey(currentBucket, maskApiKey(secret))
     if (currentBucket !== UNASSIGNED_BUCKET) store.claimUnassigned(currentBucket)
     const bucket = store.ensure(currentBucket)
     stats.seed(bucket.stats)

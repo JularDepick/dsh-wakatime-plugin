@@ -7,12 +7,13 @@
  * - GET  /api/wakatime/status   认证状态(不含 Key 明文)+ 配置 + 按策略解析的战绩视图
  * - POST /api/wakatime/config   写入 Web 可编辑配置项
  * - POST /api/wakatime/apikey   覆盖写入 API Key(验证后存储,不回显)
+ * - POST /api/wakatime/token    覆盖写入 OAuth 访问令牌(验证后存储,不回显)
  * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识)
  * - POST /api/wakatime/retry    手动重试一条失败推送任务
  * - GET  /api/wakatime/buckets  API Key 缓存清单(模糊 Key + 各 Key 自己的战绩视图)
  * - POST /api/wakatime/bucket/remove 移除一个长期未登录的 Key 缓存(需满足静默期)
  * - GET  /api/wakatime/sync     云端 AI 聚合(写入当前 Key 的数据桶,带缓存,?force=1 强制刷新)
- * - POST /api/wakatime/apikey/clear 清除本地 API Key(回退未登录)
+ * - POST /api/wakatime/apikey/clear 清除本地全部凭证(API Key 与 OAuth 令牌,回退未登录)
  * 战绩合并(桶内与云端取最大、跨桶按显示策略求和)统一在本端完成,
  * 前端只渲染结果,不再自行合并。
  * 密钥安全边界: 明文 API Key 只在本端内部使用,任何响应都不回显;
@@ -27,11 +28,11 @@ import type { AuthManager } from '../auth'
 import type { BucketStore } from '../bucket-store'
 import { resolveStatsView, UNASSIGNED_BUCKET } from '../bucket-store'
 import type { StatsView } from '../bucket-store/resolve'
-import { WEB_APIKEY_CLEAR_PATH, WEB_APIKEY_PATH, WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { WEB_APIKEY_CLEAR_PATH, WEB_APIKEY_PATH, WEB_TOKEN_PATH, WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import type { HeartbeatEngine } from '../heartbeat'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import type { CloudSync } from '../sync'
-import type { WebApiKeyPayload, WebBucketEntry, WebBucketRemovePayload, WebBucketRemoveResponse, WebBucketsResponse, WebConfigResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
+import type { WebApiKeyPayload, WebBucketEntry, WebTokenPayload, WebBucketRemovePayload, WebBucketRemoveResponse, WebBucketsResponse, WebConfigResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
@@ -92,6 +93,7 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
       webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: safe((req, res) => handleStatus(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: safe((req, res) => handleConfig(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: safe((req, res) => handleApiKey(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_TOKEN_PATH, handler: safe((req, res) => handleToken(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_BUCKETS_PATH, handler: safe((req, res) => handleBuckets(req, res, deps)) }),
@@ -124,6 +126,9 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
   const config = deps.runtimeConfig.get()
   const body: WebStatusResponse = {
     configured: status.configured,
+    apiKeyConfigured: status.apiKeyConfigured,
+    oauthConfigured: status.oauthConfigured,
+    ...(status.kind === undefined ? {} : { credentialKind: status.kind }),
     ...(status.configured && status.username !== undefined ? { username: status.username } : {}),
     config: {
       enabled: config.enabled,
@@ -196,6 +201,35 @@ async function handleApiKey(req: IncomingMessage, res: ServerResponse, deps: Web
   }
 }
 
+/* OAuth 访问令牌覆盖写入:先验证有效性,任何响应不回显令牌明文 */
+async function handleToken(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  let payload: WebTokenPayload
+  try {
+    payload = JSON.parse(await readBody(req)) as WebTokenPayload
+  } catch {
+    res.writeHead(400)
+    res.end('invalid json body')
+    return
+  }
+  if (typeof payload.token !== 'string' || payload.token.trim() === '') {
+    res.writeHead(400)
+    res.end('token is required')
+    return
+  }
+  try {
+    const profile = await deps.auth.setOauthToken(payload.token)
+    await deps.syncBucket()
+    writeJson(res, 200, { ok: true, username: profile.username ?? null })
+  } catch (error) {
+    writeJson(res, 400, { ok: false, error: (error as Error).message })
+  }
+}
+
 /* 上报记录:失败任务附带心跳对象与尝试次数,供前端渲染重试入口 */
 async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
@@ -260,7 +294,8 @@ async function handleApiKeyClear(req: IncomingMessage, res: ServerResponse, deps
     res.end()
     return
   }
-  await deps.auth.clearApiKey()
+  /* 清除本地全部凭证(API Key 与 OAuth 令牌):任一残留都会让状态显示已配置 */
+  await deps.auth.clearCredential()
   await deps.syncBucket()
   const body: WebConfigResponse = { ok: true }
   writeJson(res, 200, body)

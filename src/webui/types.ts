@@ -7,12 +7,19 @@
  */
 
 import type { StatsView } from '../bucket-store/resolve'
+import type { CredentialKind } from '../auth/types'
 import type { DigitGrouping, StatsScope } from '../config'
 
 /* 状态接口响应:认证状态 + 生效配置 + 按显示策略解析好的战绩视图 */
 export interface WebStatusResponse {
-  /* 是否已配置 API Key(明文永不回传) */
+  /* 是否已配置任一凭证(明文永不回传) */
   configured: boolean
+  /* 是否已配置插件 API Key */
+  apiKeyConfigured: boolean
+  /* 是否已配置 OAuth 访问令牌 */
+  oauthConfigured: boolean
+  /* 心跳上报面实际生效的凭证种类 */
+  credentialKind?: CredentialKind
   username?: string
   config: {
     enabled: boolean
@@ -45,6 +52,11 @@ export interface WebConfigPayload {
 /* API Key 覆盖写入请求(仅覆盖,不提供查看) */
 export interface WebApiKeyPayload {
   apiKey: string
+}
+
+/* OAuth 访问令牌覆盖写入请求(仅覆盖,不提供查看) */
+export interface WebTokenPayload {
+  token: string
 }
 
 /* 配置写入响应 */

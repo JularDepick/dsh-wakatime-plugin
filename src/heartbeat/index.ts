@@ -30,7 +30,7 @@ import {
   REPORT_LOG_LIMIT,
 } from '../constants'
 import { NotAuthenticatedError } from '../errors'
-import type { HttpClient } from '../http'
+import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
 import { compressPendingQueue } from './compress'
 import type {
@@ -44,8 +44,8 @@ import type {
   ReportEntry,
 } from './types'
 
-/* 令牌提供者:每次请求前由调用方确保有效令牌 */
-export type TokenProvider = () => Promise<string>
+/* 凭证提供者:每次上报前由调用方按端点用途解析出认证头;未配置凭证时抛 NotAuthenticatedError */
+export type TokenProvider = () => Promise<AuthHeader>
 
 /* 调试日志接口:与 ctx.logger 相容的最小面 */
 export interface EngineLogger {
@@ -132,10 +132,10 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
-      /* 未配置 API Key:不丢失、不计尝试次数,整批放回队首保持顺序 */
+      /* 未配置凭证:不丢失、不计尝试次数,整批放回队首保持顺序 */
       if (error instanceof NotAuthenticatedError) {
         this.queue.unshift(...batch)
-        this.log('info', '[wakatime] API key not configured, heartbeat kept in queue')
+        this.log('info', '[wakatime] no credential configured, heartbeat kept in queue')
         return
       }
       const message = (error as Error).message
@@ -241,12 +241,12 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
 
   /* 上报一批:单条走 heartbeats,多条走 bulk */
   private async deliver(heartbeats: Heartbeat[]): Promise<void> {
-    const token = await this.tokenProvider()
+    const auth = await this.tokenProvider()
     if (heartbeats.length === 1) {
       await this.http.request(HEARTBEATS_PATH, {
         method: 'POST',
         body: heartbeats[0],
-        basicAuth: token,
+        auth,
         noRetry: true,
       })
       return
@@ -256,7 +256,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       await this.http.request(HEARTBEATS_BULK_PATH, {
         method: 'POST',
         body: chunk,
-        basicAuth: token,
+        auth,
         noRetry: true,
       })
     }

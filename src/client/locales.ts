@@ -13,14 +13,25 @@ export type WakatimeKey =
   | 'status.notConfigured'
   | 'status.account'
   | 'status.loginSuccess'
-  | 'apikey.title'
-  | 'apikey.overwrite'
-  | 'apikey.save'
-  | 'apikey.clear'
-  | 'apikey.clearConfirm'
-  | 'apikey.invalid'
-  | 'apikey.placeholder'
-  | 'apikey.hint'
+  | 'credential.title'
+  | 'credential.kind'
+  | 'credential.kindApiKey'
+  | 'credential.kindOauth'
+  | 'credential.saveApiKey'
+  | 'credential.saveOauth'
+  | 'credential.clear'
+  | 'credential.clearConfirm'
+  | 'credential.keyConfigured'
+  | 'credential.keyMissing'
+  | 'credential.oauthConfigured'
+  | 'credential.oauthMissing'
+  | 'credential.overwrite'
+  | 'credential.hintApiKey'
+  | 'credential.hintOauth'
+  | 'credential.placeholderApiKey'
+  | 'credential.placeholderOauth'
+  | 'credential.invalidApiKey'
+  | 'credential.invalidOauth'
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
@@ -101,18 +112,29 @@ type WakatimeDict = Record<WakatimeKey, string>
 
 export const zh: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': '已配置 API Key',
-  'status.notConfigured': '未配置 API Key',
+  'status.configured': '已配置凭证',
+  'status.notConfigured': '未配置凭证',
   'status.account': '当前账号',
   'status.loginSuccess': '登录成功, ',
-  'apikey.title': 'API Key',
-  'apikey.overwrite': '仅覆盖、不可查看。',
-  'apikey.save': '保存 API Key',
-  'apikey.clear': '清除 API Key',
-  'apikey.clearConfirm': '确认清除?',
-  'apikey.invalid': 'API Key 无效或验证失败',
-  'apikey.placeholder': '粘贴新的 API Key…',
-  'apikey.hint': '在 wakatime.com/settings/api-key 生成。',
+  'credential.title': '凭证',
+  'credential.kind': '凭证类型',
+  'credential.kindApiKey': '插件密钥',
+  'credential.kindOauth': 'OAuth 令牌',
+  'credential.saveApiKey': '保存插件密钥',
+  'credential.saveOauth': '保存 OAuth 令牌',
+  'credential.clear': '清除凭证',
+  'credential.clearConfirm': '确认清除凭证?',
+  'credential.keyConfigured': '插件密钥已配置',
+  'credential.keyMissing': '插件密钥未配置',
+  'credential.oauthConfigured': 'OAuth 令牌已配置',
+  'credential.oauthMissing': 'OAuth 令牌未配置',
+  'credential.overwrite': '仅覆盖、不可查看。',
+  'credential.hintApiKey': '在 wakatime.com/settings/api-key 生成; WakaTime 自 2026-11-01 起只允许插件用它提交活动。',
+  'credential.hintOauth': '在 wakatime.com/settings 生成个人令牌; 勾选 write_heartbeats、read_summaries、email 三个 scope。',
+  'credential.placeholderApiKey': '粘贴新的插件密钥…',
+  'credential.placeholderOauth': '粘贴新的 OAuth 访问令牌…',
+  'credential.invalidApiKey': '插件密钥无效或验证失败',
+  'credential.invalidOauth': 'OAuth 令牌无效或验证失败',
   'stats.title': 'Agent 协作战绩',
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
@@ -192,18 +214,29 @@ export const zh: WakatimeDict = {
 
 export const en: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': 'API key configured',
-  'status.notConfigured': 'API key not configured',
+  'status.configured': 'Credential configured',
+  'status.notConfigured': 'Credential not configured',
   'status.account': 'Current account',
   'status.loginSuccess': 'Logged in as ',
-  'apikey.title': 'API key',
-  'apikey.overwrite': 'Overwrite only, never shown.',
-  'apikey.save': 'Save API key',
-  'apikey.clear': 'Clear API key',
-  'apikey.clearConfirm': 'Confirm clear?',
-  'apikey.invalid': 'API key invalid or verification failed',
-  'apikey.placeholder': 'Paste a new API key…',
-  'apikey.hint': 'Generate one at wakatime.com/settings/api-key.',
+  'credential.title': 'Credential',
+  'credential.kind': 'Credential type',
+  'credential.kindApiKey': 'Plugin key',
+  'credential.kindOauth': 'OAuth token',
+  'credential.saveApiKey': 'Save plugin key',
+  'credential.saveOauth': 'Save OAuth token',
+  'credential.clear': 'Clear credential',
+  'credential.clearConfirm': 'Confirm clear?',
+  'credential.keyConfigured': 'Plugin key configured',
+  'credential.keyMissing': 'Plugin key not configured',
+  'credential.oauthConfigured': 'OAuth token configured',
+  'credential.oauthMissing': 'OAuth token not configured',
+  'credential.overwrite': 'Overwrite only, never shown.',
+  'credential.hintApiKey': 'Generate one at wakatime.com/settings/api-key; since 2026-11-01 WakaTime only lets plugins submit activity with it.',
+  'credential.hintOauth': 'Create a personal token at wakatime.com/settings; select the write_heartbeats, read_summaries and email scopes.',
+  'credential.placeholderApiKey': 'Paste a new plugin key…',
+  'credential.placeholderOauth': 'Paste a new OAuth access token…',
+  'credential.invalidApiKey': 'Plugin key invalid or verification failed',
+  'credential.invalidOauth': 'OAuth token invalid or verification failed',
   'stats.title': 'Agent collaboration battle stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',

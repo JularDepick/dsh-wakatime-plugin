@@ -47,12 +47,19 @@ export const BRANCH_CACHE_TTL_MS = 5000
 export const WAKATIME_API_BASE = 'https://wakatime.com/api/v1'
 export const HEARTBEATS_PATH = '/users/current/heartbeats'
 export const HEARTBEATS_BULK_PATH = '/users/current/heartbeats.bulk'
+/* 读取面(EndpointUsage 的 other_use):官方要求 OAuth 令牌 */
 export const USER_INFO_PATH = '/users/current'
 export const SUMMARIES_PATH = '/users/current/summaries'
 
 /* WakaTime 匿名账号的 display_name 占位值(未设置用户名与姓名时由服务端返回),
    官方 /users/current 的 username 与 full_name 均可为 null,故展示账号名时需要剔除该占位 */
 export const ANONYMOUS_DISPLAY_NAME = 'Anonymous User'
+
+/* 端点用途归类(官方把 API Key 限定为插件凭证, 只授权提交编码活动; 其余用途含读取面,
+   应使用 OAuth 访问令牌, 2026-11-01 起生效)。认证层据此选轨:
+   - plugin_write: 心跳上报, 官方声明的插件用途, 首选 API Key, 令牌兜底(令牌需 write_heartbeats)
+   - other_use   : 账号资料与战绩读取, 首选 OAuth 令牌, API Key 兜底(令牌需 email 与 read_summaries) */
+export type EndpointUsage = 'plugin_write' | 'other_use'
 
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
@@ -100,6 +107,8 @@ export const WEB_APIKEY_PATH = '/api/wakatime/apikey'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
 export const WEB_APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
+/* OAuth 访问令牌覆盖写入路由(与 apikey 路由平行;apikey/clear 路由沿用旧路径名, 语义为清除全部凭证) */
+export const WEB_TOKEN_PATH = '/api/wakatime/token'
 /* 手动重试一条失败推送任务 */
 export const WEB_RETRY_PATH = '/api/wakatime/retry'
 /* API Key 缓存(数据桶)清单与手动移除 */
@@ -108,6 +117,8 @@ export const WEB_BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 
 /* 环境变量 */
 export const ENV_API_KEY = 'WAKATIME_API_KEY'
+/* OAuth 访问令牌环境变量(与 ENV_API_KEY 同口径:优先于配置文件) */
+export const ENV_OAUTH_TOKEN = 'WAKATIME_OAUTH_TOKEN'
 export const ENV_DEBUG = 'WAKATIME_DEBUG'
 /* 覆盖凭证配置目录(测试与自托管场景使用) */
 export const ENV_CONFIG_DIR = 'WAKATIME_CONFIG_DIR'

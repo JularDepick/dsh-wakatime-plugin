@@ -19,15 +19,15 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 ## Features
 
 - Automatically track, quantify, and report AI Agent work data in DSH to WakaTime
-- API key authentication: one WakaTime API key, guarded by a local mini-backend, never exposed to the frontend
+- Dual credential authentication: both a plugin API key and an OAuth access token work, guarded by a local mini-backend and never exposed to the frontend; since 2026-11-01 WakaTime limits API keys to plugin activity submission, so account and stats reads need an OAuth token
 - Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
 - Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
-- Per-account data isolation: every API key keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching keys never credits one account's data to another; data collected while no key is configured is claimed by the first key configured afterwards, and no account's data is ever cleaned up automatically; the "API key caches" section in the config view shows each key's own stats and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
+- Per-account data isolation: every credential keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching credentials never credits one account's data to another; data collected while no credential is configured is claimed by the first credential configured afterwards, and no account's data is ever cleaned up automatically; the "API key caches" section in the config view shows each credential's own stats and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
 - Stats display scope: switch between "all API keys" and "current API key" in the config view (the former is the default)
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders, and numbers can be grouped by thousands or ten thousands
-- Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the API key, reporting options, and interface switches in one place; changes apply immediately, with no save button
-- Cloud sync merge: with an API key configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
+- Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the credential, reporting options, and interface switches in one place; changes apply immediately, with no save button
+- Cloud sync merge: with a credential configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
 - Local totals survive restarts: local-only metrics such as LLM thinking time and estimated prompt tokens are written to a local snapshot and keep accumulating across dsh restarts instead of resetting to zero
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
@@ -66,13 +66,20 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 
 ## Usage
 
-After installing and enabling the plugin, configure a WakaTime API key (generate one at wakatime.com/settings/api-key):
+After installing and enabling the plugin, configure a WakaTime credential. Two kinds are supported; pick one with the credential-type segmented control in the config view:
+
+- **Plugin API key**: generate one at wakatime.com/settings/api-key; it submits coding activity (heartbeats);
+- **OAuth access token**: create a personal token at wakatime.com/settings and select the write_heartbeats, read_summaries and email scopes; it reads the account profile and stats (WakaTime requires a token for reads since 2026-11-01).
+
+Both kinds support three ways to configure:
 
 - **Manually**: in the WakaTime tab of the Web interface, open the config view via the "Settings" button at the top right and paste it there (overwrite only, never shown);
-- **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_apikey) to configure it for you;
-- **Environment variable**: set `WAKATIME_API_KEY` (takes precedence over the file).
+- **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_apikey or op=set_token) to configure it for you;
+- **Environment variable**: set `WAKATIME_API_KEY` or `WAKATIME_OAUTH_TOKEN` (takes precedence over the file).
 
-After configuring an API key, you can clear it in the API key section of the config view to return to the logged-out state.
+When only one credential is configured, both activity submission and reads use it; when both are configured, heartbeats go through the plugin key and reads go through the OAuth token.
+
+After configuring a credential, you can clear it in the credential section of the config view to return to the logged-out state.
 
 Switches and the report interval in the config view apply immediately, with no save button (numeric fields commit on blur or Enter).
 
@@ -80,8 +87,8 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 
 | Tool | Purpose |
 |:---:|:---:|
-| `wakatime_config` | Read/update plugin config (op=get/set); overwrite the API key (op=set_apikey, overwrite only, never shown) |
-| `wakatime_logout` | Clear the local API key |
+| `wakatime_config` | Read/update plugin config (op=get/set); overwrite the plugin key (op=set_apikey) or the OAuth token (op=set_token), overwrite only, never shown |
+| `wakatime_logout` | Clear every local credential |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
 | `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, model thinking duration, output and effective TOKEN, cache hit TOKEN, average output speed, current stats display scope; same source as the UI stats table) |
 
@@ -110,7 +117,8 @@ Environment variables:
 
 | Variable | Description |
 |:---:|:---:|
-| `WAKATIME_API_KEY` | WakaTime API key (takes precedence over the file) |
+| `WAKATIME_API_KEY` | WakaTime plugin key (takes precedence over the file) |
+| `WAKATIME_OAUTH_TOKEN` | WakaTime OAuth access token (takes precedence over the file; preferred for reads) |
 | `WAKATIME_DEBUG` | Enable debug logging |
 | `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `$DSH_HOME/plugins/wakatime`, that is `~/.dsh/plugins/wakatime`) |
 | `DSH_HOME` | dsh home directory, affects the default credential config location (default `~/.dsh`) |

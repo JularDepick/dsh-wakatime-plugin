@@ -19,15 +19,15 @@
 ## 特性
 
 - 自动追踪,量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
-- API Key 认证: 仅需一个 WakaTime API Key,经本地小后端代理保管,前端永不接触明文
+- 双轨凭证认证: 插件密钥(API Key)与 OAuth 访问令牌都可用,经本地小后端代理保管,前端永不接触明文;WakaTime 自 2026-11-01 起把 API Key 限定为插件提交活动,账号与战绩读取需要 OAuth 令牌
 - 定时批量上报: 启动时推送一轮,之后按可配置间隔(默认 60 秒)循环;积压超过 20 条时按积压量的十分之一合并成一次批量请求(单批不超过 WakaTime 的 25 条上限),每条心跳保留自己的时间戳
 - 推送队列与重试: 未发送的心跳落盘保留,重启不丢;失败自动回到队尾重试,单条最多 3 次,耗尽或遇到 401/403/400 等终态错误即进入上报记录,可在界面上点击该失败行重新排队重试;每条记录都带详情(本次上报的类别与项目/分支,失败时附失败原因)
-- 账号数据隔离: 每个 API Key 各自一份本地数据(战绩累计、云端快照、待发送队列与上报记录),换 Key 不会把上个账号的数据算到新账号;未配置 Key 期间采集的数据由此后首个配置的 Key 认领;任何账号的数据都不会被自动清理,配置页的「API Key 缓存」区可查看每个 Key 各自的战绩并手动移除 30 天未登录过的缓存(界面上的密钥只保留首尾各 8 个字符,其余以 `*` 代替,明文不出本地后端)
+- 账号数据隔离: 每份凭证各自一份本地数据(战绩累计、云端快照、待发送队列与上报记录),换凭证不会把上个账号的数据算到新账号;未配置凭证期间采集的数据由此后首个配置的凭证认领;任何账号的数据都不会被自动清理,配置页的「API Key 缓存」区可查看每份凭证各自的战绩并手动移除 30 天未登录过的缓存(界面上的密钥只保留首尾各 8 个字符,其余以 `*` 代替,明文不出本地后端)
 - 战绩显示策略: 可在配置视图切换「全部密钥战绩」与「当前密钥战绩」(默认前者)
 - Token 统计: 精确记录每次 Agent 调用的 input/output Token 数量
 - Agent 协作战绩: 全局汇总提示词字符总量,模型思考总时长,输出 TOKEN 总量,有效 TOKEN 消耗量,缓存命中 TOKEN 总量与平均输出速度等表现指标,在 Web 界面随时查看;战绩表支持开关边框显示,数值可按千位或万位分隔
-- 配置即改即生效: 在 WakaTime 标签页右上角「配置」切换出配置视图,API Key 变更,上报参数与界面开关在同一处完成,改动立即生效,无需保存
-- 云端同步合并: 配置 API Key 后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致;同步结果本地缓存,切换标签页与刷新页面不重复请求云端
+- 配置即改即生效: 在 WakaTime 标签页右上角「配置」切换出配置视图,凭证变更,上报参数与界面开关在同一处完成,改动立即生效,无需保存
+- 云端同步合并: 配置凭证后自动同步云端最近 7 天的 AI 汇总,与本地战绩对应指标取最大值合并展示,保证云端与本地一致;同步结果本地缓存,切换标签页与刷新页面不重复请求云端
 - 会话追踪: 全局统一组织 AI 会话数据(全部心跳归为一个整体 AI 会话),自动识别会话工作目录所属项目与 Git 分支(支持子目录与 worktree)
 - 本地累计保留: LLM 思考总时长与提示词 Token 估算等本地独有指标写入本地快照,重启 dsh 后继续累加,不会归零
 - 本地优先: 凭证和配置数据默认存储在本地,用户完全掌控
@@ -66,13 +66,20 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 
 ## 使用
 
-安装并启用插件后,配置 WakaTime API Key(在 wakatime.com/settings/api-key 生成):
+安装并启用插件后,配置 WakaTime 凭证.插件支持两种凭证,在配置视图的凭证区用档位切换条选择:
+
+- **插件密钥(API Key)**: 在 wakatime.com/settings/api-key 生成,用于心跳上报;
+- **OAuth 访问令牌**: 在 wakatime.com/settings 生成个人令牌,勾选 write_heartbeats、read_summaries、email 三个 scope,用于账号资料与战绩读取(官方自 2026-11-01 起要求读取面使用令牌).
+
+两种凭证都支持三种配置方式:
 
 - **手动**: 在 Web 界面会话区域的 WakaTime 标签页,点右上角「配置」进入配置视图后粘贴保存(仅覆盖,不可查看);
-- **Agent 引导**: 让 Agent 调用 `wakatime_config` 工具(op=set_apikey)代替你完成配置;
-- **环境变量**: 设置 `WAKATIME_API_KEY`(优先于文件配置).
+- **Agent 引导**: 让 Agent 调用 `wakatime_config` 工具(op=set_apikey 或 op=set_token)代替你完成配置;
+- **环境变量**: 设置 `WAKATIME_API_KEY` 或 `WAKATIME_OAUTH_TOKEN`(优先于文件配置).
 
-已配置 API Key 后,可在配置视图的 API Key 区执行「清除 API Key」回退到未登录状态.
+只配置其中一种时,心跳上报与读取面都用它;两种都配置时,心跳走插件密钥,读取走 OAuth 令牌.
+
+已配置凭证后,可在配置视图的凭证区执行「清除凭证」回退到未登录状态.
 
 配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入).
 
@@ -80,8 +87,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 
 | 工具 | 用途 |
 |:---:|:---:|
-| `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入 API Key(op=set_apikey,仅覆盖不可查看) |
-| `wakatime_logout` | 清除本地 API Key |
+| `wakatime_config` | 查看/修改插件配置(op=get/set);覆盖写入插件密钥(op=set_apikey)或 OAuth 令牌(op=set_token),仅覆盖不可查看 |
+| `wakatime_logout` | 清除本地全部凭证 |
 | `wakatime_status` | 查看认证状态(不回显 Key 明文) |
 | `wakatime_stats` | 查看 Agent 协作战绩(提示词字符总量,模型思考总时长,输出与有效 TOKEN,缓存命中 TOKEN,平均输出速度,当前战绩显示策略;与界面战绩表同源) |
 
@@ -110,7 +117,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 
 | 变量名 | 描述 |
 |:---:|:---:|
-| `WAKATIME_API_KEY` | WakaTime API Key(优先于文件配置) |
+| `WAKATIME_API_KEY` | WakaTime 插件密钥(优先于文件配置) |
+| `WAKATIME_OAUTH_TOKEN` | WakaTime OAuth 访问令牌(优先于文件配置,读取面首选) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
 | `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `$DSH_HOME/plugins/wakatime`,即 `~/.dsh/plugins/wakatime`) |
 | `DSH_HOME` | dsh home 目录,影响凭证配置目录的默认位置(默认 `~/.dsh`) |

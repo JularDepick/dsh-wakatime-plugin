@@ -3,13 +3,15 @@
  * 作者: JularDepick
  *
  * 管理本地凭证与插件配置的读写,路径见 constants.ts。
- * API Key 为敏感凭证,只允许覆盖写入,任何读取面均不回显明文。
+ * API Key 与 OAuth 访问令牌同为敏感凭证,只允许覆盖写入,任何读取面均不回显明文。
  */
 
 /* 本地持久化配置(含凭证,存于用户目录,权限收紧由实现负责) */
 export interface StoredConfig {
   /* WakaTime API Key(仅覆盖写入,不提供查看) */
   apiKey?: string
+  /* WakaTime OAuth 访问令牌(仅覆盖写入,不提供查看;读取面的首选凭证) */
+  oauthToken?: string
   /* 最近一次验证成功时的用户资料(缓存,仅展示用) */
   userId?: string
   username?: string
