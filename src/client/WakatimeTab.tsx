@@ -20,7 +20,16 @@ import { detectCredentialType } from '../credential-format'
 import type { CSSProperties, MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { DIGIT_GROUP_SIZES } from '../constants'
+import {
+  DIGIT_GROUP_SIZES,
+  WEB_CONFIG_PATH,
+  WEB_CREDENTIAL_CLEAR_PATH,
+  WEB_CREDENTIAL_PATH,
+  WEB_LOGS_PATH,
+  WEB_RETRY_PATH,
+  WEB_STATUS_PATH,
+  WEB_SYNC_PATH,
+} from '../constants'
 import type { DigitGrouping } from '../config'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
 import type { WebCredentialClearResponse, WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
@@ -50,13 +59,14 @@ interface Notice {
   text: string
 }
 
-const STATUS_PATH = '/api/wakatime/status'
-const CONFIG_PATH = '/api/wakatime/config'
-const CREDENTIAL_PATH = '/api/wakatime/credential'
-const CREDENTIAL_CLEAR_PATH = '/api/wakatime/credential/clear'
-const LOGS_PATH = '/api/wakatime/logs'
-const SYNC_PATH = '/api/wakatime/sync'
-const RETRY_PATH = '/api/wakatime/retry'
+/* 路由与宿主共用同一份常量,避免两侧各自维护字符串导致漂移 */
+const STATUS_PATH = WEB_STATUS_PATH
+const CONFIG_PATH = WEB_CONFIG_PATH
+const CREDENTIAL_PATH = WEB_CREDENTIAL_PATH
+const CREDENTIAL_CLEAR_PATH = WEB_CREDENTIAL_CLEAR_PATH
+const LOGS_PATH = WEB_LOGS_PATH
+const SYNC_PATH = WEB_SYNC_PATH
+const RETRY_PATH = WEB_RETRY_PATH
 
 /** 清除确认与提示停留时长:与官方 Toast 默认一致(1000ms 淡出另计) */
 const CONFIRM_MS = 3000
@@ -106,6 +116,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [tick, setTick] = useState(0)
   /* 云端同步状态(战绩数值与云端快照由服务端按数据桶解析后下发) */
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
+  /* 同步失败原因(区分未配置凭证与网络失败),失败时展示在战绩标题行 */
+  const [syncError, setSyncError] = useState<string | undefined>(undefined)
+  /* 正在重试的失败任务标识:在途期间禁用其它重试按钮,避免重复提交 */
+  const [retryingId, setRetryingId] = useState<string | undefined>(undefined)
   /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
   const [clearConfirm, setClearConfirm] = useState(false)
   /* 配置视图开关(右上角按钮切换 tab 内容,ESC 切回主视图) */
@@ -181,15 +195,22 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
           markSynced()
           setData((previous) => (previous ? { ...previous, stats: result.data as WebStatusResponse['stats'] } : previous))
           setCloudState('idle')
+          setSyncError(undefined)
         } else {
           setCloudState('error')
+          setSyncError(result.error === 'credential not configured' ? t('cloud.errNoCredential') : t('cloud.errFailed'))
         }
       })
-      .catch(() => { setCloudState('error') })
+      .catch(() => {
+        setCloudState('error')
+        setSyncError(t('cloud.errFailed'))
+      })
   }
 
   /* 上报记录:失败行手动重试(移回推送队列并立即尝试一轮) */
   const retryLog = (id: string): void => {
+    if (retryingId !== undefined) return
+    setRetryingId(id)
     fetch(RETRY_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -204,6 +225,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
+      .finally(() => { setRetryingId(undefined) })
   }
 
   /* 凭证操作错误码直接映射为字典文案 */
@@ -338,6 +360,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               logs={logs}
               logsOpen={logsOpen}
               cloudState={cloudState}
+              syncError={syncError}
+              retryingId={retryingId}
               credentialInput={credentialInput}
               keySaving={keySaving}
               clearConfirm={clearConfirm}
@@ -376,6 +400,8 @@ interface PanelsProps {
   logs: readonly WebLogEntry[]
   logsOpen: boolean
   cloudState: 'idle' | 'syncing' | 'error'
+  syncError?: string
+  retryingId?: string
   credentialInput: string
   keySaving: boolean
   clearConfirm: boolean
@@ -402,7 +428,7 @@ interface PanelsProps {
  * @returns 当前视图内容。
  */
 function WakatimePanels(props: PanelsProps) {
-  const { t, data, draft, logs, logsOpen, cloudState } = props
+  const { t, data, draft, logs, logsOpen, cloudState, syncError } = props
   const { credentialInput: credentialValue, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
   const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onClearCredentials, onToggleConfig } = props
@@ -414,7 +440,7 @@ function WakatimePanels(props: PanelsProps) {
   const groupSize = DIGIT_GROUP_SIZES[draft.digitGrouping]
   const cloudMeta = view.cloud
     ? `${t('cloud.syncedAt')}: ${formatTime(view.cloud.syncedAt)}`
-    : (cloudState === 'error' ? t('cloud.failed') : t('cloud.never'))
+    : (cloudState === 'error' ? (syncError ?? t('cloud.failed')) : t('cloud.never'))
 
   /* 上报记录结果文案:成功 / 失败 / 已重试(重试行不关心重试结果) */
   const logStateText = (entry: WebLogEntry): string => {
@@ -426,7 +452,11 @@ function WakatimePanels(props: PanelsProps) {
      旧版记录没有摘要时回退为心跳对象 */
   const logDetail = (entry: WebLogEntry): string => {
     const reason = describeLogError(entry.error)
-    const content = entry.detail ?? entry.entity ?? ''
+    const base = entry.detail ?? entry.entity ?? ''
+    const attempts = entry.attempts === undefined
+      ? ''
+      : t('logs.attempts').replace('{n}', String(entry.attempts))
+    const content = base === '' ? attempts : (attempts === '' ? base : `${base} · ${attempts}`)
     if (reason === '') return content
     return content === '' ? reason : `${reason} · ${content}`
   }
@@ -518,11 +548,12 @@ function WakatimePanels(props: PanelsProps) {
       ) : null}
       <div className={css.field}>
         <span className={css.fieldLabel}>{t('credential.add')}</span>
-        <div className={css.apiKeyRow}>
+        <div className={css.credentialRow}>
           <input
             className={css.input}
             type="password"
             autoComplete="off"
+            aria-label={t('credential.add')}
             placeholder={t('credential.placeholder')}
             value={credentialValue}
             onChange={(event) => { onCredentialInput(event.target.value) }}
@@ -641,7 +672,7 @@ function WakatimePanels(props: PanelsProps) {
             </button>
           </div>
         </div>
-        <table className={`${css.table} ${css.statsTable}`} data-bordered={bordered}>
+        <table className={`${css.table} ${css.statsTable}`} data-bordered={bordered} aria-label={t('stats.title')}>
           <colgroup>
             <col />
             <col />
@@ -649,9 +680,9 @@ function WakatimePanels(props: PanelsProps) {
           </colgroup>
           <thead>
             <tr>
-              <th>{t('stats.colMetric')}</th>
-              <th>{t('stats.colValue')}</th>
-              <th>{t('stats.colNote')}</th>
+              <th scope="col">{t('stats.colMetric')}</th>
+              <th scope="col">{t('stats.colValue')}</th>
+              <th scope="col">{t('stats.colNote')}</th>
             </tr>
           </thead>
           <tbody>
@@ -677,7 +708,7 @@ function WakatimePanels(props: PanelsProps) {
               {logs.length === 0
                 ? <p className={css.muted}>{t('logs.empty')}</p>
                 : (
-                  <table className={`${css.table} ${css.logsTable}`} data-bordered={bordered}>
+                  <table className={`${css.table} ${css.logsTable}`} data-bordered={bordered} aria-label={t('logs.title')}>
                     <colgroup>
                       <col />
                       <col />
@@ -687,11 +718,11 @@ function WakatimePanels(props: PanelsProps) {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th>{t('logs.time')}</th>
-                        <th>{t('logs.records')}</th>
-                        <th>{t('logs.result')}</th>
-                        <th>{t('logs.detail')}</th>
-                        <th>{t('logs.action')}</th>
+                        <th scope="col">{t('logs.time')}</th>
+                        <th scope="col">{t('logs.records')}</th>
+                        <th scope="col">{t('logs.result')}</th>
+                        <th scope="col">{t('logs.detail')}</th>
+                        <th scope="col">{t('logs.action')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -707,9 +738,10 @@ function WakatimePanels(props: PanelsProps) {
                               <button
                                 type="button"
                                 className={compactButton}
+                                disabled={props.retryingId !== undefined}
                                 onClick={() => { onRetry(entry.taskId as string) }}
                               >
-                                {t('logs.retry')}
+                                {props.retryingId === entry.taskId ? t('logs.retrying') : t('logs.retry')}
                               </button>
                             ) : null}
                           </td>
@@ -889,6 +921,16 @@ function SegmentedField({ label, value, options, onChange }: {
           role="radiogroup"
           aria-label={label}
           style={{ '--segment-count': options.length, '--segment-index': activeIndex } as CSSProperties}
+          onKeyDown={(event) => {
+            /* 方向键按档位移动选择:与原生 radio 组的键盘行为一致 */
+            const step = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+              ? 1
+              : (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0)
+            if (step === 0) return
+            event.preventDefault()
+            const next = options[(activeIndex + step + options.length) % options.length]
+            if (next !== undefined) onChange(next.value)
+          }}
         >
           <span className={css.segmentKnob} aria-hidden="true" />
           {options.map((option) => (
@@ -897,6 +939,7 @@ function SegmentedField({ label, value, options, onChange }: {
               type="button"
               role="radio"
               aria-checked={option.value === value}
+              tabIndex={option.value === value ? 0 : -1}
               className={css.segment}
               data-active={option.value === value}
               onClick={() => { onChange(option.value) }}

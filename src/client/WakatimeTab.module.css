@@ -92,10 +92,6 @@
   padding: 14px 0;
 }
 
-.section:first-child {
-  padding-top: 0;
-}
-
 .section + .section {
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
@@ -488,7 +484,7 @@
   min-width: 72px;
 }
 
-.apiKeyRow {
+.credentialRow {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -498,7 +494,7 @@
 }
 
 /* 输入框给一个可换行的基准宽度:窄到放不下按钮时按钮换到下一行,而不是把输入框压没 */
-.apiKeyRow .input {
+.credentialRow .input {
   flex: 1 1 180px;
   min-width: 0;
 }

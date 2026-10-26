@@ -51,6 +51,15 @@ export class SessionEventCollector {
     this.options = options
   }
 
+  /* 会话级映射上限:长会话累计不会无限增长(与步骤计时同一上限,超限淘汰最旧) */
+  private trimSessions(map: Map<string, number>): void {
+    while (map.size > STEP_TIMING_LIMIT) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) return
+      map.delete(oldest)
+    }
+  }
+
   /* 注册事件监听;卸载时由框架自动移除 */
   attach(ctx: Context): void {
     ctx.on('session/event', (session: Session, event: SessionEvent) => {
@@ -67,6 +76,8 @@ export class SessionEventCollector {
         this.options.stats.recordUserMessage(session.id, promptLength, estimateTokens(promptLength))
         /* 增量登记:由随后的首条 assistant 心跳带走(被中断的 turn 顺延到下一次心跳) */
         this.pendingPromptChars.set(session.id, (this.pendingPromptChars.get(session.id) ?? 0) + promptLength)
+        this.trimSessions(this.promptLengths)
+        this.trimSessions(this.pendingPromptChars)
         break
       }
       case 'step/start': {

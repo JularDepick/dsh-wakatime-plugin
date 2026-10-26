@@ -17,6 +17,7 @@ import {
   SUMMARIES_PATH,
   USER_INFO_PATH,
   USER_PROFILE_FAILURE_TTL_MS,
+  USER_PROFILE_STATUS_TIMEOUT_MS,
 } from '../constants'
 import type { ConfigManager, StoredConfig } from '../config-manager'
 import { CredentialInputError, NotAuthenticatedError } from '../errors'
@@ -50,6 +51,17 @@ export function pickUsername(user: ProfileFields): string | undefined {
     return value
   }
   return undefined
+}
+
+/* 给异步操作加超时:超时按失败处理,避免状态查询被网络请求拖住 */
+function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    task,
+    new Promise<never>((_resolve, reject) => {
+      const timer = setTimeout(() => { reject(new Error('timeout')) }, ms)
+      timer.unref?.()
+    }),
+  ])
 }
 
 /* 默认 settings(与 Config 默认值对齐) */
@@ -242,7 +254,10 @@ export class AuthManagerImpl implements AuthManager {
     try {
       const secret = stored.credential?.secret
       if (secret === undefined) return undefined
-      const profile = await this.fetchUserProfile(new OauthCredential(secret).authHeader())
+      const profile = await withTimeout(
+        this.fetchUserProfile(new OauthCredential(secret).authHeader()),
+        USER_PROFILE_STATUS_TIMEOUT_MS,
+      )
       if (profile.username !== undefined && profile.username !== cached) {
         await this.saveQuietly({
           ...stored,

@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.3.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.3.0)
+[![Version](https://img.shields.io/badge/Version-0.4.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.4.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
@@ -42,7 +42,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # Or install from the released tarball locally (prebuilt, no build required)
-dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
+dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 ```
 
 > Installing from the GitHub source fetches source code rather than build artifacts, and pnpm runs the package's `prepare` build script on install. pnpm 10+ refuses to run git dependencies' build scripts until explicitly allowed, so the first `add` will fail: add the package key printed by pnpm (like `dsh-wakatime-plugin`) to that profile's `pnpm-workspace.yaml`, then re-run:

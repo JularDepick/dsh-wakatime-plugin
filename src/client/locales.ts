@@ -55,6 +55,8 @@ export type WakatimeKey =
   | 'cloud.syncedAt'
   | 'cloud.never'
   | 'cloud.failed'
+  | 'cloud.errNoCredential'
+  | 'cloud.errFailed'
   | 'cloud.range'
   | 'logs.title'
   | 'logs.expand'
@@ -69,6 +71,8 @@ export type WakatimeKey =
   | 'logs.failed'
   | 'logs.retried'
   | 'logs.retry'
+  | 'logs.retrying'
+  | 'logs.attempts'
   | 'logs.retryUnavailable'
   | 'logs.action'
   | 'config.title'
@@ -147,6 +151,8 @@ export const zh: WakatimeDict = {
   'cloud.syncedAt': '同步时间',
   'cloud.never': '尚未同步',
   'cloud.failed': '同步失败',
+  'cloud.errNoCredential': '同步失败: 未配置凭证',
+  'cloud.errFailed': '同步失败: 网络或服务端异常',
   'cloud.range': '近 7 天',
   'logs.title': '上报记录',
   'logs.expand': '展开上报记录',
@@ -161,6 +167,8 @@ export const zh: WakatimeDict = {
   'logs.failed': '失败',
   'logs.retried': '已重试',
   'logs.retry': '重试',
+  'logs.retrying': '重试中…',
+  'logs.attempts': '已尝试 {n} 次',
   'logs.retryUnavailable': '该失败任务由其它进程持有, 请在对应进程重试',
   'logs.action': '操作',
   'config.title': '配置',
@@ -237,6 +245,8 @@ export const en: WakatimeDict = {
   'cloud.syncedAt': 'Synced at',
   'cloud.never': 'Not synced yet',
   'cloud.failed': 'Sync failed',
+  'cloud.errNoCredential': 'Sync failed: no credential configured',
+  'cloud.errFailed': 'Sync failed: network or upstream error',
   'cloud.range': 'Last 7 days',
   'logs.title': 'Report log',
   'logs.expand': 'Expand report log',
@@ -251,6 +261,8 @@ export const en: WakatimeDict = {
   'logs.failed': 'Failed',
   'logs.retried': 'Retried',
   'logs.retry': 'Retry',
+  'logs.retrying': 'Retrying…',
+  'logs.attempts': 'tried {n} times',
   'logs.retryUnavailable': 'That failed task belongs to another process; retry it there',
   'logs.action': 'Action',
   'config.title': 'Configuration',

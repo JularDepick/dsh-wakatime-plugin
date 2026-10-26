@@ -93,6 +93,8 @@ export const RETRY_BACKOFF_MULTIPLIER = 2
 export const REQUEST_TIMEOUT_MS = 30000
 /* 账号名解析失败的负缓存时长(毫秒):避免每次状态查询都外呼注定失败的资料接口 */
 export const USER_PROFILE_FAILURE_TTL_MS = 3_600_000
+/* 状态查询里账号名解析的超时(毫秒):离线时不能把界面卡在 30 秒的请求超时上 */
+export const USER_PROFILE_STATUS_TIMEOUT_MS = 3_000
 /* 补报周期(毫秒):单队列多挂一个更高频的推送轮 */
 export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 /* 上报记录日志保留条数(调试级,Web 展示) */
