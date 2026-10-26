@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { DIGIT_GROUP_SIZES } from '../constants'
 import type { DigitGrouping } from '../config'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
-import type { WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
+import type { WebCredentialClearResponse, WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -148,14 +148,26 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       return
     }
     setClearConfirm(false)
-    fetch(CREDENTIAL_CLEAR_PATH, { method: 'POST' })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    fetch(CREDENTIAL_CLEAR_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({})) as WebCredentialClearResponse
+        if (!response.ok || body.ok === false) throw new Error(body.error ?? `HTTP ${response.status}`)
         clearSynced()
         setCloudState('idle')
+        setNotice({ kind: 'ok', text: t('credential.cleared') })
         setTick((value) => value + 1)
       })
-      .catch(() => { setNotice({ kind: 'error', text: t('state.loadFailed') }) })
+      .catch((error: unknown) => {
+        const code = error instanceof Error ? error.message : ''
+        setNotice({
+          kind: 'error',
+          text: code === 'env_locked' ? t('credential.errEnvLocked') : t('credential.clearFailed'),
+        })
+      })
   }
 
   /* 云端同步:向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
@@ -200,6 +212,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (code === 'client_secret') return t('credential.errClientSecret')
     if (code === 'api_key') return t('credential.errApiKey')
     if (code === 'unknown_format') return t('credential.errUnknownFormat')
+    if (code === 'env_locked') return t('credential.errEnvLocked')
     /* 未知错误码不再直显服务端英文原文 */
     return t('credential.errInvalid')
   }
@@ -219,9 +232,14 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .catch((error: unknown) => { setLoadError((error as Error).message) })
     fetch(LOGS_PATH, { cache: 'no-store' })
-      .then((response) => response.json() as Promise<readonly WebLogEntry[]>)
-      .then(setLogs)
-      .catch(() => { setLogs([]) })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const body = await response.json()
+        /* 后端异常时回的是 { ok:false } 对象: 非数组一律不替换, 避免渲染层崩溃 */
+        return Array.isArray(body) ? body as readonly WebLogEntry[] : null
+      })
+      .then((next) => { if (next !== null) setLogs(next) })
+      .catch(() => { /* 保留上一次拿到的记录 */ })
   }
 
   useEffect(() => { reload() }, [tick])
@@ -460,7 +478,7 @@ function WakatimePanels(props: PanelsProps) {
           <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
             {data.configured ? t('status.configured') : t('status.notConfigured')}
           </span>
-          {data.configured ? (
+          {data.configured && !data.fromEnv ? (
             <button
               type="button"
               className={clearConfirm
@@ -518,7 +536,7 @@ function WakatimePanels(props: PanelsProps) {
             {keySaving ? t('config.saving') : t('credential.save')}
           </button>
         </div>
-        {inputError === undefined ? null : <p className={css.invalid}>{inputError}</p>}
+        {inputError === undefined ? null : <p className={css.error}>{inputError}</p>}
         <span className={css.muted}>{t('credential.hintOauth')}</span>
         <span className={css.muted}>{t('credential.hintOauthScopes')}</span>
         <span className={css.muted}>{t('credential.overwrite')}</span>
@@ -794,11 +812,23 @@ function NumberField({ label, value, onChange, onCommit }: {
           min={1}
           aria-label={label}
           value={Number.isFinite(value) ? value : ''}
-          onChange={(event) => { onChange(Number(event.target.value)) }}
-          onBlur={(event) => { onCommit(Number(event.target.value)) }}
+          onChange={(event) => {
+            const next = Number(event.target.value)
+            if (event.target.value === '' || !Number.isFinite(next)) return
+            onChange(next)
+          }}
+          onBlur={(event) => {
+            const raw = event.target.value
+            const next = Number(raw)
+            if (raw === '' || !Number.isFinite(next) || next < 1) return
+            onCommit(next)
+          }}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return
-            onCommit(Number(event.currentTarget.value))
+            const raw = event.currentTarget.value
+            const next = Number(raw)
+            if (raw === '' || !Number.isFinite(next) || next < 1) return
+            onCommit(next)
           }}
         />
       </div>

@@ -33,8 +33,11 @@ export function detectCredentialType(input: string): CredentialDetection {
   const value = input.trim()
   if (!value) return { ok: false, reason: 'empty' }
   if (value.startsWith(CREDENTIAL_PREFIX_SECRET)) return { ok: false, reason: 'client_secret' }
-  if (value.startsWith(CREDENTIAL_PREFIX_OAUTH) && value.length >= CREDENTIAL_MIN_LENGTH) {
-    return { ok: true, type: 'oauth' }
+  /* 先判 OAuth 前缀: 前缀正确但长度不足属格式不完整, 不能落到插件密钥分支误导排查 */
+  if (value.startsWith(CREDENTIAL_PREFIX_OAUTH)) {
+    return value.length >= CREDENTIAL_MIN_LENGTH
+      ? { ok: true, type: 'oauth' }
+      : { ok: false, reason: 'unknown' }
   }
   if (value.startsWith(CREDENTIAL_PREFIX_API_KEY)) return { ok: false, reason: 'api_key' }
   return { ok: false, reason: 'unknown' }

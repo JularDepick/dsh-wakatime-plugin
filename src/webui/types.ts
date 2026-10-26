@@ -65,9 +65,10 @@ export interface WebCredentialResponse {
   error?: string
 }
 
-/* 清除凭证响应 */
+/* 清除凭证响应:失败时给出稳定错误码(如 env_locked) */
 export interface WebCredentialClearResponse {
   ok: boolean
+  error?: string
 }
 
 /* 配置写入响应 */

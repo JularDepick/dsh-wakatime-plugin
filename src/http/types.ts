@@ -18,12 +18,10 @@ export class WakaTimeError extends Error {
   }
 }
 
-/* Authorization 头的构造结果:
-   Basic 值为 API Key 拼接冒号后的 base64(官方插件认证口径),
-   Bearer 值为 OAuth 访问令牌原文;
+/* Authorization 头的构造结果: 0.4.0 起只有 Bearer(值为 OAuth 访问令牌原文);
    定义放在 http 层, 避免 http 反向依赖 auth 层 */
 export interface AuthHeader {
-  scheme: 'Basic' | 'Bearer'
+  scheme: 'Bearer'
   value: string
 }
 

@@ -26,7 +26,7 @@ import {
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import type { PendingHeartbeatState } from '../heartbeat'
 import { loadLegacySnapshots, migrateStoreFile } from '../migrate'
-import { fileMtime, readJsonFile, withFileLock, writeFileAtomic } from '../storage'
+import { backupFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
 import { isMergeSane, mergeStore } from './merge'
@@ -41,7 +41,13 @@ function cloneStore(file: StoreFile): StoreFile {
   return JSON.parse(JSON.stringify(file)) as StoreFile
 }
 
+export interface LocalStoreOptions {
+  /* 警告日志(数据文件无法识别时提示), 缺省时静默 */
+  logger?: { warn?: (message: string) => void }
+}
+
 export class LocalStore {
+  private readonly options: LocalStoreOptions
   /* 初始读取完成前不写入,避免启动瞬间用空文件覆盖历史数据 */
   private ready = false
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -51,20 +57,43 @@ export class LocalStore {
   /* 上次看到的文件 mtime:用于检测其它进程的写入 */
   private mtime: number | null = null
 
-  /* 读取数据文件;旧结构经 migrate 转换, 更早的独立快照在文件缺失时并入 */
+  constructor(options: LocalStoreOptions = {}) {
+    this.options = options
+  }
+
+  /* 读取数据文件;旧结构经 migrate 转换, 更早的独立快照在文件缺失时并入.
+     存在但无法识别的内容先备份再按空数据起步, 不会静默覆盖成空文件 */
   async load(): Promise<void> {
     const path = this.path()
-    const raw = await readJsonFile(path)
-    let data = normalizeStore(raw)
+    const file = await readJsonFileState(path)
+    let data = normalizeStore(file.value)
+    let migratedNow = false
     if (data === null) {
-      data = migrateStoreFile(raw) ?? await loadLegacySnapshots(resolveConfigDir()) ?? emptyStore()
+      const migrated = migrateStoreFile(file.value)
+      if (migrated !== null) {
+        /* 迁移前留底: 回退旧版本或并存运行时仍可人工找回原始结构 */
+        await backupFile(path, 'v2.bak')
+        data = migrated
+        migratedNow = true
+      } else {
+        data = await loadLegacySnapshots(resolveConfigDir())
+        if (data === null) {
+          if (file.state !== 'missing') {
+            /* 损坏或结构未知: 备份原文件后以空数据起步 */
+            await backupFile(path, file.state === 'corrupt' ? 'corrupt.bak' : 'unknown.bak')
+            this.options.logger?.warn?.('[wakatime] data file not recognized, backed up and started empty')
+          }
+          data = emptyStore()
+        }
+      }
     }
     this.data = data
     this.baseline = cloneStore(data)
     this.mtime = await fileMtime(path)
     this.ready = true
-    /* 迁移或首建时把当前结构写回磁盘 */
-    this.scheduleSave()
+    /* 迁移结果立即落盘(不等防抖窗口);其余情况按防抖写回 */
+    if (migratedNow) await this.flush()
+    else this.scheduleSave()
   }
 
   /* 检测其它进程是否写入过数据:有变化时并入内存,返回是否变更 */
@@ -72,9 +101,9 @@ export class LocalStore {
     const path = this.path()
     const mtime = await fileMtime(path)
     if (mtime === null || mtime === this.mtime) return false
-    const raw = await readJsonFile(path)
+    const file = await readJsonFileState(path)
     this.mtime = mtime
-    const disk = normalizeStore(raw) ?? migrateStoreFile(raw)
+    const disk = normalizeStore(file.value) ?? migrateStoreFile(file.value)
     if (disk === null) return false
     this.data = mergeStore(disk, this.data, this.baseline)
     /* 基线对齐到磁盘:保留"本进程未落盘增量"作为下次合并的差额 */
@@ -90,11 +119,6 @@ export class LocalStore {
   /* 本地战绩累计量 */
   stats(): StatsTotals {
     return this.data.stats
-  }
-
-  /* 云端快照 */
-  cloud(): CloudSummary | null {
-    return this.data.cloud
   }
 
   /* 待发送状态 */
@@ -137,8 +161,17 @@ export class LocalStore {
     try {
       await mkdir(dir, { recursive: true, mode: 0o700 })
       await withFileLock(join(dir, BUCKET_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
-        const raw = await readJsonFile(path)
-        const disk = normalizeStore(raw) ?? migrateStoreFile(raw) ?? emptyStore()
+        const file = await readJsonFileState(path)
+        let disk = normalizeStore(file.value)
+        if (disk === null) {
+          const migrated = migrateStoreFile(file.value)
+          if (migrated !== null) disk = migrated
+          else if (file.state === 'missing') disk = emptyStore()
+          else {
+            /* 存在但读不出或结构未知: 放弃本次写入, 避免把可恢复内容覆盖成空 */
+            return
+          }
+        }
         const merged = mergeStore(disk, this.data, this.baseline)
         /* 自检:合并不得让累计量变小,异常时放弃本次写入 */
         if (!isMergeSane(disk, merged)) return

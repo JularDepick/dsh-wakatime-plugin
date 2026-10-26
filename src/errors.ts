@@ -13,8 +13,8 @@ export class NotAuthenticatedError extends Error {
 
 /* 凭证输入失败原因:
    empty 空输入 / client_secret 误填应用密钥 / api_key 误填插件密钥(0.4.0 起不再支持)
-   / unknown_format 无法识别的格式 */
-export type CredentialErrorCode = 'empty' | 'client_secret' | 'api_key' | 'unknown_format'
+   / unknown_format 无法识别的格式 / env_locked 环境变量凭证生效中, 改配置不会生效 */
+export type CredentialErrorCode = 'empty' | 'client_secret' | 'api_key' | 'unknown_format' | 'env_locked'
 
 /* 凭证输入或操作不合法(由小后端映射为可读错误码下发) */
 export class CredentialInputError extends Error {

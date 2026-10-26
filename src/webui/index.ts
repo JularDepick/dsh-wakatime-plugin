@@ -140,6 +140,7 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
     res.end()
     return
   }
+  if (!guardRequest(req, res)) return
   let payload: unknown
   try {
     payload = JSON.parse(await readBody(req))
@@ -169,6 +170,7 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
     res.end()
     return
   }
+  if (!guardRequest(req, res)) return
   let payload: WebCredentialPayload
   try {
     payload = JSON.parse(await readBody(req)) as WebCredentialPayload
@@ -201,7 +203,15 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     res.end()
     return
   }
-  await deps.auth.clearCredential()
+  if (!guardRequest(req, res)) return
+  try {
+    await deps.auth.clearCredential()
+  } catch (error) {
+    /* 环境变量凭证生效时配置文件里的凭证删了也不起作用, 明确拒绝而不是假装成功 */
+    const reason = error instanceof CredentialInputError ? error.code : 'clear failed'
+    writeJson(res, 409, { ok: false, error: reason } satisfies WebCredentialClearResponse)
+    return
+  }
   const body: WebCredentialClearResponse = { ok: true }
   writeJson(res, 200, body)
 }
@@ -257,6 +267,7 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
+  if (!guardRequest(req, res)) return
   if (typeof payload.id !== 'string' || payload.id === '') {
     writeJson(res, 400, { ok: false, error: 'id is required' })
     return
@@ -294,6 +305,30 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
     ok: false,
     error: status.configured ? 'sync failed (network or upstream error)' : 'credential not configured',
   } satisfies WebSyncResponse)
+}
+
+/* 写操作来源校验: 要求 application/json(浏览器的跨站简单请求带不了该类型),
+   并对自带 Origin 的请求校验同源, 防止任意网页清凭证或改开关 */
+function guardRequest(req: IncomingMessage, res: ServerResponse): boolean {
+  const origin = req.headers.origin
+  const host = req.headers.host
+  if (typeof origin === 'string' && origin !== '' && typeof host === 'string') {
+    try {
+      if (new URL(origin).host !== host) {
+        writeJson(res, 403, { ok: false, error: 'origin not allowed' })
+        return false
+      }
+    } catch {
+      writeJson(res, 403, { ok: false, error: 'origin not allowed' })
+      return false
+    }
+  }
+  const contentType = String(req.headers['content-type'] ?? '').toLowerCase()
+  if (!contentType.startsWith('application/json')) {
+    writeJson(res, 415, { ok: false, error: 'content-type must be application/json' })
+    return false
+  }
+  return true
 }
 
 /* 手动同步:URL 携带 force=1 时跳过缓存 */

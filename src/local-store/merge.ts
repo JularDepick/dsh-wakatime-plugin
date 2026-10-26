@@ -47,10 +47,18 @@ function mergeStats(disk: StatsTotals | undefined, memory: StatsTotals | undefin
   return totals
 }
 
-/* 云端快照: 取同步时刻较新者 */
-function mergeCloud(disk: StoreFile['cloud'], memory: StoreFile['cloud']): StoreFile['cloud'] {
+/* 云端快照: 取同步时刻较新者; 本进程主动清空(基线仍有值而内存已空)时以清空为准,
+   否则换账号后作废动作会在落盘合并里被磁盘旧快照复活 */
+function mergeCloud(
+  disk: StoreFile['cloud'],
+  memory: StoreFile['cloud'],
+  baseline: StoreFile['cloud'],
+): StoreFile['cloud'] {
+  if (!memory) {
+    if (baseline) return null
+    return disk
+  }
   if (!disk) return memory
-  if (!memory) return disk
   return memory.syncedAt >= disk.syncedAt ? memory : disk
 }
 
@@ -60,7 +68,7 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
     version: STORE_FILE_VERSION,
     updatedAt: Math.max(disk.updatedAt, memory.updatedAt),
     stats: mergeStats(disk.stats, memory.stats, baseline.stats),
-    cloud: mergeCloud(disk.cloud, memory.cloud),
+    cloud: mergeCloud(disk.cloud, memory.cloud, baseline.cloud),
     pending: {
       queue: mergeList(disk.pending.queue, memory.pending.queue, baseline.pending.queue, heartbeatKeyOf, PENDING_QUEUE_LIMIT),
       failed: mergeList(disk.pending.failed, memory.pending.failed, baseline.pending.failed, (item) => item.id, FAILED_TASK_LIMIT),

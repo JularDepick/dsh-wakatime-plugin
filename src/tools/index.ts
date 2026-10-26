@@ -91,7 +91,14 @@ export class WakatimeTools {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
-        await this.options.auth.clearCredential()
+        try {
+          await this.options.auth.clearCredential()
+        } catch (error) {
+          if (error instanceof CredentialInputError && error.code === 'env_locked') {
+            return translate('credential.errEnvLocked')
+          }
+          throw error
+        }
         return translate('credential.cleared')
       },
     }))
@@ -218,6 +225,7 @@ export class WakatimeTools {
           case 'client_secret': return translate('credential.errClientSecret')
           case 'api_key': return translate('credential.errApiKey')
           case 'unknown_format': return translate('credential.errUnknownFormat')
+          case 'env_locked': return translate('credential.errEnvLocked')
         }
       }
       return translate('credential.errInvalid')

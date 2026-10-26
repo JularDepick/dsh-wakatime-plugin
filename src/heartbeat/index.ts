@@ -79,8 +79,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private report: ReportEntry[] = []
   /* 推送轮重入保护:同一时刻只允许一轮推送 */
   private pushing = false
-  /* 在途推送的完成信号:切换数据桶前用 whenIdle 等待它结算 */
-  private inFlight: Promise<void> | undefined
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -108,20 +106,11 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const size = this.batchSize()
     if (size === 0) return
     this.pushing = true
-    const task = this.deliverBatch(size)
-    this.inFlight = task
     try {
-      await task
+      await this.deliverBatch(size)
     } finally {
       this.pushing = false
-      this.inFlight = undefined
     }
-  }
-
-  /* 等待在途推送结束(无在途时立即返回):切换数据桶前调用,
-     让在途批次的出队/重排/上报记录仍然结算在旧桶 */
-  async whenIdle(): Promise<void> {
-    while (this.inFlight !== undefined) await this.inFlight.catch(() => {})
   }
 
   /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
@@ -139,6 +128,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         return
       }
       const message = (error as Error).message
+      /* 凭证不可用(令牌过期/被撤销/权限不足):与未配置凭证同等待遇,
+         整批放回队首、不计尝试次数, 避免把积压烧进失败列表后按上限丢弃 */
+      if (isCredentialRejected(error)) {
+        this.queue.unshift(...batch)
+        this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+        this.log('warn', `[wakatime] credential rejected, heartbeat kept in queue: ${message}`)
+        return
+      }
       const terminal = isTerminalError(error)
       for (const entry of batch) {
         const attempts = entry.attempts + 1
@@ -176,15 +173,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.queue = [...state.queue.map((entry) => ({ ...entry })), ...this.queue]
     this.failed = [...state.failed.map((task) => ({ ...task })), ...this.failed]
     this.report = [...state.report.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
-    this.compressIfNeeded()
-    this.notifyPending()
-  }
-
-  /* 替换待发送状态(切换数据桶时用:清空后载入目标桶) */
-  replacePending(state: PendingHeartbeatState): void {
-    this.queue = state.queue.map((entry) => ({ ...entry }))
-    this.failed = state.failed.map((task) => ({ ...task }))
-    this.report = state.report.map((entry) => ({ ...entry }))
     this.compressIfNeeded()
     this.notifyPending()
   }
@@ -326,11 +314,16 @@ function detailOf(entries: readonly PendingHeartbeatEntry[]): { detail?: string 
   return detail === '' ? {} : { detail }
 }
 
-/* 终态失败判定:认证/载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */
+/* 凭证被拒判定:401/403 表示当前凭证不可用(过期、撤销、权限不足),
+   心跳应留在队列等待凭证恢复, 而不是按终态失败处理 */
+function isCredentialRejected(error: unknown): boolean {
+  return error instanceof WakaTimeError && (error.status === 401 || error.status === 403)
+}
+
+/* 终态失败判定:载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */
 function isTerminalError(error: unknown): boolean {
   if (!(error instanceof WakaTimeError)) return false
-  return error.status === 400 || error.status === 401 || error.status === 403
-    || error.status === 404 || error.status === 422
+  return error.status === 400 || error.status === 404 || error.status === 422
 }
 
 /* 心跳实体类型与分类的合法取值(恢复快照时的白名单) */

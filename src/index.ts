@@ -72,7 +72,7 @@ export function apply(ctx: Context, config: ConfigType) {
     error: (message: string) => { logger.error?.(message) },
   }
   const auth = new AuthManagerImpl(http, configManager)
-  const store = new LocalStore()
+  const store = new LocalStore({ logger: pluginLogger })
   const heartbeat = new HeartbeatEngineImpl(http, async () => auth.getAuthHeader(), {
     enabled: config.enabled,
     includeTokens: config.includeTokens,

@@ -9,7 +9,7 @@
  * 3. 合并前重读: 调用方持锁期间重新读盘, 以磁盘为基底叠加本进程增量.
  */
 
-import { open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 
 export interface LockOptions {
   /* 锁文件最长存活时长, 超过视为陈旧锁 */
@@ -90,5 +90,35 @@ export async function readJsonFile(path: string): Promise<unknown> {
     return JSON.parse(await readFile(path, 'utf-8'))
   } catch {
     return undefined
+  }
+}
+
+/* 读取状态: 区分"文件不存在"与"存在但读不出或不是合法 JSON",
+   后者不能再被当成空数据覆盖(否则一次读失败就会把历史数据清零) */
+export interface JsonFileState {
+  state: 'missing' | 'ok' | 'corrupt'
+  value?: unknown
+}
+
+export async function readJsonFileState(path: string): Promise<JsonFileState> {
+  let text: string
+  try {
+    text = await readFile(path, 'utf-8')
+  } catch {
+    return { state: 'missing' }
+  }
+  try {
+    return { state: 'ok', value: JSON.parse(text) as unknown }
+  } catch {
+    return { state: 'corrupt' }
+  }
+}
+
+/* 备份一个文件为 <路径>.<后缀>(覆盖同名备份);失败静默, 不阻塞主流程 */
+export async function backupFile(path: string, suffix: string): Promise<void> {
+  try {
+    await copyFile(path, `${path}.${suffix}`)
+  } catch {
+    /* 尽力而为 */
   }
 }

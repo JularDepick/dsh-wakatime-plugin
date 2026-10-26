@@ -9,7 +9,7 @@
  * 归一化只接受当前结构版本, 旧结构交给 migrate 模块处理.
  */
 
-import { CONFIG_FILE_VERSION } from '../constants'
+import { CONFIG_FILE_VERSION, DEFAULT_REPORT_INTERVAL_SECONDS } from '../constants'
 import type { StoredConfig, StoredCredential, StoredSettings } from './types'
 
 /* 数值字段尽力归一: 非有限或负数按缺省处理 */
@@ -50,8 +50,15 @@ export function normalizeStoredConfig(value: unknown): StoredConfig | null {
   if (typeof value !== 'object' || value === null) return null
   const raw = value as Record<string, unknown>
   if (raw.version !== CONFIG_FILE_VERSION) return null
-  const settings = normalizeSettings(raw.settings)
-  if (!settings) return null
+  /* settings 缺失或损坏时用默认值兜底: 凭证比界面设置更重要, 不能因设置块异常而丢凭证 */
+  const settings = normalizeSettings(raw.settings) ?? {
+    enabled: true,
+    reportInterval: DEFAULT_REPORT_INTERVAL_SECONDS,
+    reportEnabled: true,
+    includeTokens: true,
+    includePrompts: true,
+    debug: false,
+  }
   const credential = normalizeCredential(raw.credential)
   return {
     version: CONFIG_FILE_VERSION,

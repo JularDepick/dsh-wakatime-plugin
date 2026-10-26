@@ -103,8 +103,10 @@ export class AuthManagerImpl implements AuthManager {
     return new OauthCredential(secret).authHeader()
   }
 
-  /* 保存凭证:格式校验 -> 服务端验证 -> 覆盖落盘;验证失败不落盘 */
+  /* 保存凭证:格式校验 -> 服务端验证 -> 覆盖落盘;验证失败不落盘.
+     环境变量凭证优先于配置文件, 此时保存不会生效, 直接拒绝并提示移除环境变量 */
   async setCredential(input: string): Promise<SetCredentialResult> {
+    if (this.hasEnvCredential()) throw new CredentialInputError('env_locked')
     const detection = detectCredentialType(input)
     if (!detection.ok) throw new CredentialInputError(detection.reason === 'unknown' ? 'unknown_format' : detection.reason)
     const credential = new OauthCredential(input.trim())
@@ -113,8 +115,10 @@ export class AuthManagerImpl implements AuthManager {
     const stored = (await this.config()) ?? emptyConfig()
     const now = Date.now()
     const existed = stored.credential?.secret === credential.secret
+    /* 换凭证时账号缓存必须整体替换: 解析不到新账号名就清空, 否则会一直显示上一个账号 */
+    const { userId: _oldUserId, username: _oldUsername, ...rest } = stored
     const next: StoredConfig = {
-      ...stored,
+      ...rest,
       version: CONFIG_FILE_VERSION,
       credential: { secret: credential.secret, type: 'oauth', updatedAt: now },
       credentialUpdatedAt: now,
@@ -130,13 +134,19 @@ export class AuthManagerImpl implements AuthManager {
     }
   }
 
-  /* 清除已保存凭证(本地数据保留) */
+  /* 清除已保存凭证(本地数据保留);环境变量凭证生效时无法通过配置清除 */
   async clearCredential(): Promise<void> {
+    if (this.hasEnvCredential()) throw new CredentialInputError('env_locked')
     const stored = await this.config()
     if (!stored || stored.credential === undefined) return
     const { credential: _credential, userId: _userId, username: _username, ...rest } = stored
     const now = Date.now()
     await this.setStored({ ...rest, credentialUpdatedAt: now, accountUpdatedAt: now })
+  }
+
+  /* 环境变量凭证是否生效(优先级高于配置文件) */
+  hasEnvCredential(): boolean {
+    return this.envToken() !== null
   }
 
   async getStatus(): Promise<AuthStatus> {
@@ -176,8 +186,18 @@ export class AuthManagerImpl implements AuthManager {
       USER_INFO_PATH,
       { method: 'GET', auth: header, noRetry: true },
     )
+    /* 校验必须看到身份字段: 网关返回 HTML 或重定向页时 HTTP 仍是 2xx,
+       不能把这种响应当成"凭证有效" */
     const user = data?.data
-    if (!user) return {}
+    if (typeof user !== 'object' || user === null) {
+      throw new WakaTimeError(0, 'unexpected profile response')
+    }
+    const id = typeof user.id === 'string' ? user.id.trim() : ''
+    const hasUsername = typeof user.username === 'string' && user.username.trim() !== ''
+    const hasName = typeof user.full_name === 'string' && user.full_name.trim() !== ''
+    if (id === '' && !hasUsername && !hasName) {
+      throw new WakaTimeError(0, 'unexpected profile response')
+    }
     return { userId: user.id, username: pickUsername(user) }
   }
 

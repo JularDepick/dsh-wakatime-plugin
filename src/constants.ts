@@ -14,9 +14,8 @@ export const FALLBACK_LANGUAGE = 'zh-CN'
 export const CONFIG_DIR_NAME = 'wakatime'
 export const CONFIG_FILE_NAME = 'config.json'
 
-/* 分 Key 数据桶(与配置文件同目录):每个 API Key 一份本地数据(战绩累计、云端快照、
-   待发送队列、失败任务与上报记录),未配置 API Key 期间的数据落在未指派桶;
-   写入防抖(毫秒),避免高频统计变更频繁写盘 */
+/* 本地数据文件(与配置文件同目录):全插件一份数据(战绩累计、云端快照、
+   待发送队列、失败任务与上报记录),与凭证无关;写入防抖(毫秒),避免高频统计变更频繁写盘 */
 /* 数据文件名沿用历史名称(buckets.json), 避免 0.3.0 与 0.4.0 并存时各写一份文件导致数据分裂 */
 export const BUCKET_FILE_NAME = 'buckets.json'
 /* 数据文件结构版本: 0.3.0 为 2(分凭证数据桶), 0.4.0 起为 3(单份本地数据) */
@@ -32,7 +31,7 @@ export const STORAGE_LOCK_TTL_MS = 10_000
 /* 抢锁重试次数与退避基数(按次数线性递增) */
 export const STORAGE_LOCK_RETRIES = 3
 export const STORAGE_LOCK_BACKOFF_MS = 50
-/* 展示用模糊 API Key:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
+/* 展示用模糊凭证:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
 export const KEY_MASK_EDGE_CHARS = 8
 /* 打码中间段固定星号个数(不按实际隐藏位数展开, 避免长度泄露与视觉噪音) */
 export const KEY_MASK_STARS = 8

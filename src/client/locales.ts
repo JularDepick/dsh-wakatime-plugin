@@ -25,11 +25,14 @@ export type WakatimeKey =
   | 'credential.replaced'
   | 'credential.clear'
   | 'credential.clearConfirm'
+  | 'credential.clearFailed'
+  | 'credential.cleared'
   | 'credential.errEmpty'
   | 'credential.errClientSecret'
   | 'credential.errApiKey'
   | 'credential.errUnknownFormat'
   | 'credential.errInvalid'
+  | 'credential.errEnvLocked'
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
@@ -114,11 +117,14 @@ export const zh: WakatimeDict = {
   'credential.replaced': '凭证已保存',
   'credential.clear': '清除凭证',
   'credential.clearConfirm': '确认清除?',
+  'credential.clearFailed': '清除凭证失败, 请稍后重试',
+  'credential.cleared': '已清除凭证, 本地战绩保留',
   'credential.errEmpty': '凭证不能为空',
   'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 不能当凭证使用; 访问令牌请到 https://wakatime.com/oauth 获取',
   'credential.errApiKey': '插件密钥不再支持, 请改用个人 OAuth 访问令牌(在 https://wakatime.com/oauth 获取)',
   'credential.errUnknownFormat': '无法识别的凭证格式: OAuth 令牌以 waka_tok_ 开头',
   'credential.errInvalid': '凭证无效或验证失败',
+  'credential.errEnvLocked': '环境变量 WAKATIME_OAUTH_TOKEN 生效中, 其优先级高于本地保存; 请先移除该变量再重启 dsh',
   'stats.title': 'Agent 协作战绩',
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
@@ -201,11 +207,14 @@ export const en: WakatimeDict = {
   'credential.replaced': 'Credential saved',
   'credential.clear': 'Clear credential',
   'credential.clearConfirm': 'Confirm clear?',
+  'credential.clearFailed': 'Failed to clear the credential, please retry',
+  'credential.cleared': 'Credential cleared; local stats are kept',
   'credential.errEmpty': 'The credential must not be empty',
   'credential.errClientSecret': 'This is an OAuth client secret and cannot be used as a credential; get an access token at https://wakatime.com/oauth',
   'credential.errApiKey': 'Plugin keys are no longer supported; use a personal OAuth access token from https://wakatime.com/oauth',
   'credential.errUnknownFormat': 'Unrecognized credential format: OAuth tokens start with waka_tok_',
   'credential.errInvalid': 'Credential invalid or verification failed',
+  'credential.errEnvLocked': 'WAKATIME_OAUTH_TOKEN is set and takes precedence over the saved credential; remove it and restart dsh',
   'stats.title': 'Agent collaboration battle stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',
