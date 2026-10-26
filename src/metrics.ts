@@ -36,8 +36,14 @@ export function averageOutputSpeed(outputTokens: number, thinkingMs: number): nu
   return Math.floor(outputTokens / (thinkingMs / 1000))
 }
 
-/* API 有效 TOKEN 消耗:输入 + 输出(官方 Heartbeat 仅 ai_input_tokens/ai_output_tokens,
-   缓存命中 Token 无官方字段,不并入) */
-export function effectiveTokens(stats: { inputTokens: number; outputTokens: number }): number {
-  return stats.inputTokens + stats.outputTokens
+/* API 有效 TOKEN 消耗:按官方计费口径, 计费输入为三个互斥计数之和
+   (未命中输入 + 缓存读 + 缓存写), 再加输出;
+   官方 TokenUsage 声明这三个计数字段互斥, 故缓存命中必须并入, 否则会大幅低报 */
+export function effectiveTokens(stats: {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}): number {
+  return stats.inputTokens + (stats.cacheReadTokens ?? 0) + (stats.cacheWriteTokens ?? 0) + stats.outputTokens
 }

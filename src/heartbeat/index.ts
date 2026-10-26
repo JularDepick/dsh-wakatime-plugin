@@ -282,8 +282,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     if (this.options.includeTokens) {
       copy.ai_input_tokens = heartbeat.ai_input_tokens
       copy.ai_output_tokens = heartbeat.ai_output_tokens
-      /* 缓存命中 TOKEN 随 Token 用量字段一并裁剪(自定义扩展字段,官方无对应项) */
-      copy.ai_cache_read_tokens = heartbeat.ai_cache_read_tokens
+      /* 缓存命中 TOKEN 随 Token 用量字段一并裁剪(官方统计字段名 ai_cached_input_tokens) */
+      copy.ai_cached_input_tokens = heartbeat.ai_cached_input_tokens
     }
     if (this.options.includePrompts) {
       copy.ai_prompt_length = heartbeat.ai_prompt_length
@@ -338,7 +338,7 @@ const ENTITY_TYPES: readonly HeartbeatEntityType[] = ['file', 'app', 'domain', '
 const CATEGORIES: readonly HeartbeatCategory[] = ['coding', 'debugging', 'researching', 'ai coding', 'learning']
 /* 快照中的字符串字段与数值字段白名单(其余字段一律丢弃) */
 const STRING_FIELDS = ['project', 'branch', 'ai_session', 'machine_name', 'language'] as const
-const NUMBER_FIELDS = ['ai_input_tokens', 'ai_output_tokens', 'ai_prompt_length', 'ai_line_changes', 'ai_cache_read_tokens', 'lines'] as const
+const NUMBER_FIELDS = ['ai_input_tokens', 'ai_output_tokens', 'ai_prompt_length', 'ai_line_changes', 'ai_cached_input_tokens', 'lines'] as const
 
 /* 单条心跳归一化:只接受白名单字段与合法类型,损坏或被篡改的文件内容不会进入上报载荷 */
 function normalizeHeartbeat(value: unknown): Heartbeat | undefined {

@@ -11,10 +11,10 @@ export class NotAuthenticatedError extends Error {
   }
 }
 
-/* 凭证操作失败原因:
-   empty 空输入 / client_secret 误填应用密钥 / unknown_format 无法识别的格式
-   not_found 凭证不存在 / active 该凭证正被使用,须先切换 */
-export type CredentialErrorCode = 'empty' | 'client_secret' | 'unknown_format' | 'not_found' | 'active'
+/* 凭证输入失败原因:
+   empty 空输入 / client_secret 误填应用密钥 / api_key 误填插件密钥(0.4.0 起不再支持)
+   / unknown_format 无法识别的格式 */
+export type CredentialErrorCode = 'empty' | 'client_secret' | 'api_key' | 'unknown_format'
 
 /* 凭证输入或操作不合法(由小后端映射为可读错误码下发) */
 export class CredentialInputError extends Error {

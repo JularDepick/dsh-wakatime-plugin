@@ -6,7 +6,7 @@
  * - user/message:记录提示词长度与 Token 估算(计入会话战绩)
  * - step/start + assistant/message(携带计时流 stream):fold 每步思考时长
  *   (步骤开始 → 首个输出 token)
- * - assistant/message:以 AI 编码类别入队主心跳(携带 Token 用量与提示词长度),
+ * - assistant/message:以 AI 编码类别入队主心跳(携带 Token 用量与提示词字符增量),
  *   并结算该步思考时长
  * - tool/call:以调试类别入队轻量心跳
  * 心跳一律入队本地缓冲,由定时器批量上报(不事件即发)。
@@ -39,8 +39,11 @@ function stepKey(sessionId: string, turn: number, step: number): string {
 
 export class SessionEventCollector {
   private readonly options: CollectorOptions
-  /* 各会话最近一次提示词长度(字符) */
+  /* 各会话最近一次提示词长度(字符):供战绩累计口径使用 */
   private readonly promptLengths = new Map<string, number>()
+  /* 各会话待上报的提示词字符数:官方 ai_prompt_length 的口径是"自上次心跳以来新增的字符数",
+     故一个 turn 的多条 assistant 心跳只在首条携带一次增量,避免同一提示词被重复累加 */
+  private readonly pendingPromptChars = new Map<string, number>()
   /* 各会话进行中的步骤计时 */
   private readonly stepTimings = new Map<string, StepTiming>()
 
@@ -62,6 +65,8 @@ export class SessionEventCollector {
         const promptLength = readPromptLength(session, event)
         this.promptLengths.set(session.id, promptLength)
         this.options.stats.recordUserMessage(session.id, promptLength, estimateTokens(promptLength))
+        /* 增量登记:由随后的首条 assistant 心跳带走(被中断的 turn 顺延到下一次心跳) */
+        this.pendingPromptChars.set(session.id, (this.pendingPromptChars.get(session.id) ?? 0) + promptLength)
         break
       }
       case 'step/start': {
@@ -100,15 +105,21 @@ export class SessionEventCollector {
           project: project.project,
           branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
-          ai_prompt_length: promptLength,
           machine_name: machineName(),
         }
         if (usage) {
           heartbeat.ai_input_tokens = usage.inputTokens
           heartbeat.ai_output_tokens = usage.outputTokens
-          /* 缓存命中 TOKEN(输入侧命中提示词缓存的量):官方心跳字段表无对应项,
-             按自定义扩展字段上报;官方计数字段互斥,inputTokens 本身不含缓存命中量 */
-          heartbeat.ai_cache_read_tokens = usage.cacheReadTokens
+          /* 缓存命中 TOKEN(输入侧命中提示词缓存的量):用官方统计字段名上报;
+             官方计数字段互斥,inputTokens 本身不含缓存命中量 */
+          heartbeat.ai_cached_input_tokens = usage.cacheReadTokens
+        }
+        /* 提示词字符增量:无新增时不发该字段, 云端 ai_prompt_events_total 也据此计数,
+           避免一个 turn 的多条心跳被记成多次提示词 */
+        const pendingPromptChars = this.pendingPromptChars.get(session.id) ?? 0
+        if (pendingPromptChars > 0) {
+          this.pendingPromptChars.delete(session.id)
+          heartbeat.ai_prompt_length = pendingPromptChars
         }
         this.options.heartbeat.enqueue(heartbeat)
         break

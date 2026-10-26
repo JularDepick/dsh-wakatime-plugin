@@ -3,17 +3,19 @@
  * 作者: JularDepick
  *
  * 凭证与配置以 JSON 持久化于用户目录(默认 ~/.dsh/plugins/wakatime/config.json),
- * 目录与文件权限尽力收紧。
+ * 目录与文件权限尽力收紧. 本地只保存一份 OAuth 凭证.
  * 同一数据目录可能被多个 dsh profile 进程同时写入, 因此:
- * - 写操作先抢文件锁, 持锁后重读磁盘并与本次写入按 id 并集合并;
+ * - 写操作先抢文件锁, 持锁后重读磁盘并与本次写入按变更时刻合并;
  * - 写入走临时文件 + rename 原子替换;
- * - refresh() 按 mtime 检测其它进程的改动, 供读取面按需同步.
+ * - refresh() 按 mtime 检测其它进程的改动, 供读取面按需同步;
+ * - 读取时若当前结构归一化失败, 交给 migrate 模块做一次性迁移并立即落盘.
  */
 
 import { chmod, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
+import { migrateStoredConfig } from '../migrate'
 import { fileMtime, readJsonFile, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
@@ -38,6 +40,11 @@ function configPath(): string {
   return join(resolveConfigDir(), CONFIG_FILE_NAME)
 }
 
+/* 读取磁盘内容并归一化:当前结构直接返回, 旧结构交给迁移模块 */
+function readConfigValue(raw: unknown): StoredConfig | null {
+  return normalizeStoredConfig(raw) ?? migrateStoredConfig(raw)
+}
+
 export class ConfigManagerImpl implements ConfigManager {
   /* 串行化本进程内的写操作 */
   private writeQueue: Promise<unknown> = Promise.resolve()
@@ -47,10 +54,16 @@ export class ConfigManagerImpl implements ConfigManager {
 
   async load(): Promise<StoredConfig | null> {
     const path = configPath()
-    const parsed = normalizeStoredConfig(await readJsonFile(path))
-    this.lastKnown = parsed
+    const raw = await readJsonFile(path)
+    const current = normalizeStoredConfig(raw)
+    if (current === null) {
+      /* 旧结构:迁移后立即落盘(写入路径自带锁、合并与原子替换) */
+      const migrated = migrateStoredConfig(raw)
+      if (migrated !== null) return this.save(migrated)
+    }
+    this.lastKnown = current
     this.mtime = await fileMtime(path)
-    return parsed
+    return current
   }
 
   save(config: StoredConfig): Promise<StoredConfig> {
@@ -59,8 +72,8 @@ export class ConfigManagerImpl implements ConfigManager {
       const path = configPath()
       await mkdir(dir, { recursive: true, mode: 0o700 })
       const merged = await withFileLock(join(dir, CONFIG_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
-        /* 持锁后重读:其它进程可能刚写入过凭证或切换过激活项 */
-        const disk = normalizeStoredConfig(await readJsonFile(path))
+        /* 持锁后重读:其它进程可能刚写入过凭证或改过设置 */
+        const disk = readConfigValue(await readJsonFile(path))
         const result = mergeConfig(disk ?? this.lastKnown, config)
         await writeFileAtomic(path, JSON.stringify(result, null, 2))
         this.lastKnown = result
@@ -79,15 +92,14 @@ export class ConfigManagerImpl implements ConfigManager {
     const path = configPath()
     const mtime = await fileMtime(path)
     if (mtime === null || mtime === this.mtime) return null
-    const disk = normalizeStoredConfig(await readJsonFile(path))
+    const disk = readConfigValue(await readJsonFile(path))
     this.mtime = mtime
     if (!disk) return null
-    /* 并集合并:外部新增的凭证与本次内存变化都要保留 */
+    /* 按变更时刻合并:外部新增的凭证与本次内存变化都要保留 */
     const merged = this.lastKnown === null ? disk : mergeConfig(disk, this.lastKnown)
     this.lastKnown = merged
     return merged
   }
-
 }
 
 /* POSIX 下显式收紧目录与文件权限(已存在文件的 mode 不会因写入而改变);
@@ -102,4 +114,4 @@ export async function hardenPathPermissions(dir: string, path: string): Promise<
   }
 }
 
-export type { ConfigManager, StoredConfig, StoredCredentialRecord } from './types'
+export type { ConfigManager, StoredConfig, StoredCredential, StoredSettings } from './types'

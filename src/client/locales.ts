@@ -14,29 +14,22 @@ export type WakatimeKey =
   | 'status.account'
   | 'status.loggedInAs'
   | 'credential.title'
-  | 'credential.count'
-  | 'credential.activeType'
   | 'credential.fromEnv'
   | 'credential.add'
   | 'credential.save'
   | 'credential.placeholder'
-  | 'credential.hintApiKey'
   | 'credential.hintOauth'
+  | 'credential.hintOauthScopes'
   | 'credential.overwrite'
+  | 'credential.updatedAt'
+  | 'credential.replaced'
   | 'credential.clear'
   | 'credential.clearConfirm'
-  | 'credential.current'
-  | 'credential.switch'
-  | 'credential.remove'
-  | 'credential.removeConfirm'
-  | 'credential.typeApiKey'
-  | 'credential.typeOauth'
   | 'credential.errEmpty'
   | 'credential.errClientSecret'
+  | 'credential.errApiKey'
   | 'credential.errUnknownFormat'
   | 'credential.errInvalid'
-  | 'credential.errNotFound'
-  | 'credential.errActive'
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
@@ -54,9 +47,6 @@ export type WakatimeKey =
   | 'stats.noteAvgOutputSpeed'
   | 'stats.cacheHitTokens'
   | 'stats.noteCacheHitTokens'
-  | 'stats.scope'
-  | 'stats.scopeAll'
-  | 'stats.scopeCurrent'
   | 'cloud.sync'
   | 'cloud.syncing'
   | 'cloud.syncedAt'
@@ -88,31 +78,15 @@ export type WakatimeKey =
   | 'config.includePrompts'
   | 'config.debug'
   | 'config.tableBorders'
-  | 'config.statsScope'
-  | 'config.statsScopeAll'
-  | 'config.statsScopeCurrent'
   | 'config.digitGrouping'
   | 'config.digitGroupingThousand'
   | 'config.digitGroupingMyriad'
-  | 'buckets.title'
-  | 'buckets.hint'
-  | 'buckets.empty'
-  | 'buckets.stale'
-  | 'buckets.recent'
-  | 'buckets.updatedAt'
-  | 'buckets.remove'
-  | 'buckets.removeConfirm'
-  | 'buckets.removeFailed'
-  | 'buckets.errInUse'
-  | 'buckets.errRecent'
-  | 'buckets.errMissing'
   | 'config.saving'
   | 'config.instantHint'
   | 'config.groupReporting'
   | 'config.groupPayload'
   | 'config.groupDisplay'
   | 'config.groupDiagnostics'
-  | 'credential.hintOauthScopes'
   | 'credential.accountUnknown'
   | 'config.saveFailed'
   | 'action.refresh'
@@ -128,31 +102,23 @@ export const zh: WakatimeDict = {
   'status.account': '当前账号',
   'status.loggedInAs': '已登录: {name}',
   'credential.title': '凭证',
-  'credential.count': '已存凭证',
-  'credential.activeType': '当前凭证',
   'credential.fromEnv': '由环境变量提供',
-  'credential.add': '新增凭证',
-  'credential.save': '保存凭证',
-  'credential.placeholder': '粘贴插件密钥或 OAuth 访问令牌…',
-  'credential.hintApiKey': '插件密钥: 登录后访问 wakatime.com/settings/api-key 获取。',
+  'credential.add': '保存或更换凭证',
+  'credential.save': '保存',
+  'credential.placeholder': '粘贴 OAuth 访问令牌…',
   'credential.hintOauth': 'OAuth 令牌: 登录后访问 wakatime.com/oauth 获取, 自用无需创建应用。',
   'credential.hintOauthScopes': '需要自定义 scope 或供他人使用时, 在 wakatime.com/apps 创建应用, 授权时用 scope 参数申请 write_heartbeats、read_summaries、email。',
   'credential.accountUnknown': '未知',
-  'credential.overwrite': '类型按前缀自动识别(无需选择), 仅覆盖、不可查看。',
-  'credential.clear': '清除全部凭证',
-  'credential.clearConfirm': '确认清除全部?',
-  'credential.current': '使用中',
-  'credential.switch': '切换',
-  'credential.remove': '移除凭证',
-  'credential.removeConfirm': '确认移除?',
-  'credential.typeApiKey': '插件密钥',
-  'credential.typeOauth': 'OAuth 令牌',
+  'credential.overwrite': '只保存 OAuth 访问令牌, 仅覆盖不可查看; 更换凭证后本地战绩保留。',
+  'credential.updatedAt': '凭证更新时间',
+  'credential.replaced': '凭证已保存',
+  'credential.clear': '清除凭证',
+  'credential.clearConfirm': '确认清除?',
   'credential.errEmpty': '凭证不能为空',
   'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 不能当凭证使用; 访问令牌请到 https://wakatime.com/oauth 获取',
-  'credential.errUnknownFormat': '无法识别的凭证格式: 插件密钥以 waka_ 开头, OAuth 令牌以 waka_tok_ 开头',
+  'credential.errApiKey': '插件密钥不再支持, 请改用个人 OAuth 访问令牌(在 https://wakatime.com/oauth 获取)',
+  'credential.errUnknownFormat': '无法识别的凭证格式: OAuth 令牌以 waka_tok_ 开头',
   'credential.errInvalid': '凭证无效或验证失败',
-  'credential.errNotFound': '凭证不存在',
-  'credential.errActive': '该凭证正在使用, 请先切换到其它凭证',
   'stats.title': 'Agent 协作战绩',
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
@@ -166,13 +132,10 @@ export const zh: WakatimeDict = {
   'stats.colNote': '备注',
   'stats.noteThinking': '步骤开始至首 TOKEN 输出',
   'stats.noteOutput': '官方 ai_output_tokens',
-  'stats.noteApiEffective': '输入输出总量,缓存命中不计入',
+  'stats.noteApiEffective': '未命中输入 + 缓存读写 + 输出',
   'stats.noteAvgOutputSpeed': 'TOKEN 输出速度',
   'stats.cacheHitTokens': '缓存命中 TOKEN 总量',
   'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN',
-  'stats.scope': '战绩显示策略',
-  'stats.scopeAll': '全部凭证战绩',
-  'stats.scopeCurrent': '当前凭证战绩',
   'cloud.sync': '同步',
   'cloud.syncing': '同步中…',
   'cloud.syncedAt': '同步时间',
@@ -204,24 +167,9 @@ export const zh: WakatimeDict = {
   'config.includePrompts': '上报提示词长度',
   'config.debug': '调试日志',
   'config.tableBorders': '显示表格边框',
-  'config.statsScope': '战绩显示策略',
-  'config.statsScopeAll': '全部凭证战绩',
-  'config.statsScopeCurrent': '当前凭证战绩',
   'config.digitGrouping': '数位分隔符',
   'config.digitGroupingThousand': '千位',
   'config.digitGroupingMyriad': '万位',
-  'buckets.title': '凭证缓存',
-  'buckets.hint': '每份凭证各自一份本地缓存(战绩累计、云端快照与待发送心跳);非当前凭证可切换或移除',
-  'buckets.empty': '暂无凭证缓存',
-  'buckets.stale': '30 天未更新',
-  'buckets.recent': '近期更新',
-  'buckets.updatedAt': '最后更新',
-  'buckets.remove': '移除缓存',
-  'buckets.removeConfirm': '确认移除',
-  'buckets.removeFailed': '移除缓存失败',
-  'buckets.errInUse': '当前凭证的缓存不可移除,请先切换或清除凭证',
-  'buckets.errRecent': '该凭证 30 天内仍在使用,暂不可移除',
-  'buckets.errMissing': '该缓存已不存在,已刷新列表',
   'config.saving': '保存中…',
   'config.instantHint': '修改立即生效',
   'config.groupReporting': '上报',
@@ -241,31 +189,23 @@ export const en: WakatimeDict = {
   'status.account': 'Current account',
   'status.loggedInAs': 'Logged in as {name}',
   'credential.title': 'Credential',
-  'credential.count': 'Saved credentials',
-  'credential.activeType': 'Active credential',
   'credential.fromEnv': 'Provided by environment',
-  'credential.add': 'Add credential',
-  'credential.save': 'Save credential',
-  'credential.placeholder': 'Paste a plugin key or OAuth access token…',
-  'credential.hintApiKey': 'Plugin key: open wakatime.com/settings/api-key while signed in.',
+  'credential.add': 'Save or replace credential',
+  'credential.save': 'Save',
+  'credential.placeholder': 'Paste an OAuth access token…',
   'credential.hintOauth': 'OAuth token: open wakatime.com/oauth while signed in; no app is needed for personal use.',
   'credential.hintOauthScopes': 'To pick custom scopes or act for others, create an app at wakatime.com/apps and request write_heartbeats, read_summaries and email via the scope argument.',
   'credential.accountUnknown': 'Unknown',
-  'credential.overwrite': 'Type is detected from the prefix, no selection needed; overwrite only, never shown.',
-  'credential.clear': 'Clear all credentials',
-  'credential.clearConfirm': 'Confirm clear all?',
-  'credential.current': 'In use',
-  'credential.switch': 'Switch',
-  'credential.remove': 'Remove credential',
-  'credential.removeConfirm': 'Confirm remove?',
-  'credential.typeApiKey': 'Plugin key',
-  'credential.typeOauth': 'OAuth token',
+  'credential.overwrite': 'OAuth access token only, overwrite-only and never shown; local stats are kept after replacing it.',
+  'credential.updatedAt': 'Credential updated at',
+  'credential.replaced': 'Credential saved',
+  'credential.clear': 'Clear credential',
+  'credential.clearConfirm': 'Confirm clear?',
   'credential.errEmpty': 'The credential must not be empty',
   'credential.errClientSecret': 'This is an OAuth client secret and cannot be used as a credential; get an access token at https://wakatime.com/oauth',
-  'credential.errUnknownFormat': 'Unrecognized credential format: plugin keys start with waka_, OAuth tokens start with waka_tok_',
+  'credential.errApiKey': 'Plugin keys are no longer supported; use a personal OAuth access token from https://wakatime.com/oauth',
+  'credential.errUnknownFormat': 'Unrecognized credential format: OAuth tokens start with waka_tok_',
   'credential.errInvalid': 'Credential invalid or verification failed',
-  'credential.errNotFound': 'Credential not found',
-  'credential.errActive': 'This credential is in use; switch to another one first',
   'stats.title': 'Agent collaboration battle stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',
@@ -279,13 +219,10 @@ export const en: WakatimeDict = {
   'stats.colNote': 'Note',
   'stats.noteThinking': 'Step start to first TOKEN output',
   'stats.noteOutput': 'Official ai_output_tokens',
-  'stats.noteApiEffective': 'Input and output total; cache hits excluded',
+  'stats.noteApiEffective': 'Uncached input + cache read/write + output',
   'stats.noteAvgOutputSpeed': 'TOKEN output speed',
   'stats.cacheHitTokens': 'Cache hit TOKEN total',
   'stats.noteCacheHitTokens': 'Input TOKENs served from the prompt cache',
-  'stats.scope': 'Stats display scope',
-  'stats.scopeAll': 'All credentials',
-  'stats.scopeCurrent': 'Current credential',
   'cloud.sync': 'Sync',
   'cloud.syncing': 'Syncing…',
   'cloud.syncedAt': 'Synced at',
@@ -317,24 +254,9 @@ export const en: WakatimeDict = {
   'config.includePrompts': 'Report prompt length',
   'config.debug': 'Debug logging',
   'config.tableBorders': 'Show table borders',
-  'config.statsScope': 'Stats display scope',
-  'config.statsScopeAll': 'All credentials',
-  'config.statsScopeCurrent': 'Current credential',
   'config.digitGrouping': 'Digit grouping',
   'config.digitGroupingThousand': 'Thousands',
   'config.digitGroupingMyriad': 'Ten thousands',
-  'buckets.title': 'Credential caches',
-  'buckets.hint': 'Each credential keeps its own local cache (stats totals, cloud snapshot, pending heartbeats); a non-active credential can be switched or removed',
-  'buckets.empty': 'No credential cache yet',
-  'buckets.stale': 'Unused for 30 days',
-  'buckets.recent': 'Updated recently',
-  'buckets.updatedAt': 'Last updated',
-  'buckets.remove': 'Remove cache',
-  'buckets.removeConfirm': 'Confirm removal',
-  'buckets.removeFailed': 'Failed to remove cache',
-  'buckets.errInUse': 'The active credential cache cannot be removed; switch or clear the credential first',
-  'buckets.errRecent': 'This credential was still in use within the last 30 days, so it cannot be removed yet',
-  'buckets.errMissing': 'That cache no longer exists; the list has been refreshed',
   'config.saving': 'Saving…',
   'config.instantHint': 'Changes apply immediately',
   'config.groupReporting': 'Reporting',

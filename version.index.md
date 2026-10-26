@@ -15,12 +15,13 @@ src/translation/en-US.ini:2
 src/translation/.example_zh-CN.ini:2
 README.md:5
 README_en-US.md:5
-AGENTS.md:432  # 版本号索引段的当前版本
-AGENTS.md:436  # 0.2.2 已定版条目
-AGENTS.md:437  # 0.3.0 开发中条目
-AGENTS.md:459  # 项目启动段的当前版本
-README.md:46
-README_en-US.md:46
+AGENTS.md:433  # 版本号索引段的当前版本
+AGENTS.md:437  # 0.2.2 已定版条目
+AGENTS.md:438  # 0.3.0 已定版条目
+AGENTS.md:439  # 0.4.0 开发中条目
+AGENTS.md:461  # 项目启动段的当前版本
+README.md:45
+README_en-US.md:45
 # 版本文档(v*-*.md)按版本新建,旧版本文档不重命名,故不在同步清单内
 
 <!-- 允许Agent继续新增需要被同步更新版本号的地方(只登记被git追踪的文件) -->

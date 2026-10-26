@@ -9,6 +9,7 @@
 
 import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
+import { CONFIG_FILE_VERSION } from './constants'
 
 /* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
 /* 配置值范围校验:返回不合法的键名, 合法时返回 null(Web 与工具两条写入通道共用) */
@@ -21,7 +22,7 @@ export function validateConfigPatch(patch: WebConfigPatch): string | null {
 export type WebConfigPatch = Partial<Pick<
   Config,
   'enabled' | 'reportInterval' | 'reportEnabled'
-  | 'includeTokens' | 'includePrompts' | 'debug' | 'tableBorders' | 'statsScope' | 'digitGrouping'
+  | 'includeTokens' | 'includePrompts' | 'debug' | 'tableBorders' | 'digitGrouping'
 >>
 
 /* settings 块中与 Config 字段一致的持久化形态(可缺省,缺失表示未覆盖) */
@@ -78,12 +79,16 @@ export class RuntimeConfig {
       includePrompts: this.current.includePrompts,
       debug: this.current.debug,
       tableBorders: this.current.tableBorders,
-      statsScope: this.current.statsScope,
       digitGrouping: this.current.digitGrouping,
       /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
       locale: this.current.locale,
     }
-    await this.configManager.save({ ...(stored ?? {}), settings, settingsUpdatedAt: Date.now() })
+    await this.configManager.save({
+      ...(stored ?? { version: CONFIG_FILE_VERSION, settings }),
+      version: CONFIG_FILE_VERSION,
+      settings,
+      settingsUpdatedAt: Date.now(),
+    })
   }
 
   private notify(): void {

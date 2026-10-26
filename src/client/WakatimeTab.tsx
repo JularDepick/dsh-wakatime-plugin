@@ -3,11 +3,11 @@
  * 作者: JularDepick
  *
  * Agent 协作战绩(全局):提示词字符总量(官方 ai_prompt_length 口径)、
- * 模型思考总时长、输出 TOKEN 总量、有效 TOKEN 消耗量(输入+输出)、
+ * 模型思考总时长、输出 TOKEN 总量、有效 TOKEN 消耗量(官方计费口径)、
  * 平均输出速度(输出 TOKEN ÷ 思考秒数,向下取整)等;
- * API Key 覆盖管理(小后端代理,仅覆盖不可查看);
+ * 单份 OAuth 凭证管理(小后端代理,仅覆盖不可查看;更换凭证后本地战绩保留);
  * 上报记录日志(可展开/收起,调试级);主视图工具条左侧带只读账号状态,
- * API Key 变更与上报参数同属配置,由右上角按钮切换出的配置视图承载(ESC 切回主视图)。
+ * 凭证变更与上报参数同属配置,由右上角按钮切换出的配置视图承载(ESC 切回主视图)。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
  * 语言跟随 dsh web UI 语言切换(字典经 locale 座位注入)。
  * 版式:内容直接铺在 tab 下,不再自建卡片(分区之间用分隔线区分),
@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { DIGIT_GROUP_SIZES } from '../constants'
 import type { DigitGrouping } from '../config'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
-import type { WebBucketEntry, WebBucketRemoveResponse, WebBucketsResponse, WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
+import type { WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -40,7 +40,6 @@ interface ConfigDraft {
   includePrompts: boolean
   debug: boolean
   tableBorders: boolean
-  statsScope: 'all' | 'current'
   /* 数位分隔符:千位(3 位一组)/ 万位(4 位一组),纯展示项 */
   digitGrouping: DigitGrouping
 }
@@ -54,14 +53,10 @@ interface Notice {
 const STATUS_PATH = '/api/wakatime/status'
 const CONFIG_PATH = '/api/wakatime/config'
 const CREDENTIAL_PATH = '/api/wakatime/credential'
-const CREDENTIAL_SWITCH_PATH = '/api/wakatime/credential/switch'
-const CREDENTIAL_REMOVE_PATH = '/api/wakatime/credential/remove'
 const CREDENTIAL_CLEAR_PATH = '/api/wakatime/credential/clear'
 const LOGS_PATH = '/api/wakatime/logs'
 const SYNC_PATH = '/api/wakatime/sync'
 const RETRY_PATH = '/api/wakatime/retry'
-const BUCKETS_PATH = '/api/wakatime/buckets'
-const BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 
 /** 清除确认与提示停留时长:与官方 Toast 默认一致(1000ms 淡出另计) */
 const CONFIRM_MS = 3000
@@ -101,10 +96,8 @@ const CONFIG_PANEL_ID = 'wakatime-config-panel'
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
   const [draft, setDraft] = useState<ConfigDraft | null>(null)
-  /* 输入框内容(插件密钥或 OAuth 访问令牌,类型由前缀自动识别) */
+  /* 输入框内容(只接受 OAuth 访问令牌) */
   const [credentialInput, setCredentialInput] = useState('')
-  /* 等待二次确认移除的凭证/缓存标识 */
-  const [credentialConfirm, setCredentialConfirm] = useState<string | undefined>(undefined)
   const [logs, setLogs] = useState<readonly WebLogEntry[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
   const [loadError, setLoadError] = useState<string>()
@@ -118,24 +111,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 配置视图开关(右上角按钮切换 tab 内容,ESC 切回主视图) */
   const [configOpen, setConfigOpen] = useState(false)
   const configToggleRef = useRef<HTMLButtonElement | null>(null)
-  /* API Key 缓存明细(展开时才拉取):null 表示尚未拉取 */
-  const [buckets, setBuckets] = useState<WebBucketEntry[] | null>(null)
-  const [bucketsOpen, setBucketsOpen] = useState(false)
-  /* 移除某个 Key 缓存的二次确认(3 秒内再次点击确认,超时回归) */
-  const [bucketConfirm, setBucketConfirm] = useState<string | undefined>(undefined)
-
-  /* 移除确认超时回归(缓存与凭证共用同一套二次确认规则) */
-  useEffect(() => {
-    if (bucketConfirm === undefined) return
-    const timer = setTimeout(() => { setBucketConfirm(undefined) }, CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [bucketConfirm])
-
-  useEffect(() => {
-    if (credentialConfirm === undefined) return
-    const timer = setTimeout(() => { setCredentialConfirm(undefined) }, CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [credentialConfirm])
 
   /* 清除确认超时回归 */
   useEffect(() => {
@@ -166,7 +141,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     return () => { window.removeEventListener('keydown', onKeyDown, true) }
   }, [configOpen])
 
-  /* 清除全部已存凭证(回退未登录;本地缓存保留)并刷新状态 */
+  /* 清除已保存凭证(回退未配置;本地战绩保留)并刷新状态 */
   const clearCredentials = (): void => {
     if (!clearConfirm) {
       setClearConfirm(true)
@@ -223,111 +198,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const credentialErrorText = (code: string | undefined): string => {
     if (code === 'empty') return t('credential.errEmpty')
     if (code === 'client_secret') return t('credential.errClientSecret')
+    if (code === 'api_key') return t('credential.errApiKey')
     if (code === 'unknown_format') return t('credential.errUnknownFormat')
-    if (code === 'not_found') return t('credential.errNotFound')
-    if (code === 'active') return t('credential.errActive')
     /* 未知错误码不再直显服务端英文原文 */
     return t('credential.errInvalid')
-  }
-
-  /* 切换激活凭证:切换后重新拉取清单与状态(每份凭证一个数据桶) */
-  const switchCredential = (id: string): void => {
-    fetch(CREDENTIAL_SWITCH_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-      .then(async (response) => {
-        const result = await response.json() as { ok: boolean; error?: string }
-        if (!response.ok || !result.ok) throw new Error(credentialErrorText(result.error))
-        return result
-      })
-      .then(() => {
-        clearSynced()
-        setCloudState('idle')
-        loadBuckets()
-        setTick((value) => value + 1)
-      })
-      .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
-  }
-
-  /* 移除一份凭证(连同其本地缓存):二次确认在同一按钮上完成 */
-  const removeCredential = (id: string): void => {
-    if (credentialConfirm !== id) {
-      setCredentialConfirm(id)
-      return
-    }
-    setCredentialConfirm(undefined)
-    fetch(CREDENTIAL_REMOVE_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-      .then(async (response) => {
-        const result = await response.json() as { ok: boolean; error?: string }
-        if (!response.ok || !result.ok) throw new Error(credentialErrorText(result.error))
-        return result
-      })
-      .then(() => {
-        loadBuckets()
-        setTick((value) => value + 1)
-      })
-      .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
-  }
-
-  /* 移除失败原因:稳定标识映射为字典文案 */
-  const describeBucketError = (error: string | undefined): string => {
-    if (error === 'bucket-in-use') return t('buckets.errInUse')
-    if (error === 'bucket-not-removable') return t('buckets.errRecent')
-    if (error === 'bucket-not-found') return t('buckets.errMissing')
-    return error ?? ''
-  }
-
-  /* 拉取 API Key 缓存清单(含每个 Key 自己的战绩视图,均为服务端按落盘数据实时解析) */
-  const loadBuckets = (): void => {
-    fetch(BUCKETS_PATH, { cache: 'no-store' })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<WebBucketsResponse>
-      })
-      .then((result) => { setBuckets(result.buckets) })
-      .catch((error: unknown) => {
-        setBuckets([])
-        setNotice({ kind: 'error', text: (error as Error).message })
-      })
-  }
-
-  /* 展开/收起缓存明细:展开时才拉取 */
-  const toggleBuckets = (open: boolean): void => {
-    setBucketsOpen(open)
-    if (open) loadBuckets()
-  }
-
-  /* 移除一个 30 天未登录过的 Key 缓存(二次确认在同一按钮上完成);
-     移除后重新拉取清单与状态,使落盘缓存与战绩表同步 */
-  const removeBucket = (key: string): void => {
-    if (bucketConfirm !== key) {
-      setBucketConfirm(key)
-      return
-    }
-    setBucketConfirm(undefined)
-    fetch(BUCKET_REMOVE_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ key }),
-    })
-      .then(async (response) => {
-        const result = await response.json() as WebBucketRemoveResponse
-        if (!response.ok || !result.ok) throw new Error(describeBucketError(result.error))
-        return result
-      })
-      .then(() => {
-        loadBuckets()
-        setTick((value) => value + 1)
-      })
-      .catch((error: unknown) => {
-        setNotice({ kind: 'error', text: `${t('buckets.removeFailed')}: ${(error as Error).message}` })
-      })
   }
 
   /* 拉取状态与上报日志;已配置且本地无云端缓存时才同步 */
@@ -342,8 +216,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setData(next)
         setDraft(fromConfig(next.config))
         if (next.configured && !syncedRecently()) syncCloud()
-        /* 缓存明细区已展开时同步刷新(切换/清除 Key 后当前密钥标记与列表会变) */
-        if (bucketsOpen) loadBuckets()
       })
       .catch((error: unknown) => { setLoadError((error as Error).message) })
     fetch(LOGS_PATH, { cache: 'no-store' })
@@ -394,8 +266,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
   }
 
-  /* 凭证保存:前端先按前缀校验格式, 小后端再权威识别类型并验证有效性;
-     成功后清空输入框并刷新状态(不弹成功飘窗) */
+  /* 凭证保存或更换:前端先按前缀校验格式, 小后端再权威校验并验证有效性;
+     成功后清空输入框、提示已保存并刷新状态(本地战绩不受影响) */
   const saveCredential = (): void => {
     const value = credentialInput.trim()
     /* 格式不通过时前端直接拦下, 不发请求 */
@@ -416,7 +288,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .then(() => {
         setCredentialInput('')
-        /* 换了账号:同步节流与错误态重置,下次按新 Key 重新同步 */
+        setNotice({ kind: 'ok', text: t('credential.replaced') })
+        /* 换了账号:同步节流与错误态重置,下次按新令牌重新同步 */
         clearSynced()
         setCloudState('idle')
         setTick((value) => value + 1)
@@ -447,11 +320,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               logs={logs}
               logsOpen={logsOpen}
               cloudState={cloudState}
-              buckets={buckets}
-              bucketsOpen={bucketsOpen}
-              bucketConfirm={bucketConfirm}
               credentialInput={credentialInput}
-              credentialConfirm={credentialConfirm}
               keySaving={keySaving}
               clearConfirm={clearConfirm}
               configOpen={configOpen}
@@ -462,13 +331,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               onRefresh={() => { setTick((value) => value + 1) }}
               onSync={() => { syncCloud(true) }}
               onRetry={retryLog}
-              onBucketsToggle={toggleBuckets}
-              onRemoveBucket={removeBucket}
               onClearCredentials={clearCredentials}
               onCredentialInput={setCredentialInput}
               onSaveCredential={saveCredential}
-              onSwitchCredential={switchCredential}
-              onRemoveCredential={removeCredential}
               onPatch={patch}
               onDraft={draftOnly}
             />
@@ -493,14 +358,7 @@ interface PanelsProps {
   logs: readonly WebLogEntry[]
   logsOpen: boolean
   cloudState: 'idle' | 'syncing' | 'error'
-  /* API Key 缓存明细(null 表示尚未拉取) */
-  buckets: readonly WebBucketEntry[] | null
-  bucketsOpen: boolean
-  /* 等待二次确认移除的桶标识 */
-  bucketConfirm: string | undefined
   credentialInput: string
-  /* 等待二次确认移除的凭证标识 */
-  credentialConfirm: string | undefined
   keySaving: boolean
   clearConfirm: boolean
   configOpen: boolean
@@ -511,13 +369,9 @@ interface PanelsProps {
   onRefresh: () => void
   onSync: () => void
   onRetry: (id: string) => void
-  onBucketsToggle: (open: boolean) => void
-  onRemoveBucket: (key: string) => void
   onClearCredentials: () => void
   onCredentialInput: (value: string) => void
   onSaveCredential: () => void
-  onSwitchCredential: (id: string) => void
-  onRemoveCredential: (id: string) => void
   onPatch: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
   onDraft: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
 }
@@ -531,13 +385,11 @@ interface PanelsProps {
  */
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloudState } = props
-  const { buckets, bucketsOpen, bucketConfirm } = props
-  const { credentialInput: apiKeyInput, credentialConfirm, keySaving, clearConfirm } = props
+  const { credentialInput: credentialValue, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
   const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onClearCredentials, onToggleConfig } = props
-  const { onCredentialInput: onApiKeyInput, onSaveCredential, onSwitchCredential, onRemoveCredential, onPatch, onDraft } = props
-  const { onBucketsToggle, onRemoveBucket } = props
-  /* 战绩视图由服务端按显示策略解析:桶内已与云端取最大,跨桶按策略求和 */
+  const { onCredentialInput, onSaveCredential, onPatch, onDraft } = props
+  /* 战绩视图由服务端解析:本地累计量已与云端快照逐项取最大 */
   const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
   const bordered = draft.tableBorders ? 'true' : 'false'
   /* 数值展示的每组位数:千位 3 位、万位 4 位(两者都用英文逗号分隔) */
@@ -589,15 +441,17 @@ function WakatimePanels(props: PanelsProps) {
     </span>
   )
 
-  /* 凭证输入框的本地格式校验:类型由前缀识别, 不通过时不发请求 */
-  const detection = detectCredentialType(apiKeyInput)
-  const inputError = apiKeyInput.trim() === '' || detection.ok
+  /* 凭证输入框的本地格式校验:只接受 OAuth 令牌, 不通过时不发请求 */
+  const detection = detectCredentialType(credentialValue)
+  const inputError = credentialValue.trim() === '' || detection.ok
     ? undefined
     : detection.reason === 'client_secret'
       ? t('credential.errClientSecret')
-      : t('credential.errUnknownFormat')
+      : detection.reason === 'api_key'
+        ? t('credential.errApiKey')
+        : t('credential.errUnknownFormat')
 
-  /* 凭证管理属于配置:添加(自动识别类型) + 当前凭证信息 + 清除全部 */
+  /* 凭证管理属于配置:当前凭证信息(打码值/账号/更新时间) + 保存或更换 + 清除 */
   const credentialSection = (
     <section id={CONFIG_PANEL_ID} className={css.section}>
       <div className={css.sectionHead}>
@@ -606,8 +460,7 @@ function WakatimePanels(props: PanelsProps) {
           <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
             {data.configured ? t('status.configured') : t('status.notConfigured')}
           </span>
-          <span className={css.muted}>{t('credential.count')}: {data.count}</span>
-          {data.count > 0 ? (
+          {data.configured ? (
             <button
               type="button"
               className={clearConfirm
@@ -625,18 +478,24 @@ function WakatimePanels(props: PanelsProps) {
       </div>
       {data.configured ? (
         <>
-          <p className={css.ok} role="status">
-            {t('credential.activeType')}
-            {': '}
-            {data.activeType === 'oauth' ? t('credential.typeOauth') : t('credential.typeApiKey')}
-            {data.activeMaskedSecret === undefined ? '' : ' ' + data.activeMaskedSecret}
-            {data.fromEnv ? ' · ' + t('credential.fromEnv') : ''}
-          </p>
+          {data.maskedSecret === undefined ? null : (
+            <p className={css.ok} role="status">
+              {data.maskedSecret}
+              {data.fromEnv ? ' · ' + t('credential.fromEnv') : ''}
+            </p>
+          )}
           <p className={css.muted}>
             {t('status.account')}
             {': '}
             {data.username ?? t('credential.accountUnknown')}
           </p>
+          {data.credentialUpdatedAt === undefined ? null : (
+            <p className={css.muted}>
+              {t('credential.updatedAt')}
+              {': '}
+              {formatTime(data.credentialUpdatedAt)}
+            </p>
+          )}
         </>
       ) : null}
       <div className={css.field}>
@@ -647,8 +506,8 @@ function WakatimePanels(props: PanelsProps) {
             type="password"
             autoComplete="off"
             placeholder={t('credential.placeholder')}
-            value={apiKeyInput}
-            onChange={(event) => { onApiKeyInput(event.target.value) }}
+            value={credentialValue}
+            onChange={(event) => { onCredentialInput(event.target.value) }}
           />
           <button
             type="button"
@@ -660,7 +519,6 @@ function WakatimePanels(props: PanelsProps) {
           </button>
         </div>
         {inputError === undefined ? null : <p className={css.invalid}>{inputError}</p>}
-        <span className={css.muted}>{t('credential.hintApiKey')}</span>
         <span className={css.muted}>{t('credential.hintOauth')}</span>
         <span className={css.muted}>{t('credential.hintOauthScopes')}</span>
         <span className={css.muted}>{t('credential.overwrite')}</span>
@@ -715,15 +573,6 @@ function WakatimePanels(props: PanelsProps) {
             <div className={css.configGroup}>
               <span className={css.groupTitle}>{t('config.groupDisplay')}</span>
               <SegmentedField
-                label={t('config.statsScope')}
-                value={draft.statsScope}
-                options={[
-                  { value: 'all', label: t('config.statsScopeAll') },
-                  { value: 'current', label: t('config.statsScopeCurrent') },
-                ]}
-                onChange={(value) => { onPatch('statsScope', value === 'current' ? 'current' : 'all') }}
-              />
-              <SegmentedField
                 label={t('config.digitGrouping')}
                 value={draft.digitGrouping}
                 options={[
@@ -749,85 +598,6 @@ function WakatimePanels(props: PanelsProps) {
           </div>
         </section>
 
-        <section className={css.section}>
-          <details className={css.details} open={bucketsOpen} onToggle={(event) => { onBucketsToggle(event.currentTarget.open) }}>
-            <summary className={css.detailsRow}>
-              <Chevron className={css.chevron} />
-              <span className={css.disclosureTitle}>{t('buckets.title')}</span>
-              <span className={css.muted}>{t('buckets.hint')}</span>
-            </summary>
-            <div className={css.disclosureBody}>
-              {buckets === null
-                ? <p className={css.muted}>{t('state.loading')}</p>
-                : buckets.length === 0
-                  ? <p className={css.muted}>{t('buckets.empty')}</p>
-                  : buckets.map((entry) => (
-                    <div key={entry.key} className={css.bucket}>
-                      <div className={css.bucketHead}>
-                        <code className={css.bucketKey}>{entry.maskedKey}</code>
-                        {entry.credentialType === undefined ? null : (
-                          <span className={css.tag} data-tone="outline">
-                            {entry.credentialType === 'oauth' ? t('credential.typeOauth') : t('credential.typeApiKey')}
-                          </span>
-                        )}
-                        <span className={css.tag} data-tone={entry.active ? 'success' : 'outline'}>
-                          {entry.active ? t('credential.current') : (entry.removable ? t('buckets.stale') : t('buckets.recent'))}
-                        </span>
-                        <span className={css.muted}>{t('buckets.updatedAt')}: {formatTime(entry.updatedAt)}</span>
-                        {!entry.active && entry.credentialType !== undefined ? (
-                          <button
-                            type="button"
-                            className={compactButton}
-                            onClick={() => { onSwitchCredential(entry.key) }}
-                          >
-                            {t('credential.switch')}
-                          </button>
-                        ) : null}
-                        {!entry.active && entry.credentialType !== undefined ? (
-                          <button
-                            type="button"
-                            className={credentialConfirm === entry.key
-                              ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
-                              : compactButton}
-                            onClick={() => { onRemoveCredential(entry.key) }}
-                          >
-                            {credentialConfirm === entry.key ? t('credential.removeConfirm') : t('credential.remove')}
-                          </button>
-                        ) : null}
-                        {entry.credentialType === undefined && entry.removable ? (
-                          <button
-                            type="button"
-                            className={bucketConfirm === entry.key
-                              ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
-                              : compactButton}
-                            onClick={() => { onRemoveBucket(entry.key) }}
-                          >
-                            {bucketConfirm === entry.key ? t('buckets.removeConfirm') : t('buckets.remove')}
-                          </button>
-                        ) : null}
-                      </div>
-                      <table className={`${css.table} ${css.statsTable}`} data-bordered={bordered}>
-                        <colgroup>
-                          <col />
-                          <col />
-                          <col />
-                        </colgroup>
-                        <thead>
-                          <tr>
-                            <th>{t('stats.colMetric')}</th>
-                            <th>{t('stats.colValue')}</th>
-                            <th>{t('stats.colNote')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <MetricRows t={t} view={entry.stats} groupSize={groupSize} />
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
-            </div>
-          </details>
-        </section>
       </>
     )
   }
@@ -841,8 +611,7 @@ function WakatimePanels(props: PanelsProps) {
           <h3 className={css.sectionTitle}>{t('stats.title')}</h3>
           <div className={css.actions}>
             <span className={css.muted}>
-              {t('stats.scope')}: {view.scope === 'current' ? t('stats.scopeCurrent') : t('stats.scopeAll')}
-              {' · '}{cloudMeta}{' · '}{t('cloud.range')}
+              {cloudMeta}{' · '}{t('cloud.range')}
             </span>
             <button
               type="button"
@@ -940,7 +709,7 @@ function WakatimePanels(props: PanelsProps) {
   )
 }
 
-/* 战绩指标行:主战绩表与各 Key 缓存明细表共用同一口径与格式化(见 src/metrics.ts);
+/* 战绩指标行:指标口径与格式化统一来自 src/metrics.ts;
    数位分隔符由配置项决定(千位 3 位一组 / 万位 4 位一组),数值列与备注一起生效 */
 function MetricRows({ t, view, groupSize }: {
   t: PanelsProps['t']
@@ -1069,7 +838,6 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
     includePrompts: config.includePrompts,
     debug: config.debug,
     tableBorders: config.tableBorders,
-    statsScope: config.statsScope,
     digitGrouping: config.digitGrouping,
   }
 }

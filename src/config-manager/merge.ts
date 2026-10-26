@@ -2,118 +2,92 @@
  * 配置文件的跨进程合并
  * 作者: JularDepick
  *
- * 配置写操作以"并集"方式合并, 不做增量运算:
- * - 凭证列表按 id 并集, 同 id 取最近使用时刻较新的一条;
- * - 凭证删除记墓碑(credentialTombstones), 墓碑不早于加入时刻时该凭证不再复活;
- * - 激活凭证由 activeUpdatedAt 决定取舍,切换/新增/清除都会刷新该时刻;
- * - settings 与账号名以本次写入方为准, 其余字段缺失时回退磁盘值.
+ * 单凭证模型下合并规则:
+ * - 凭证: 按 credentialUpdatedAt 取较新的一侧(清除也算一次变更);
+ * - settings: 按 settingsUpdatedAt 取较新的一侧;
+ * - 账号名缓存: 按 accountUpdatedAt 取较新的一侧.
+ * 归一化只接受当前结构版本, 旧结构交给 migrate 模块处理.
  */
 
-import type { StoredConfig, StoredCredentialRecord } from './types'
+import { CONFIG_FILE_VERSION } from '../constants'
+import type { StoredConfig, StoredCredential, StoredSettings } from './types'
 
-/* 合并墓碑:同名取较新时刻 */
-function mergeTombstones(left: Record<string, number> | undefined, right: Record<string, number> | undefined): Record<string, number> {
-  const merged: Record<string, number> = { ...(left ?? {}) }
-  for (const [id, ts] of Object.entries(right ?? {})) {
-    merged[id] = Math.max(merged[id] ?? 0, ts)
-  }
-  return merged
+/* 数值字段尽力归一: 非有限或负数按缺省处理 */
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-/* 凭证并集:同 id 取 lastUsedAt 较新者;被墓碑覆盖(含已删除)的整条丢弃 */
-function mergeCredentials(
-  left: readonly StoredCredentialRecord[] | undefined,
-  right: readonly StoredCredentialRecord[] | undefined,
-  tombstones: Record<string, number>,
-): StoredCredentialRecord[] {
-  const byId = new Map<string, StoredCredentialRecord>()
-  for (const record of left ?? []) byId.set(record.id, record)
-  for (const record of right ?? []) {
-    const existing = byId.get(record.id)
-    if (!existing || record.lastUsedAt >= existing.lastUsedAt) byId.set(record.id, record)
-  }
-  const result: StoredCredentialRecord[] = []
-  for (const record of byId.values()) {
-    const tomb = tombstones[record.id] ?? 0
-    if (tomb > 0 && tomb > record.addedAt) continue
-    result.push(record)
-  }
-  return result.sort((a, b) => a.addedAt - b.addedAt)
+/* 凭证归一化: 只接受 OAuth 令牌(secret 非空) */
+function normalizeCredential(value: unknown): StoredCredential | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const raw = value as Record<string, unknown>
+  if (typeof raw.secret !== 'string' || raw.secret.trim() === '') return undefined
+  if (raw.type !== 'oauth') return undefined
+  return { secret: raw.secret.trim(), type: 'oauth', updatedAt: numberOr(raw.updatedAt, 0) }
 }
 
-/* 选择激活凭证:按 activeUpdatedAt 取较新的一侧, 失效时回退到列表最后一项 */
-function pickActive(disk: StoredConfig | null, desired: StoredConfig, credentials: readonly StoredCredentialRecord[]): string | undefined {
-  if (credentials.length === 0) return undefined
-  const diskStamp = disk?.activeUpdatedAt ?? 0
-  const desiredStamp = desired.activeUpdatedAt ?? 0
-  const candidate = desiredStamp >= diskStamp ? desired.activeCredentialId : disk?.activeCredentialId
-  if (candidate !== undefined && credentials.some((record) => record.id === candidate)) return candidate
-  const fallback = desired.activeCredentialId ?? disk?.activeCredentialId
-  if (fallback !== undefined && credentials.some((record) => record.id === fallback)) return fallback
-  return credentials[credentials.length - 1].id
+/* settings 归一化: 缺失项保持缺省(由运行期配置回退), 类型不符则丢弃该键 */
+function normalizeSettings(value: unknown): StoredSettings | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const raw = value as Record<string, unknown>
+  const settings: Partial<StoredSettings> = {}
+  if (typeof raw.enabled === 'boolean') settings.enabled = raw.enabled
+  if (typeof raw.reportEnabled === 'boolean') settings.reportEnabled = raw.reportEnabled
+  if (typeof raw.includeTokens === 'boolean') settings.includeTokens = raw.includeTokens
+  if (typeof raw.includePrompts === 'boolean') settings.includePrompts = raw.includePrompts
+  if (typeof raw.debug === 'boolean') settings.debug = raw.debug
+  if (typeof raw.tableBorders === 'boolean') settings.tableBorders = raw.tableBorders
+  if (typeof raw.reportInterval === 'number' && Number.isFinite(raw.reportInterval) && raw.reportInterval >= 1) {
+    settings.reportInterval = raw.reportInterval
+  }
+  if (raw.digitGrouping === 'thousand' || raw.digitGrouping === 'myriad') settings.digitGrouping = raw.digitGrouping
+  if (typeof raw.locale === 'string' && raw.locale.trim() !== '') settings.locale = raw.locale
+  return settings as StoredSettings
+}
+
+/* 当前结构版本归一化: 版本不符或 settings 缺失时返回 null(交给迁移或按未配置处理) */
+export function normalizeStoredConfig(value: unknown): StoredConfig | null {
+  if (typeof value !== 'object' || value === null) return null
+  const raw = value as Record<string, unknown>
+  if (raw.version !== CONFIG_FILE_VERSION) return null
+  const settings = normalizeSettings(raw.settings)
+  if (!settings) return null
+  const credential = normalizeCredential(raw.credential)
+  return {
+    version: CONFIG_FILE_VERSION,
+    settings,
+    ...(credential === undefined ? {} : { credential }),
+    ...(typeof raw.credentialUpdatedAt === 'number' ? { credentialUpdatedAt: numberOr(raw.credentialUpdatedAt, 0) } : {}),
+    ...(typeof raw.settingsUpdatedAt === 'number' ? { settingsUpdatedAt: numberOr(raw.settingsUpdatedAt, 0) } : {}),
+    ...(typeof raw.userId === 'string' && raw.userId !== '' ? { userId: raw.userId } : {}),
+    ...(typeof raw.username === 'string' && raw.username !== '' ? { username: raw.username } : {}),
+    ...(typeof raw.accountUpdatedAt === 'number' ? { accountUpdatedAt: numberOr(raw.accountUpdatedAt, 0) } : {}),
+  }
+}
+
+/* 按变更时刻取舍: 较新的一侧胜出(相等时取本次写入方) */
+function laterThan(desiredStamp: number, diskStamp: number): boolean {
+  return desiredStamp >= diskStamp
 }
 
 /* 合并磁盘配置与本次待写配置 */
 export function mergeConfig(disk: StoredConfig | null, desired: StoredConfig): StoredConfig {
   if (!disk) return desired
-  const tombstones = mergeTombstones(disk.credentialTombstones, desired.credentialTombstones)
-  const credentials = mergeCredentials(disk.credentials, desired.credentials, tombstones)
-  const activeCredentialId = pickActive(disk, desired, credentials)
-  const activeUpdatedAt = Math.max(disk.activeUpdatedAt ?? 0, desired.activeUpdatedAt ?? 0)
+  const credentialStamp = Math.max(disk.credentialUpdatedAt ?? 0, desired.credentialUpdatedAt ?? 0)
+  const credential = laterThan(desired.credentialUpdatedAt ?? 0, disk.credentialUpdatedAt ?? 0)
+    ? desired.credential
+    : disk.credential
+  const settings = laterThan(desired.settingsUpdatedAt ?? 0, disk.settingsUpdatedAt ?? 0) ? desired.settings : disk.settings
+  const useDesiredAccount = laterThan(desired.accountUpdatedAt ?? 0, disk.accountUpdatedAt ?? 0)
+  const account = useDesiredAccount ? desired : disk
   return {
-    ...disk,
-    ...desired,
-    credentials,
-    ...(activeCredentialId === undefined ? {} : { activeCredentialId }),
-    ...(activeUpdatedAt === 0 ? {} : { activeUpdatedAt }),
-    credentialTombstones: tombstones,
-    /* settings 按变更时刻取较新的一侧, 避免一方写入凭证时覆盖另一方刚改的界面开关 */
-    settings: (desired.settingsUpdatedAt ?? 0) >= (disk.settingsUpdatedAt ?? 0) ? desired.settings : disk.settings,
-    settingsUpdatedAt: Math.max(disk.settingsUpdatedAt ?? 0, desired.settingsUpdatedAt ?? 0),
-    ...(typeof desired.userId === 'string' && desired.userId !== '' ? { userId: desired.userId } : {}),
-    ...(typeof desired.username === 'string' && desired.username !== '' ? { username: desired.username } : {}),
-  }
-}
-
-/* 归一化磁盘内容:字段类型不合法时整条丢弃, 避免损坏数据污染运行状态 */
-export function normalizeStoredConfig(value: unknown): StoredConfig | null {
-  if (typeof value !== 'object' || value === null) return null
-  const raw = value as Record<string, unknown>
-  const settings = typeof raw.settings === 'object' && raw.settings !== null ? raw.settings as StoredConfig['settings'] : undefined
-  if (!settings) return null
-  const records: StoredCredentialRecord[] = []
-  for (const item of Array.isArray(raw.credentials) ? raw.credentials : []) {
-    if (typeof item !== 'object' || item === null) continue
-    const record = item as Record<string, unknown>
-    if (typeof record.id !== 'string' || typeof record.secret !== 'string') continue
-    if (record.type !== 'api_key' && record.type !== 'oauth') continue
-    records.push({
-      id: record.id,
-      type: record.type,
-      secret: record.secret,
-      ...(typeof record.maskedSecret === 'string' ? { maskedSecret: record.maskedSecret } : {}),
-      ...(typeof record.userId === 'string' ? { userId: record.userId } : {}),
-      ...(typeof record.username === 'string' ? { username: record.username } : {}),
-      addedAt: typeof record.addedAt === 'number' ? record.addedAt : 0,
-      lastUsedAt: typeof record.lastUsedAt === 'number' ? record.lastUsedAt : 0,
-    })
-  }
-  const tombstones: Record<string, number> = {}
-  if (typeof raw.credentialTombstones === 'object' && raw.credentialTombstones !== null) {
-    for (const [id, ts] of Object.entries(raw.credentialTombstones as Record<string, unknown>)) {
-      if (typeof ts === 'number' && Number.isFinite(ts)) tombstones[id] = ts
-    }
-  }
-  return {
+    version: CONFIG_FILE_VERSION,
     settings,
-    ...(records.length === 0 ? {} : { credentials: records }),
-    ...(typeof raw.activeCredentialId === 'string' ? { activeCredentialId: raw.activeCredentialId } : {}),
-    ...(typeof raw.activeUpdatedAt === 'number' ? { activeUpdatedAt: raw.activeUpdatedAt } : {}),
-    ...(typeof raw.settingsUpdatedAt === 'number' ? { settingsUpdatedAt: raw.settingsUpdatedAt } : {}),
-    ...(Object.keys(tombstones).length === 0 ? {} : { credentialTombstones: tombstones }),
-    ...(typeof raw.apiKey === 'string' ? { apiKey: raw.apiKey } : {}),
-    ...(typeof raw.oauthToken === 'string' ? { oauthToken: raw.oauthToken } : {}),
-    ...(typeof raw.userId === 'string' ? { userId: raw.userId } : {}),
-    ...(typeof raw.username === 'string' ? { username: raw.username } : {}),
+    ...(credential === undefined ? {} : { credential }),
+    credentialUpdatedAt: credentialStamp,
+    settingsUpdatedAt: Math.max(disk.settingsUpdatedAt ?? 0, desired.settingsUpdatedAt ?? 0),
+    ...(account.userId === undefined ? {} : { userId: account.userId }),
+    ...(account.username === undefined ? {} : { username: account.username }),
+    accountUpdatedAt: Math.max(disk.accountUpdatedAt ?? 0, desired.accountUpdatedAt ?? 0),
   }
 }

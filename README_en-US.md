@@ -19,17 +19,16 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 ## Features
 
 - Automatically track, quantify, and report AI Agent work data in DSH to WakaTime
-- Equal credentials: a plugin API key and an OAuth access token are interchangeable, both for reporting and reads; the type is detected from the prefix (paste and save, no selection); multiple credentials can be saved and switched at any time, each keeping its own local stats; credentials are guarded by a local mini-backend and never exposed to the frontend
+- Credential: only a personal OAuth access token is supported (prefix `waka_tok_`); plugin API keys are no longer accepted. Exactly one credential is stored locally and it can be overwritten or cleared at any time, and changing it never touches local stats; the credential is guarded by a local mini-backend and never exposed to the frontend, and every read surface only echoes the first and last 8 characters with a fixed run of 8 stars in between
 - Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
 - Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
-- Per-account data isolation: every credential keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching credentials switches the displayed numbers and never mixes accounts; data collected while no credential is configured is claimed by the first credential configured afterwards, and no account's data is ever cleaned up automatically; the "credential caches" section in the config view shows each credential's own stats and lets you switch credentials or remove one (removing a credential deletes its cache too and the active credential cannot be removed; caches without an owning credential can be removed once unused for 30 days) (credentials shown there keep only the first and last 8 characters with a fixed run of 8 `*` in between, and the plaintext never leaves the local backend)
-- Stats display scope: switch between "all credentials" and "current credential" in the config view (the former is the default)
+- Single local dataset: stats totals, cloud snapshot, pending queue, and report log exist as one set, independent of the credential, so changing credentials loses nothing and there is no longer a per-credential cache to manage
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders, and numbers can be grouped by thousands or ten thousands
 - Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the credential, reporting options, and interface switches in one place; changes apply immediately, with no save button
-- Cloud sync merge: with a credential configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
+- Cloud sync merge: with a credential configured, automatically sync the latest WakaTime cloud AI summary (last 7 days) and merge it into local battle stats, taking the maximum of each comparable metric for cloud/local consistency; changing the credential invalidates the cloud snapshot and re-syncs automatically; results are cached locally, so switching tabs or refreshing the page does not re-request the cloud
 - Global AI session tracking: all heartbeats unify into one overall AI session, with automatic detection of the project and Git branch that the session working directory belongs to (subdirectories and worktrees supported)
-- Local totals survive restarts: local-only metrics such as LLM thinking time and estimated prompt tokens are written to a local snapshot and keep accumulating across dsh restarts instead of resetting to zero
+- Local totals survive restarts: local-only metrics such as LLM thinking time and estimated prompt tokens are written to the local data file and keep accumulating across dsh restarts instead of resetting to zero
 - Local-first: credentials and configuration data are stored locally by default, fully controlled by the user
 
 
@@ -61,26 +60,24 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 - dsh versions: supports the tested 0.2.1-rc.1 through 0.2.1-rc.3 (including 0.2.1-rc.2); all share one artifact, so no per-version install is needed.
 - Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.1-rc.3` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
 - Later versions: any dsh version above 0.2.1-rc.3 (including the 0.2.1 release and 0.3.x) is rejected by this plugin until it is tested and the upper bound is raised.
-- Upgrading from 0.2.x: the legacy single `apiKey` and `oauthToken` fields are migrated into the credential list on first start, bucket ids derive from the credential text so history is kept, and each credential now keeps its own data bucket (switchable in the config view); the old `stats.json` and `heartbeats.json` are merged into the current credential's bucket on first start while no bucket file exists yet, and are kept on disk but no longer written; new config fields have defaults (`tableBorders` on, `statsScope` `all`, `digitGrouping` `thousand`), so an existing `cordis.yml` needs no change.
+- Upgrading from 0.3.0: the first start migrates automatically. One OAuth token is picked from the saved credential list as the only credential (plugin API keys are no longer accepted because the official API limits them to writing, so users who only saved an API key need to switch to a personal OAuth token), and the per-credential datasets are merged into one (stats summed item by item, pending queue and failed tasks deduplicated by identity, newest cloud snapshot kept); on a missing data file, the older `stats.json` and `heartbeats.json` are merged in as well. After the migration the local dataset is decoupled from the credential, so later credential changes no longer affect stats. The `statsScope` config field and the `WAKATIME_API_KEY` environment variable are gone; leftover entries in an existing `cordis.yml` are ignored, and other defaults are unchanged (`tableBorders` on, `digitGrouping` `thousand`).
 
 
 ## Usage
 
-After installing and enabling the plugin, paste one credential in the config view. **The type is detected from the prefix, no selection needed**:
+After installing and enabling the plugin, paste a personal OAuth access token in the credential section of the config view:
 
-- **Plugin API key**: prefix `waka_`, get one at wakatime.com/settings/api-key;
-- **OAuth access token**: prefix `waka_tok_`, open https://wakatime.com/oauth while signed in to get a personal token (no app needed for personal use); for custom scopes or acting for others, create an app at https://wakatime.com/apps and request write_heartbeats, read_summaries and email through the `scope` argument;
-- A `waka_sec_` value is an OAuth client secret, not a credential: pasting it is rejected with a hint.
+- **OAuth access token**: prefix `waka_tok_`. Open https://wakatime.com/oauth while signed in to get a personal token (no app needed for personal use); for custom scopes or acting for others, create an app at https://wakatime.com/apps and request write_heartbeats, read_summaries and email through the `scope` argument;
+- **Plugin API keys** (prefix `waka_`) are no longer supported: the official API limits them to writing, while stats reads and cloud sync need read permission, so pasting one is rejected with a hint to use a personal token;
+- A `waka_sec_` value is an OAuth client secret, not a credential: pasting it is rejected as well.
 
 Ways to configure:
 
 - **Manually**: in the WakaTime tab of the Web interface, open the config view via the "Settings" button at the top right and paste it there (the input validates the format first; overwrite only, never shown);
 - **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_credential) to configure it for you;
-- **Environment variable**: set `WAKATIME_API_KEY` or `WAKATIME_OAUTH_TOKEN` (temporary credentials taking precedence over the file).
+- **Environment variable**: set `WAKATIME_OAUTH_TOKEN` (a temporary credential taking precedence over the file, never written to disk).
 
-Multiple credentials can be saved; switch the active one with "Switch" in the credential caches section, and each credential keeps its own stats. A non-active credential can be removed with "Remove credential" (its local cache is removed too).
-
-After configuring a credential, you can clear every credential in the credential section to return to the logged-out state.
+Only one credential is kept: saving again overwrites the previous one (local stats keep accumulating), and "Clear credential" returns to the signed-out state while local stats stay intact.
 
 Switches and the report interval in the config view apply immediately, with no save button (numeric fields commit on blur or Enter).
 
@@ -88,10 +85,10 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 
 | Tool | Purpose |
 |:---:|:---:|
-| `wakatime_config` | Read/update plugin config (op=get/set); credentials: `list_credentials`, `set_credential` (save and activate, type auto-detected), `switch_credential`, `remove_credential`; overwrite only, never shown |
-| `wakatime_logout` | Clear every local credential |
+| `wakatime_config` | Read/update plugin config (op=get/set); credentials: `set_credential` saves or replaces the OAuth access token; overwrite only, never shown |
+| `wakatime_logout` | Clear the local credential (local stats are kept) |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
-| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, estimated prompt Token, model thinking duration, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, input TOKEN total, average output speed, current stats display scope; same source as the UI stats table) |
+| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, estimated prompt Token, model thinking duration, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, input TOKEN total, average output speed; same source as the UI stats table) |
 
 
 ## Configuration
@@ -110,7 +107,6 @@ Plugin configuration is provided through the DSH `cordis.yml`:
     includePrompts: true   # Whether to report prompt length
     debug: false           # Debug logging switch
     tableBorders: true     # Whether the stats table shows cell borders (display only)
-    statsScope: all        # Stats display scope: all = every credential, current = current credential
     digitGrouping: thousand # Digit grouping: thousand (groups of 3) or myriad (groups of 4); display only
 ```
 
@@ -118,7 +114,6 @@ Environment variables:
 
 | Variable | Description |
 |:---:|:---:|
-| `WAKATIME_API_KEY` | WakaTime plugin key (takes precedence over the file) |
 | `WAKATIME_OAUTH_TOKEN` | WakaTime OAuth access token (temporary credential taking precedence over the file) |
 | `WAKATIME_DEBUG` | Enable debug logging |
 | `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `$DSH_HOME/plugins/wakatime`, that is `~/.dsh/plugins/wakatime`) |
@@ -128,7 +123,7 @@ Environment variables:
 
 ## Platforms & Paths
 
-- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a per-credential data-bucket file `buckets.json` lives in the same directory, holding one set of local data per credential (stats totals, cloud snapshot, pending queue, report log); this directory is shared by every dsh profile of the same user and writes are guarded by file locks plus incremental merging, so do not edit it by hand. Use the "credential caches" section in the config view to remove data.
+- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a local data file `buckets.json` in the same directory holds the single set of stats totals, cloud snapshot, pending queue, and report log (independent of the credential); this directory is shared by every dsh profile of the same user and writes are guarded by file locks plus incremental merging, so do not edit it by hand.
 - Permissions: on POSIX platforms the config directory and file are tightened to `0700` and `0600` respectively; Windows has no POSIX permission bits and relies on user-profile ACLs.
 - Project and branch detection: based on the session working directory, the project name comes from the Git repository root (sessions in a repository subdirectory or a worktree belong to the same project); the branch comes from the Git head file, and stays empty on a detached HEAD.
 - Network: single requests time out after 30 seconds and are retried as network failures; report requests carry plugin and host identification, so WakaTime can classify the editor and operating system; to use a proxy, set `NODE_USE_ENV_PROXY=1` together with `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later).

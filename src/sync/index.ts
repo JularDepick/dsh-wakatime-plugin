@@ -22,6 +22,8 @@ export interface CloudSummary {
   inputTokens: number
   /* 云端累计输出 Token */
   outputTokens: number
+  /* 云端累计缓存命中输入 Token(ai_cached_input_tokens):官方计费输入的分量之一 */
+  cachedInputTokens: number
   /* 云端累计提示词字符数(ai_prompt_length_sum) */
   promptChars: number
   /* 云端累计 AI 会话数(ai_sessions) */
@@ -33,6 +35,7 @@ export interface CloudSummary {
 /* grand_total 中可用的 AI 字段(其余忽略) */
 interface GrandTotal {
   ai_input_tokens?: number | null
+  ai_cached_input_tokens?: number | null
   ai_output_tokens?: number | null
   ai_prompt_length_sum?: number | null
   ai_sessions?: number | null
@@ -69,7 +72,7 @@ export class CloudSync {
     let secret: string
     try {
       header = await this.auth.getAuthHeader()
-      secret = (await this.auth.getActiveSecret()) ?? ''
+      secret = (await this.auth.getSecret()) ?? ''
     } catch {
       /* 未配置凭证:与网络/云端异常同等待遇,静默失败 */
       return null
@@ -95,6 +98,7 @@ export class CloudSync {
       const summary: CloudSummary = {
         syncedAt: Date.now(),
         inputTokens: sum((g) => g.ai_input_tokens),
+        cachedInputTokens: sum((g) => g.ai_cached_input_tokens),
         outputTokens: sum((g) => g.ai_output_tokens),
         promptChars: sum((g) => g.ai_prompt_length_sum),
         sessions: sum((g) => g.ai_sessions),

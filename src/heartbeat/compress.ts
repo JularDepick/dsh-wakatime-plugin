@@ -25,12 +25,12 @@ export function mergeAdjacentEntries(earlier: PendingHeartbeatEntry, later: Pend
   const outputTokens = addCounter(base.ai_output_tokens, later.heartbeat.ai_output_tokens)
   const promptLength = addCounter(base.ai_prompt_length, later.heartbeat.ai_prompt_length)
   const lineChanges = addCounter(base.ai_line_changes, later.heartbeat.ai_line_changes)
-  const cacheReadTokens = addCounter(base.ai_cache_read_tokens, later.heartbeat.ai_cache_read_tokens)
+  const cachedInputTokens = addCounter(base.ai_cached_input_tokens, later.heartbeat.ai_cached_input_tokens)
   if (inputTokens !== undefined) merged.ai_input_tokens = inputTokens
   if (outputTokens !== undefined) merged.ai_output_tokens = outputTokens
   if (promptLength !== undefined) merged.ai_prompt_length = promptLength
   if (lineChanges !== undefined) merged.ai_line_changes = lineChanges
-  if (cacheReadTokens !== undefined) merged.ai_cache_read_tokens = cacheReadTokens
+  if (cachedInputTokens !== undefined) merged.ai_cached_input_tokens = cachedInputTokens
   return {
     heartbeat: merged,
     enqueuedAt: Math.min(earlier.enqueuedAt, later.enqueuedAt),

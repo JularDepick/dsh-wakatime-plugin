@@ -27,9 +27,10 @@ export interface Heartbeat {
   ai_prompt_length?: number
   ai_line_changes?: number
   ai_session?: string
-  /* 缓存命中 TOKEN(输入侧命中提示词缓存的量):官方心跳字段表没有对应项,
-     按自定义扩展字段上报,官方若不识别则忽略(本地始终保留该指标) */
-  ai_cache_read_tokens?: number
+  /* 缓存命中 TOKEN(输入侧命中提示词缓存的量):官方心跳文档字段表未列出该键,
+     但服务端存在同名列(Summaries 与 Stats 均暴露 ai_cached_input_tokens),
+     故按官方统计字段名上报;官方计费输入 = 未命中输入 + 缓存读 + 缓存写 */
+  ai_cached_input_tokens?: number
   /* 本机机器名:WakaTime Machines 维度(官方 POST 字段表未列出,官方 CLI 仍会发送) */
   machine_name?: string
   /* 可选字段 */

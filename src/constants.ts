@@ -17,8 +17,12 @@ export const CONFIG_FILE_NAME = 'config.json'
 /* 分 Key 数据桶(与配置文件同目录):每个 API Key 一份本地数据(战绩累计、云端快照、
    待发送队列、失败任务与上报记录),未配置 API Key 期间的数据落在未指派桶;
    写入防抖(毫秒),避免高频统计变更频繁写盘 */
+/* 数据文件名沿用历史名称(buckets.json), 避免 0.3.0 与 0.4.0 并存时各写一份文件导致数据分裂 */
 export const BUCKET_FILE_NAME = 'buckets.json'
-export const BUCKET_FILE_VERSION = 2
+/* 数据文件结构版本: 0.3.0 为 2(分凭证数据桶), 0.4.0 起为 3(单份本地数据) */
+export const STORE_FILE_VERSION = 3
+/* 配置文件结构版本: 0.3.0 及更早无该字段, 0.4.0 起为 3 */
+export const CONFIG_FILE_VERSION = 3
 export const BUCKET_SAVE_DEBOUNCE_MS = 2000
 /* 跨进程互斥:锁文件名与等待参数(同一数据目录可能被多个 dsh profile 进程同时写入) */
 export const BUCKET_LOCK_FILE_NAME = 'buckets.lock'
@@ -28,9 +32,6 @@ export const STORAGE_LOCK_TTL_MS = 10_000
 /* 抢锁重试次数与退避基数(按次数线性递增) */
 export const STORAGE_LOCK_RETRIES = 3
 export const STORAGE_LOCK_BACKOFF_MS = 50
-/* 桶静默期:未更新超过该天数的非当前 Key 桶,才允许用户在界面手动移除;
-   本策略不自动清除任何桶(长期不用的 Key 数据保留,由用户决定何时移除) */
-export const BUCKET_STALE_DAYS = 30
 /* 展示用模糊 API Key:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
 export const KEY_MASK_EDGE_CHARS = 8
 /* 打码中间段固定星号个数(不按实际隐藏位数展开, 避免长度泄露与视觉噪音) */
@@ -120,20 +121,14 @@ export const WEB_STATUS_PATH = '/api/wakatime/status'
 export const WEB_CONFIG_PATH = '/api/wakatime/config'
 /* 凭证: 添加(自动识别类型) / 切换 / 移除 / 清除, 以及缓存清单 */
 export const WEB_CREDENTIAL_PATH = '/api/wakatime/credential'
-export const WEB_CREDENTIAL_SWITCH_PATH = '/api/wakatime/credential/switch'
-export const WEB_CREDENTIAL_REMOVE_PATH = '/api/wakatime/credential/remove'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
 export const WEB_CREDENTIAL_CLEAR_PATH = '/api/wakatime/credential/clear'
 /* 手动重试一条失败推送任务 */
 export const WEB_RETRY_PATH = '/api/wakatime/retry'
-/* 缓存(数据桶)清单与手动移除: 每份凭证一个桶 */
-export const WEB_BUCKETS_PATH = '/api/wakatime/buckets'
-export const WEB_BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 
 /* 环境变量 */
-export const ENV_API_KEY = 'WAKATIME_API_KEY'
-/* OAuth 访问令牌环境变量(与 ENV_API_KEY 同口径:优先于配置文件) */
+/* OAuth 访问令牌环境变量(优先于配置文件) */
 export const ENV_OAUTH_TOKEN = 'WAKATIME_OAUTH_TOKEN'
 export const ENV_DEBUG = 'WAKATIME_DEBUG'
 /* 覆盖凭证配置目录(测试与自托管场景使用) */
