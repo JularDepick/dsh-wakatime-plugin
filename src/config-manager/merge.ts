@@ -67,7 +67,9 @@ export function mergeConfig(disk: StoredConfig | null, desired: StoredConfig): S
     ...(activeCredentialId === undefined ? {} : { activeCredentialId }),
     ...(activeUpdatedAt === 0 ? {} : { activeUpdatedAt }),
     credentialTombstones: tombstones,
-    settings: desired.settings ?? disk.settings,
+    /* settings 按变更时刻取较新的一侧, 避免一方写入凭证时覆盖另一方刚改的界面开关 */
+    settings: (desired.settingsUpdatedAt ?? 0) >= (disk.settingsUpdatedAt ?? 0) ? desired.settings : disk.settings,
+    settingsUpdatedAt: Math.max(disk.settingsUpdatedAt ?? 0, desired.settingsUpdatedAt ?? 0),
     ...(typeof desired.userId === 'string' && desired.userId !== '' ? { userId: desired.userId } : {}),
     ...(typeof desired.username === 'string' && desired.username !== '' ? { username: desired.username } : {}),
   }

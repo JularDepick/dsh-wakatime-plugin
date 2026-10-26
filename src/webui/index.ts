@@ -6,14 +6,15 @@
  * 前端只与本后端通信,敏感操作一律由本端代理:
  * - GET  /api/wakatime/status   认证状态(不含 Key 明文)+ 配置 + 按策略解析的战绩视图
  * - POST /api/wakatime/config   写入 Web 可编辑配置项
- * - POST /api/wakatime/apikey   覆盖写入 API Key(验证后存储,不回显)
- * - POST /api/wakatime/token    覆盖写入 OAuth 访问令牌(验证后存储,不回显)
- * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识)
+ * - POST /api/wakatime/credential          添加一份凭证(类型按前缀识别,验证后存储,不回显)
+ * - POST /api/wakatime/credential/switch   切换激活凭证(每份凭证一个数据桶)
+ * - POST /api/wakatime/credential/remove   移除一份凭证并连带删除其数据桶(使用中的不可移除)
+ * - POST /api/wakatime/credential/clear    清除本地全部凭证(回退未登录)
+ * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识;含其它进程写入的记录)
  * - POST /api/wakatime/retry    手动重试一条失败推送任务
- * - GET  /api/wakatime/buckets  API Key 缓存清单(模糊 Key + 各 Key 自己的战绩视图)
- * - POST /api/wakatime/bucket/remove 移除一个长期未登录的 Key 缓存(需满足静默期)
- * - GET  /api/wakatime/sync     云端 AI 聚合(写入当前 Key 的数据桶,带缓存,?force=1 强制刷新)
- * - POST /api/wakatime/apikey/clear 清除本地全部凭证(API Key 与 OAuth 令牌,回退未登录)
+ * - GET  /api/wakatime/buckets  凭证缓存清单(模糊凭证 + 各凭证自己的战绩视图)
+ * - POST /api/wakatime/bucket/remove 移除一份无凭证归属的历史缓存(需超过静默期)
+ * - GET  /api/wakatime/sync     云端 AI 聚合(写入当前凭证的数据桶,带缓存,?force=1 强制刷新)
  * 战绩合并(桶内与云端取最大、跨桶按显示策略求和)统一在本端完成,
  * 前端只渲染结果,不再自行合并。
  * 密钥安全边界: 明文 API Key 只在本端内部使用,任何响应都不回显;
@@ -28,10 +29,11 @@ import type { AuthManager } from '../auth'
 import type { BucketStore } from '../bucket-store'
 import { resolveStatsView, UNASSIGNED_BUCKET } from '../bucket-store'
 import type { StatsView } from '../bucket-store/resolve'
-import { WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_CREDENTIAL_REMOVE_PATH, WEB_CREDENTIAL_SWITCH_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { REPORT_LOG_LIMIT, WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_CREDENTIAL_REMOVE_PATH, WEB_CREDENTIAL_SWITCH_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import { CredentialInputError } from '../errors'
-import type { HeartbeatEngine } from '../heartbeat'
+import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
+import { validateConfigPatch } from '../runtime-config'
 import type { CloudSync } from '../sync'
 import type { WebBucketEntry, WebBucketRemovePayload, WebBucketRemoveResponse, WebBucketsResponse, WebConfigResponse, WebCredentialActionResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSwitchPayload, WebSyncResponse } from './types'
 
@@ -171,6 +173,11 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
     res.end('invalid config patch')
     return
   }
+  const invalid = validateConfigPatch(patch)
+  if (invalid !== null) {
+    writeJson(res, 400, { ok: false, error: 'invalid-value', field: invalid })
+    return
+  }
   await deps.runtimeConfig.update(patch)
   const body: WebConfigResponse = { ok: true }
   writeJson(res, 200, body)
@@ -249,6 +256,11 @@ async function handleCredentialRemove(req: IncomingMessage, res: ServerResponse,
   }
   try {
     const id = String(payload.id ?? '')
+    /* 正在使用的凭证不可移除:其数据桶就是当前桶, 删掉后写入会以空桶复活并丢失累计战绩 */
+    if (id === deps.currentBucket()) {
+      writeJson(res, 400, { ok: false, error: 'bucket-in-use' })
+      return
+    }
     await deps.auth.removeCredential(id)
     /* 连同该凭证的本地缓存一起移除, 避免留下无法再使用的孤儿桶 */
     if (deps.store.removeBucket(id)) deps.store.save()
@@ -281,8 +293,16 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
     res.end()
     return
   }
-  const failed = new Map(deps.heartbeat.pendingState().failed.map((task) => [task.id, task]))
-  const body: WebLogEntry[] = deps.heartbeat.reportLog().map((entry) => {
+  /* 其它 profile 进程的上报记录也并进来:先按 mtime 同步磁盘, 再与进程内记录按 id 合并 */
+  await deps.store.reloadIfChanged()
+  const bucket = deps.store.buckets()[deps.currentBucket()]
+  const local = deps.heartbeat.pendingState()
+  const disk = bucket?.pending
+  const failed = new Map([...local.failed, ...(disk?.failed ?? [])].map((task) => [task.id, task]))
+  const merged = new Map<string, ReportEntry>()
+  for (const entry of [...(disk?.report ?? []), ...deps.heartbeat.reportLog()]) merged.set(entry.id, entry)
+  const entries = [...merged.values()].sort((a, b) => b.time - a.time).slice(0, REPORT_LOG_LIMIT)
+  const body: WebLogEntry[] = entries.map((entry) => {
     const task = entry.taskId !== undefined ? failed.get(entry.taskId) : undefined
     return {
       id: entry.id,
@@ -378,8 +398,8 @@ async function handleBuckets(req: IncomingMessage, res: ServerResponse, deps: We
       const credential = byId.get(key)
       return {
         key,
-        /* 模糊凭证只在此接口下发;旧版桶没有该字段时回退为摘要标识 */
-        maskedKey: bucket.maskedKey ?? credential?.maskedSecret ?? '#' + key.slice(0, 8),
+        /* 模糊凭证由凭证列表统一下发;旧版桶仍存有历史打码值, 用作孤儿桶的回退显示 */
+        maskedKey: credential?.maskedSecret ?? bucket.maskedKey ?? '#' + key.slice(0, 8),
         ...(credential === undefined ? {} : { credentialType: credential.type }),
         ...(credential?.username === undefined ? {} : { username: credential.username }),
         active: key === current,

@@ -14,6 +14,8 @@ export const UNASSIGNED_BUCKET = 'unassigned'
 export interface DataBucket {
   /* 最后更新时刻(Unix 毫秒):判定该 Key 是否长期未登录的依据 */
   updatedAt: number
+  /* 该桶所属账号标识(WakaTime userId):云端快照按账号去重时使用 */
+  accountId?: string
   /* 展示用模糊 API Key(保留首尾各 8 字符,其余 *;旧版桶无此字段,界面回退显示摘要标识) */
   maskedKey?: string
   /* 本地战绩累计量 */

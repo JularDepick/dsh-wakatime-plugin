@@ -11,6 +11,13 @@ import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
 
 /* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
+/* 配置值范围校验:返回不合法的键名, 合法时返回 null(Web 与工具两条写入通道共用) */
+export function validateConfigPatch(patch: WebConfigPatch): string | null {
+  const interval = patch.reportInterval
+  if (interval !== undefined && (!Number.isInteger(interval) || interval < 1)) return 'reportInterval'
+  return null
+}
+
 export type WebConfigPatch = Partial<Pick<
   Config,
   'enabled' | 'reportInterval' | 'reportEnabled'
@@ -76,7 +83,7 @@ export class RuntimeConfig {
       /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
       locale: this.current.locale,
     }
-    await this.configManager.save({ ...(stored ?? {}), settings })
+    await this.configManager.save({ ...(stored ?? {}), settings, settingsUpdatedAt: Date.now() })
   }
 
   private notify(): void {

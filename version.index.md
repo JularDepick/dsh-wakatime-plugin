@@ -15,7 +15,10 @@ src/translation/en-US.ini:2
 src/translation/.example_zh-CN.ini:2
 README.md:5
 README_en-US.md:5
-AGENTS.md:版本号索引段与项目启动段
+AGENTS.md:430
+AGENTS.md:435
+AGENTS.md:457
+AGENTS.md:422
 README.md:46
 README_en-US.md:46
 # 版本文档(v*-*.md)按版本新建,旧版本文档不重命名,故不在同步清单内

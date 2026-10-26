@@ -222,7 +222,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (code === 'unknown_format') return t('credential.errUnknownFormat')
     if (code === 'not_found') return t('credential.errNotFound')
     if (code === 'active') return t('credential.errActive')
-    return code ?? ''
+    /* 未知错误码不再直显服务端英文原文 */
+    return t('credential.errInvalid')
   }
 
   /* 切换激活凭证:切换后重新拉取清单与状态(每份凭证一个数据桶) */
@@ -351,7 +352,6 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   /* 上报记录失败原因:稳定标识映射为字典文案,其余(如网络错误细节)原样展示 */
   const describeLogError = (error: string | undefined): string => {
-    if (error === 'auth-missing') return t('logs.errNotConfigured')
     return error ?? ''
   }
 
@@ -975,7 +975,7 @@ function MetricRows({ t, view, groupSize }: {
       </tr>
       <tr>
         <td data-column="metric">{t('stats.avgOutputSpeed')}</td>
-        <td data-column="value">{`${groupDigits(avgOutputSpeed, groupSize)} token/s`}</td>
+        <td data-column="value">{t('stats.tokenPerSecond').replace('{n}', groupDigits(avgOutputSpeed, groupSize))}</td>
         <td data-column="note">{t('stats.noteAvgOutputSpeed')}</td>
       </tr>
     </>

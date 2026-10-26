@@ -30,6 +30,8 @@ export interface StoredConfig {
   credentials?: StoredCredentialRecord[]
   /* 当前激活凭证的标识(缺省回退到列表最后一项) */
   activeCredentialId?: string
+  /* settings 最后一次变更时刻(Unix 毫秒):多进程合并时按它取较新的一侧 */
+  settingsUpdatedAt?: number
   /* 激活项最后一次变更时刻(Unix 毫秒):多进程合并时用于判定两侧谁更新 */
   activeUpdatedAt?: number
   /* 凭证删除墓碑:凭证标识 -> 删除时刻;合并时墓碑不早于加入时刻的凭证不再复活 */
@@ -66,6 +68,4 @@ export interface ConfigManager {
   save(config: StoredConfig): Promise<StoredConfig>
   /* 检测其它进程是否改过文件(mtime 变化), 有变化时返回合并后的配置, 否则返回 null */
   refresh(): Promise<StoredConfig | null>
-  /* 删除配置(清除凭证时使用) */
-  clear(): Promise<void>
 }

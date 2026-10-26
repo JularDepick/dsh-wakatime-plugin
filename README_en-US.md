@@ -22,8 +22,8 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Equal credentials: a plugin API key and an OAuth access token are interchangeable, both for reporting and reads; the type is detected from the prefix (paste and save, no selection); multiple credentials can be saved and switched at any time, each keeping its own local stats; credentials are guarded by a local mini-backend and never exposed to the frontend
 - Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
 - Push queue with retries: unsent heartbeats are persisted and survive a restart; failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a terminal error (401/403/400 and friends) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
-- Per-account data isolation: every credential keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching credentials switches the displayed numbers and never mixes accounts; data collected while no credential is configured is claimed by the first credential configured afterwards, and no account's data is ever cleaned up automatically; the "credential caches" section in the config view shows each credential's own stats and lets you switch credentials and lets you remove a cache unused for 30 days (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
-- Stats display scope: switch between "all API keys" and "current API key" in the config view (the former is the default)
+- Per-account data isolation: every credential keeps its own local data (stats totals, cloud snapshot, pending queue, report log), so switching credentials switches the displayed numbers and never mixes accounts; data collected while no credential is configured is claimed by the first credential configured afterwards, and no account's data is ever cleaned up automatically; the "credential caches" section in the config view shows each credential's own stats and lets you switch credentials or remove one (removing a credential deletes its cache too and the active credential cannot be removed; caches without an owning credential can be removed once unused for 30 days) (keys shown there keep only the first and last 8 characters, everything else is masked with `*`, and the plaintext never leaves the local backend)
+- Stats display scope: switch between "all credentials" and "current credential" in the config view (the former is the default)
 - Token statistics: precisely record the input/output Token count of each Agent call
 - Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders, and numbers can be grouped by thousands or ten thousands
 - Instant configuration: open the config view from the "Settings" button at the top right of the WakaTime tab to change the credential, reporting options, and interface switches in one place; changes apply immediately, with no save button
@@ -60,8 +60,8 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 
 - dsh versions: supports the tested 0.2.1-rc.1 through 0.2.1-rc.3 (including 0.2.1-rc.2); all share one artifact, so no per-version install is needed.
 - Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.1-rc.3` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
-- Later versions: dsh 0.3.x requires a matching newer plugin artifact.
-- Upgrading from v0.2.0: configuration and API keys carry over; the old `stats.json` and `heartbeats.json` are merged into the current API key's data bucket on first start and are kept on disk but no longer written; new config fields have defaults (`tableBorders` on, `statsScope` `all`), so an existing `cordis.yml` needs no change.
+- Later versions: any dsh version above 0.2.1-rc.3 (including the 0.2.1 release and 0.3.x) is rejected by this plugin until it is tested and the upper bound is raised.
+- Upgrading from 0.2.x: the legacy single `apiKey` and `oauthToken` fields are migrated into the credential list on first start, bucket ids derive from the credential text so history is kept, and each credential now keeps its own data bucket (switchable in the config view); the old `stats.json` and `heartbeats.json` are merged into the current credential's bucket on first start and are kept on disk but no longer written; new config fields have defaults (`tableBorders` on, `statsScope` `all`, `digitGrouping` `thousand`), so an existing `cordis.yml` needs no change.
 
 
 ## Usage
@@ -91,7 +91,7 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 | `wakatime_config` | Read/update plugin config (op=get/set); credentials: `list_credentials`, `set_credential` (save and activate, type auto-detected), `switch_credential`, `remove_credential`; overwrite only, never shown |
 | `wakatime_logout` | Clear every local credential |
 | `wakatime_status` | Show the authorization status (never echoes the key) |
-| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, model thinking duration, output and effective TOKEN, cache hit TOKEN, average output speed, current stats display scope; same source as the UI stats table) |
+| `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, estimated prompt Token, model thinking duration, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, input TOKEN total, average output speed, current stats display scope; same source as the UI stats table) |
 
 
 ## Configuration
@@ -110,7 +110,7 @@ Plugin configuration is provided through the DSH `cordis.yml`:
     includePrompts: true   # Whether to report prompt length
     debug: false           # Debug logging switch
     tableBorders: true     # Whether the stats table shows cell borders (display only)
-    statsScope: all        # Stats display scope: all = every API key, current = current API key
+    statsScope: all        # Stats display scope: all = every credential, current = current credential
     digitGrouping: thousand # Digit grouping: thousand (groups of 3) or myriad (groups of 4); display only
 ```
 
@@ -128,7 +128,7 @@ Environment variables:
 
 ## Platforms & Paths
 
-- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a per-key data-bucket file `buckets.json` lives in the same directory, holding one set of local data per API key (stats totals, cloud snapshot, pending queue, report log), so deleting a single bucket resets that account's local data and deleting the whole file clears every account's local data (cloud data can still be synced again).
+- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a per-credential data-bucket file `buckets.json` lives in the same directory, holding one set of local data per credential (stats totals, cloud snapshot, pending queue, report log); this directory is shared by every dsh profile of the same user and writes are guarded by file locks plus incremental merging, so do not edit it by hand. Use the "credential caches" section in the config view to remove data.
 - Permissions: on POSIX platforms the config directory and file are tightened to `0700` and `0600` respectively; Windows has no POSIX permission bits and relies on user-profile ACLs.
 - Project and branch detection: based on the session working directory, the project name comes from the Git repository root (sessions in a repository subdirectory or a worktree belong to the same project); the branch comes from the Git head file, and stays empty on a detached HEAD.
 - Network: single requests time out after 30 seconds and are retried as network failures; report requests carry plugin and host identification, so WakaTime can classify the editor and operating system; to use a proxy, set `NODE_USE_ENV_PROXY=1` together with `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later).

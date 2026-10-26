@@ -19,7 +19,6 @@
  * 首次升级时把旧版独立快照(stats.json / heartbeats.json)一次性并入当前桶。
  */
 
-import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -29,7 +28,6 @@ import {
   BUCKET_SAVE_DEBOUNCE_MS,
   BUCKET_STALE_DAYS,
   FAILED_TASK_LIMIT,
-  KEY_MASK_EDGE_CHARS,
   LEGACY_HEARTBEAT_FILE_NAME,
   LEGACY_STATS_FILE_NAME,
   REPORT_LOG_LIMIT,
@@ -37,6 +35,7 @@ import {
   STORAGE_LOCK_RETRIES,
   STORAGE_LOCK_TTL_MS,
 } from '../constants'
+import { credentialIdOf } from '../auth/credential'
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import { normalizePendingState } from '../heartbeat'
 import type { PendingHeartbeatState } from '../heartbeat'
@@ -51,18 +50,9 @@ import type { BucketFile, DataBucket } from './types'
 /* 锁参数:与配置文件共用同一套等待策略 */
 const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES, backoffMs: STORAGE_LOCK_BACKOFF_MS }
 
-/* 桶标识:凭证原文的 sha256 摘要前 16 位(文件内不出现明文) */
+/* 桶标识:与凭证标识同源(凭证原文的 sha256 摘要前 16 位, 文件内不出现明文) */
 export function bucketKeyOf(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex').slice(0, 16)
-}
-
-/* 展示用模糊凭证:保留首尾各 KEY_MASK_EDGE_CHARS 个字符,其余以 * 代替;
-   短于两倍保留长度的串整体打码(避免把整串都露出来) */
-export function maskApiKey(secret: string): string {
-  const key = secret.trim()
-  const edge = KEY_MASK_EDGE_CHARS
-  if (key.length <= edge * 2) return '*'.repeat(key.length)
-  return key.slice(0, edge) + '*'.repeat(key.length - edge * 2) + key.slice(-edge)
+  return credentialIdOf(secret)
 }
 
 /* 新建空桶 */
@@ -121,6 +111,7 @@ function normalizeBucket(value: unknown): DataBucket | undefined {
     pending: normalizePendingState(raw.pending),
   }
   /* 模糊凭证只接受受限长度与字符集的字符串(界面标识用,不参与任何请求) */
+  if (typeof raw.accountId === 'string' && raw.accountId !== '') bucket.accountId = raw.accountId
   const masked = raw.maskedKey
   if (typeof masked === 'string' && masked.length > 0 && masked.length <= 128 && /^[A-Za-z0-9*_-]+$/.test(masked)) {
     bucket.maskedKey = masked
@@ -206,9 +197,14 @@ export class BucketStore {
     return this.data.buckets
   }
 
-  /* 写入展示用模糊凭证(每次该凭证生效时刷新,兼作历史桶的回填) */
-  setMaskedKey(key: string, maskedKey: string): void {
-    this.touch(key).maskedKey = maskedKey
+  /* 写入该桶所属账号标识(云端快照按账号去重时使用;空值表示未知账号) */
+  setAccountId(key: string, accountId: string | null): void {
+    const bucket = this.ensure(key)
+    const next = accountId === null || accountId === '' ? undefined : accountId
+    if (bucket.accountId === next) return
+    bucket.accountId = next
+    bucket.updatedAt = Date.now()
+    this.scheduleSave()
   }
 
   /* 写入本地战绩累计量(绝对累计值,合并时与本进程基线做差得到增量) */

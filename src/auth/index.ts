@@ -18,6 +18,7 @@ import {
   ENV_OAUTH_TOKEN,
   SUMMARIES_PATH,
   USER_INFO_PATH,
+  USER_PROFILE_FAILURE_TTL_MS,
 } from '../constants'
 import type { ConfigManager, StoredConfig, StoredCredentialRecord } from '../config-manager'
 import { CredentialInputError, NotAuthenticatedError } from '../errors'
@@ -56,6 +57,8 @@ export function pickUsername(user: ProfileFields): string | undefined {
 export class AuthManagerImpl implements AuthManager {
   /* 配置内存缓存(含凭证列表);任何写入后同步更新 */
   private stored: StoredConfig | null = null
+  /* 账号名解析失败时刻(按凭证标识):窗口内不再外呼资料接口 */
+  private readonly profileFailures = new Map<string, number>()
   private loaded = false
   /* 凭证变更订阅者(切换数据桶等副作用由调用方处理) */
   private readonly listeners = new Set<() => void>()
@@ -87,6 +90,18 @@ export class AuthManagerImpl implements AuthManager {
   }
 
   /* 当前激活凭证的认证头;未配置时抛 NotAuthenticatedError */
+  /* 当前激活凭证对应的账号标识(仅用于云端快照按账号去重;环境变量凭证无此值) */
+  async getActiveUserId(): Promise<string | null> {
+    if (this.envCredential() !== null) return null
+    const stored = await this.config()
+    const record = this.activeRecord(stored)
+    if (!record) return null
+    const fromRecord = typeof record.userId === 'string' ? record.userId.trim() : ''
+    if (fromRecord !== '') return fromRecord
+    const fromConfig = typeof stored?.userId === 'string' ? stored.userId.trim() : ''
+    return fromConfig === '' ? null : fromConfig
+  }
+
   async getAuthHeader(): Promise<AuthHeader> {
     const fromEnv = this.envCredential()
     if (fromEnv) return fromEnv.authHeader()
@@ -329,6 +344,11 @@ export class AuthManagerImpl implements AuthManager {
   private async resolveUsername(stored: StoredConfig, record: StoredCredentialRecord): Promise<string | undefined> {
     const cached = typeof record.username === 'string' ? record.username.trim() : ''
     if (cached && !isAnonymousPlaceholder(cached)) return cached
+    /* 插件密钥按官方写专用处理, 不请求账号资料接口(必然 401) */
+    if (record.type === 'api_key') return undefined
+    /* 失败负缓存:窗口内不重复外呼, 避免离线时每次状态查询都阻塞到请求超时 */
+    const failedAt = this.profileFailures.get(record.id) ?? 0
+    if (failedAt > 0 && Date.now() - failedAt < USER_PROFILE_FAILURE_TTL_MS) return undefined
     try {
       const profile = await this.fetchUserProfile(credentialOf(record.type, record.secret).authHeader())
       if (profile.username !== undefined && profile.username !== cached) {
@@ -346,8 +366,10 @@ export class AuthManagerImpl implements AuthManager {
           ...(profile.username === undefined ? {} : { username: profile.username }),
         })
       }
+      this.profileFailures.delete(record.id)
       return profile.username
     } catch {
+      this.profileFailures.set(record.id, Date.now())
       return undefined
     }
   }

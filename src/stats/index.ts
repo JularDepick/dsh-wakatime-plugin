@@ -185,20 +185,6 @@ export class StatsTracker {
     return merged
   }
 
-  /* 聚合全部会话(战绩工具/Web 汇总用) */
-  aggregate(): SessionStats {
-    return {
-      sessionId: '(aggregate)',
-      lastPromptLength: 0,
-      ...this.totals(),
-    }
-  }
-
-  /* 全部会话统计列表(Web 内部数据;只含实时会话,不含保留量) */
-  listSessions(): SessionStats[] {
-    return [...this.sessions.values()]
-  }
-
   /* 累计量变更通知(落盘由调用方防抖) */
   private notify(): void {
     this.options.onChange?.(this.totals())

@@ -2,7 +2,7 @@
 
 > 面向 dsh 插件开发者: 总结外部插件为 dsh Web GUI 贡献 UI(尤其是新增 tab 页)的完整机制与落地要点.
 > 以会话区域「对话/轨迹」视图标签栏新增 tab 为实例,同样适用于「设置-插件」页等其他挂载点.
-> 机制基于官方仓库源码(见文末索引)与 0.2.0-rc.2, 0.2.1-rc.1 两个发布包核对;本经验为静态总结,换版本时以对应发布包类型声明为准.
+> 机制基于官方仓库源码(见文末索引)与 0.2.0-rc.2, 0.2.1-rc.1, 0.2.1-rc.3 三个发布包核对;本经验为静态总结,换版本时以对应发布包类型声明为准.
 
 ## 一 总体流程(五个步骤)
 
@@ -168,7 +168,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 
 1. **不需要新增 patch 行**: client 发现机制按 loader 条目(现有插件行)扫描,插件行同时是 host 插件与 client 条目;不要写成 `xxx/client` 子路径行
 2. **client.js 缺失 = web profile 启动失败**: 激活期扫描发现 `exports["./client"]` 指向的文件不存在会聚合抛错;必须构建产出后再启动
-3. **官方仓库快照与发布包版本可能不同**: 源码快照版本往往低于发布包;核对发布包类型与快照源码在所用 API 上的一致性或差异,换版本时务必以发布包类型为准(0.1.1-rc.2→0.1.5-rc.1 实测: client 上下文/`ctx.slots` 声明来源/平台模块表均有变化,见上;0.1.5-rc.1→0.1.7-rc.2 实测三者均未变,但 slot 系统新增 Factory 机制与 `conversation.view` 的 owner props 变更;0.1.7-rc.2→0.2.0-rc.2 实测三者与 slot 声明均未变,注意官方 `docs/user/develop/` 两版逐字节相同,**不可**作为升级安全依据,须对比发布包 `lib/types` 声明并跑类型检查/构建/冒烟测试;0.2.0-rc.2→0.2.1-rc.1 实测平台模块表为超集(新增 `zod`/`@tanstack/react-virtual`),`/client` 子路径导出与 slot 声明仍逐行未变,新增的宿主 release 标识与 `engines.dsh` 均不影响既有 client 产物)
+3. **官方仓库快照与发布包版本可能不同**: 源码快照版本往往低于发布包;核对发布包类型与快照源码在所用 API 上的一致性或差异,换版本时务必以发布包类型为准(0.1.1-rc.2→0.1.5-rc.1 实测: client 上下文/`ctx.slots` 声明来源/平台模块表均有变化,见上;0.1.5-rc.1→0.1.7-rc.2 实测三者均未变,但 slot 系统新增 Factory 机制与 `conversation.view` 的 owner props 变更;0.1.7-rc.2→0.2.0-rc.2 实测三者与 slot 声明均未变,注意官方 `docs/user/develop/` 两版逐字节相同,**不可**作为升级安全依据,须对比发布包 `lib/types` 声明并跑类型检查/构建/冒烟测试;0.2.0-rc.2→0.2.1-rc.1 实测平台模块表为超集(新增 `zod`/`@tanstack/react-virtual`),`/client` 子路径导出与 slot 声明仍逐行未变,新增的宿主 release 标识与 `engines.dsh` 均不影响既有 client 产物;0.2.1-rc.1→0.2.1-rc.3 实测七个宿主包只改版本字段,`dsh-client-ui-conversation` 新增 header 面声明(`conversation.session.header.views.actions` 槽与 `setPinned` 注入)但 `conversation.view` 槽声明逐行未变, 不消费 header 面的插件不受影响)
 4. **CSS Modules 需要 lightningcss**: tsdown 不内置该管线,官方用自定义插件(虚拟 id + lightningcss transform);不想要 CSS 文件时可用内联样式规避
 5. **样式纪律**: 使用已定义的语义 token,不写死颜色;写 `var(--dsw-*)` 前在主题 CSS 里确认该 token 存在(未定义时整条声明静默失效,实例: `--dsw-alias-border-l` 应为 `border-l1`..`border-l4`);产品文案用界面语言;**表格/select 文本居中属本仓库前端规范,与官方表格左对齐不同,两者冲突时按项目规范执行**;不用浏览器原生弹窗与原生二次确认
 6. **pnpm 无 TTY 会 abort**: package.json 描述符变更后需 `CI=true pnpm install`;typecheck/build 也建议 `CI=true` 前缀

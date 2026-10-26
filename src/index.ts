@@ -12,7 +12,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { AuthManagerImpl } from './auth'
-import { bucketKeyOf, BucketStore, maskApiKey, UNASSIGNED_BUCKET } from './bucket-store'
+import { bucketKeyOf, BucketStore, UNASSIGNED_BUCKET } from './bucket-store'
 import { resolveStatsView } from './bucket-store/resolve'
 import { SessionEventCollector } from './collector'
 import { Config } from './config'
@@ -38,7 +38,7 @@ export { Config }
 
 /* 导出模块类:便于复用与测试 */
 export { AuthManagerImpl, pickUsername } from './auth'
-export { bucketKeyOf, BucketStore, maskApiKey, UNASSIGNED_BUCKET } from './bucket-store'
+export { bucketKeyOf, BucketStore, UNASSIGNED_BUCKET } from './bucket-store'
 export { resolveStatsView } from './bucket-store/resolve'
 export type { StatsView } from './bucket-store/resolve'
 export { normalizeBucketFile } from './bucket-store'
@@ -98,16 +98,8 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 启动载入完成信号:载入完成前不切换数据桶、不推送,避免与初始载入互相覆盖丢数 */
   let markStoreReady!: () => void
   const storeReady = new Promise<void>((resolve) => { markStoreReady = resolve })
-  const applyBucket = async (next: string, maskedKey?: string): Promise<void> => {
-    const refreshMask = (): void => {
-      if (maskedKey === undefined) return
-      if (store.ensure(next).maskedKey === maskedKey) return
-      store.setMaskedKey(next, maskedKey)
-    }
-    if (next === currentBucket) {
-      refreshMask()
-      return
-    }
+  const applyBucket = async (next: string): Promise<void> => {
+    if (next === currentBucket) return
     if (switching) return
     switching = true
     try {
@@ -121,7 +113,6 @@ export function apply(ctx: Context, config: ConfigType) {
       const bucket = store.ensure(next)
       stats.seed(bucket.stats)
       heartbeat.replacePending(bucket.pending)
-      refreshMask()
       store.save()
       logger?.info?.(`[wakatime] switched to data bucket ${next === UNASSIGNED_BUCKET ? 'unassigned' : next}`)
     } finally {
@@ -138,7 +129,9 @@ export function apply(ctx: Context, config: ConfigType) {
       await applyBucket(UNASSIGNED_BUCKET)
       return
     }
-    await applyBucket(bucketKeyOf(secret), maskApiKey(secret))
+    await applyBucket(bucketKeyOf(secret))
+    /* 账号标识用于云端快照按账号去重(同账号多凭证不重复计入) */
+    store.setAccountId(bucketKeyOf(secret), await auth.getActiveUserId())
   }
 
   /* 推送一轮前先对齐数据桶,避免换了 Key 还往旧桶写 */
@@ -179,10 +172,11 @@ export function apply(ctx: Context, config: ConfigType) {
   /* API Key 变更(Web 覆盖写入或清除)后重新对齐数据桶 */
   ctx.effect(() => auth.onChange(() => { void syncBucket() }))
 
-  /* 启动时异步恢复 Web 设置页写入的配置(失败静默,保留 cordis 配置) */
-  void configManager.load().then((stored) => {
-    if (stored?.settings) void runtimeConfig.mergeStored(stored.settings)
-  })
+  /* 启动时恢复 Web 设置页写入的配置:与数据桶载入一起完成后再放开首轮推送,
+     避免关闭定时上报的用户在恢复前被推一轮 */
+  const restoreConfig = configManager.load()
+    .then((stored) => (stored?.settings ? runtimeConfig.mergeStored(stored.settings) : undefined))
+    .catch(() => { /* 恢复失败静默, 保留 cordis 配置 */ })
 
   /* 启动时读取数据桶:确定当前桶、认领未指派数据、恢复战绩与待发送状态
      (用合并语义:启动瞬间已入队的心跳不会被覆盖) */
@@ -190,7 +184,7 @@ export function apply(ctx: Context, config: ConfigType) {
     const secret = await auth.getActiveSecret()
     currentBucket = secret === null ? UNASSIGNED_BUCKET : bucketKeyOf(secret)
     await store.load(currentBucket)
-    if (secret !== null) store.setMaskedKey(currentBucket, maskApiKey(secret))
+    if (secret !== null) store.setAccountId(currentBucket, await auth.getActiveUserId())
     if (currentBucket !== UNASSIGNED_BUCKET) store.claimUnassigned(currentBucket)
     const bucket = store.ensure(currentBucket)
     stats.seed(bucket.stats)
@@ -201,7 +195,8 @@ export function apply(ctx: Context, config: ConfigType) {
     store.save()
   }
   /* 载入完成(成功或失败)后才放开数据桶切换与推送 */
-  void restoreBuckets().catch(() => { /* 载入失败已在内部静默降级 */ }).finally(() => { markStoreReady() })
+  void Promise.all([restoreBuckets().catch(() => { /* 载入失败已在内部静默降级 */ }), restoreConfig])
+    .finally(() => { markStoreReady() })
 
   /* 首轮推送 + 定时推送循环;待发送队列补推独立定时(留出重试节奏) */
   ctx.effect(() => {

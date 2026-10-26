@@ -18,6 +18,7 @@ import type { StatsView } from '../bucket-store/resolve'
 import { NotAuthenticatedError } from '../errors'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
 import type { RuntimeConfig } from '../runtime-config'
+import { validateConfigPatch } from '../runtime-config'
 import { translate } from '../translation'
 
 export interface WakatimeToolsOptions {
@@ -119,7 +120,7 @@ export class WakatimeTools {
         }
         if (status.username) lines.push(`${translate('status.username')}: ${status.username}`)
         lines.push(`${translate('credential.count')}: ${status.count}`)
-        lines.push(translate('apikey.hidden'))
+        lines.push(translate('credential.hidden'))
         return lines.join('\n')
       },
     }))
@@ -151,7 +152,7 @@ export class WakatimeTools {
           `${translate('stats.outputTokens')}: ${stats.outputTokens}`,
           `${translate('stats.apiEffectiveTokens')}: ${effectiveTokens(stats)}`,
           `${translate('stats.cacheHitTokens')}: ${stats.cacheReadTokens}`,
-          `${translate('stats.avgOutputSpeed')}: ${averageOutputSpeed(stats.outputTokens, stats.thinkingMs)} token/s`,
+          `${translate('stats.avgOutputSpeed')}: ${translate('stats.tokenPerSecond').replace('{n}', String(averageOutputSpeed(stats.outputTokens, stats.thinkingMs)))}`,
           `${translate('stats.inputTokens')}: ${stats.inputTokens}`,
           `${translate('stats.scope')}: ${view.scope === 'current' ? translate('stats.scopeCurrent') : translate('stats.scopeAll')}`,
         ].join('\n')
@@ -176,7 +177,7 @@ export class WakatimeTools {
     const config = this.options.runtimeConfig.get()
     const status = await this.options.auth.getStatus()
     const active = status.activeType === undefined
-      ? '(not configured)'
+      ? translate('status.notConfigured')
       : `${status.activeType} ${status.activeMaskedSecret ?? ''}`.trim()
     const lines = [
       `enabled=${config.enabled}`,
@@ -209,6 +210,9 @@ export class WakatimeTools {
     const allowed = KEY_VALUES[key as (typeof CONFIG_KEYS)[number]]
     if (allowed !== undefined && !allowed.includes(String(value))) {
       return `${translate('config.invalidValue')}: ${key} (${allowed.join(' | ')})`
+    }
+    if (validateConfigPatch({ [key]: value } as never) !== null) {
+      return `${translate('config.invalidValue')}: ${key}`
     }
     await this.options.runtimeConfig.update({ [key]: value } as never)
     return `${key}=${String(value)}`

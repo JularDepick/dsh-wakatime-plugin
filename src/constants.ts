@@ -73,7 +73,6 @@ export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
 /* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
 export const CREDENTIAL_MIN_LENGTH = 20
 /* 用户获取 OAuth 访问令牌的页面 */
-export const CREDENTIAL_OAUTH_HELP_URL = 'https://wakatime.com/oauth'
 
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
@@ -92,6 +91,8 @@ export const RETRY_MAX_DELAY_MS = 30000
 export const RETRY_BACKOFF_MULTIPLIER = 2
 /* 单次请求超时(毫秒;超时按网络失败进入重试,避免挂起阻塞上报循环) */
 export const REQUEST_TIMEOUT_MS = 30000
+/* 账号名解析失败的负缓存时长(毫秒):避免每次状态查询都外呼注定失败的资料接口 */
+export const USER_PROFILE_FAILURE_TTL_MS = 3_600_000
 /* 补报周期(毫秒):单队列多挂一个更高频的推送轮 */
 export const OFFLINE_FLUSH_INTERVAL_MS = 30000
 /* 上报记录日志保留条数(调试级,Web 展示) */

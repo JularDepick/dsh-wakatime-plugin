@@ -63,9 +63,11 @@ function mergeBucket(disk: DataBucket | undefined, memory: DataBucket | undefine
     return memoryCloud.syncedAt >= diskCloud.syncedAt ? memoryCloud : diskCloud
   })()
   const maskedKey = memory?.maskedKey && memory.maskedKey.length > 0 ? memory.maskedKey : disk?.maskedKey
+  const accountId = memory?.accountId ?? disk?.accountId
   return {
     updatedAt: Math.max(disk?.updatedAt ?? 0, memory?.updatedAt ?? 0),
     ...(maskedKey === undefined ? {} : { maskedKey }),
+    ...(accountId === undefined ? {} : { accountId }),
     stats: mergeStats(disk?.stats, memory?.stats, baseline?.stats),
     cloud,
     pending: {

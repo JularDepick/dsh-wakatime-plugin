@@ -40,6 +40,7 @@ export type WakatimeKey =
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
+  | 'stats.tokenPerSecond'
   | 'stats.thinking'
   | 'stats.outputTokens'
   | 'stats.apiEffective'
@@ -76,7 +77,6 @@ export type WakatimeKey =
   | 'logs.retried'
   | 'logs.retry'
   | 'logs.action'
-  | 'logs.errNotConfigured'
   | 'config.title'
   | 'config.open'
   | 'config.collapse'
@@ -96,7 +96,6 @@ export type WakatimeKey =
   | 'buckets.title'
   | 'buckets.hint'
   | 'buckets.empty'
-  | 'buckets.current'
   | 'buckets.stale'
   | 'buckets.recent'
   | 'buckets.updatedAt'
@@ -157,17 +156,18 @@ export const zh: WakatimeDict = {
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
   'stats.thinking': '模型思考总时长',
-  'stats.outputTokens': '输出TOKEN总量',
-  'stats.apiEffective': '有效TOKEN消耗量',
+  'stats.tokenPerSecond': '{n} token/s',
+  'stats.outputTokens': '输出 TOKEN 总量',
+  'stats.apiEffective': '有效 TOKEN 消耗量',
   'stats.avgOutputSpeed': '平均输出速度',
   'stats.colMetric': '指标名称',
   'stats.colValue': '指标数值',
   'stats.colNote': '备注',
-  'stats.noteThinking': '步骤开始至首TOKEN输出',
+  'stats.noteThinking': '步骤开始至首 TOKEN 输出',
   'stats.noteOutput': '官方 ai_output_tokens',
   'stats.noteApiEffective': '输入输出总量,缓存命中不计入',
-  'stats.noteAvgOutputSpeed': 'TOKEN输出速度',
-  'stats.cacheHitTokens': '缓存命中TOKEN总量',
+  'stats.noteAvgOutputSpeed': 'TOKEN 输出速度',
+  'stats.cacheHitTokens': '缓存命中 TOKEN 总量',
   'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN',
   'stats.scope': '战绩显示策略',
   'stats.scopeAll': '全部密钥战绩',
@@ -192,7 +192,6 @@ export const zh: WakatimeDict = {
   'logs.retried': '已重试',
   'logs.retry': '重试',
   'logs.action': '操作',
-  'logs.errNotConfigured': '未配置 API Key',
   'config.title': '配置',
   'config.open': '配置',
   'config.collapse': '收起配置',
@@ -204,17 +203,16 @@ export const zh: WakatimeDict = {
   'config.debug': '调试日志',
   'config.tableBorders': '显示表格边框',
   'config.statsScope': '战绩显示策略',
-  'config.statsScopeAll': '全部密钥战绩',
-  'config.statsScopeCurrent': '当前密钥战绩',
+  'config.statsScopeAll': '全部凭证战绩',
+  'config.statsScopeCurrent': '当前凭证战绩',
   'config.digitGrouping': '数位分隔符',
   'config.digitGroupingThousand': '千位',
   'config.digitGroupingMyriad': '万位',
   'buckets.title': '凭证缓存',
   'buckets.hint': '每份凭证各自一份本地缓存(战绩累计、云端快照与待发送心跳);非当前凭证可切换或移除',
   'buckets.empty': '暂无凭证缓存',
-  'buckets.current': '当前凭证',
-  'buckets.stale': '30 天未登录',
-  'buckets.recent': '使用中',
+  'buckets.stale': '30 天未更新',
+  'buckets.recent': '近期更新',
   'buckets.updatedAt': '最后更新',
   'buckets.remove': '移除缓存',
   'buckets.removeConfirm': '确认移除',
@@ -241,9 +239,9 @@ export const en: WakatimeDict = {
   'status.account': 'Current account',
   'status.loginSuccess': 'Logged in as ',
   'credential.title': 'Credential',
-  'credential.count': 'Saved',
+  'credential.count': 'Saved credentials',
   'credential.activeType': 'Active credential',
-  'credential.fromEnv': 'from environment',
+  'credential.fromEnv': 'Provided by environment',
   'credential.add': 'Add credential',
   'credential.save': 'Save credential',
   'credential.placeholder': 'Paste a plugin key or OAuth access token…',
@@ -270,6 +268,7 @@ export const en: WakatimeDict = {
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',
   'stats.thinking': 'Model thinking time',
+  'stats.tokenPerSecond': '{n} token/s',
   'stats.outputTokens': 'Output TOKEN total',
   'stats.apiEffective': 'Effective TOKEN usage',
   'stats.avgOutputSpeed': 'Average output speed',
@@ -305,7 +304,6 @@ export const en: WakatimeDict = {
   'logs.retried': 'Retried',
   'logs.retry': 'Retry',
   'logs.action': 'Action',
-  'logs.errNotConfigured': 'API key not configured',
   'config.title': 'Configuration',
   'config.open': 'Settings',
   'config.collapse': 'Hide settings',
@@ -317,17 +315,16 @@ export const en: WakatimeDict = {
   'config.debug': 'Debug logging',
   'config.tableBorders': 'Show table borders',
   'config.statsScope': 'Stats display scope',
-  'config.statsScopeAll': 'All API keys',
-  'config.statsScopeCurrent': 'Current API key',
+  'config.statsScopeAll': 'All credentials',
+  'config.statsScopeCurrent': 'Current credential',
   'config.digitGrouping': 'Digit grouping',
   'config.digitGroupingThousand': 'Thousands',
   'config.digitGroupingMyriad': 'Ten thousands',
   'buckets.title': 'Credential caches',
   'buckets.hint': 'Each credential keeps its own local cache (stats totals, cloud snapshot, pending heartbeats); a non-active credential can be switched or removed',
   'buckets.empty': 'No credential cache yet',
-  'buckets.current': 'Current credential',
   'buckets.stale': 'Unused for 30 days',
-  'buckets.recent': 'In use',
+  'buckets.recent': 'Updated recently',
   'buckets.updatedAt': 'Last updated',
   'buckets.remove': 'Remove cache',
   'buckets.removeConfirm': 'Confirm removal',

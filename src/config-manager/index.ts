@@ -10,7 +10,7 @@
  * - refresh() 按 mtime 检测其它进程的改动, 供读取面按需同步.
  */
 
-import { chmod, mkdir, unlink } from 'node:fs/promises'
+import { chmod, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
@@ -88,20 +88,6 @@ export class ConfigManagerImpl implements ConfigManager {
     return merged
   }
 
-  clear(): Promise<void> {
-    const task = this.writeQueue.then(async () => {
-      try {
-        await unlink(configPath())
-      } catch (error) {
-        /* 文件本就不存在时视为清除完成 */
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      this.lastKnown = null
-      this.mtime = null
-    })
-    this.writeQueue = task.catch(() => {})
-    return task
-  }
 }
 
 /* POSIX 下显式收紧目录与文件权限(已存在文件的 mode 不会因写入而改变);
