@@ -99,6 +99,8 @@ export interface WebLogEntry {
   detail?: string
   /* 失败任务标识:前端据此渲染手动重试入口 */
   taskId?: string
+  /* 该失败任务是否由本进程持有(仅本进程可重试, 其它进程的记录只读) */
+  retryable?: boolean
   /* 失败任务对应的心跳对象与已尝试次数 */
   entity?: string
   attempts?: number

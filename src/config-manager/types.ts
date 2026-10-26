@@ -15,7 +15,7 @@ export interface StoredCredentialRecord {
   /* 凭证原文(仅本地保存, 不回显) */
   secret: string
   /* 展示用打码凭证 */
-  maskedSecret: string
+  maskedSecret?: string
   /* 验证成功时缓存的用户 id 与账号名 */
   userId?: string
   username?: string

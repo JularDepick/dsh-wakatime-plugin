@@ -93,7 +93,7 @@ export function mergeBucketFiles(disk: BucketFile, memory: BucketFile, baseline:
     const updatedAt = Math.max(diskBucket?.updatedAt ?? 0, memoryBucket?.updatedAt ?? 0)
     /* 墓碑优先:删除时刻不早于最后一次更新时, 该桶保持删除状态 */
     const tomb = tombstones[key] ?? 0
-    if (tomb > 0 && tomb >= updatedAt) continue
+    if (tomb > 0 && tomb > updatedAt) continue
     buckets[key] = mergeBucket(diskBucket, memoryBucket, baseline.buckets[key])
   }
   /* 一律写当前文件版本:旧版文件(无墓碑字段)写入一次即完成升级 */
@@ -106,7 +106,7 @@ export function isMergeSane(disk: BucketFile, merged: BucketFile): boolean {
     const mergedBucket = merged.buckets[key]
     if (!mergedBucket) {
       const tomb = merged.tombstones?.[key] ?? 0
-      if (tomb < diskBucket.updatedAt) return false
+      if (tomb <= diskBucket.updatedAt) return false
       continue
     }
     for (const metric of TOTAL_KEYS) {

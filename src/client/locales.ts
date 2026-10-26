@@ -12,7 +12,7 @@ export type WakatimeKey =
   | 'status.configured'
   | 'status.notConfigured'
   | 'status.account'
-  | 'status.loginSuccess'
+  | 'status.loggedInAs'
   | 'credential.title'
   | 'credential.count'
   | 'credential.activeType'
@@ -76,6 +76,7 @@ export type WakatimeKey =
   | 'logs.failed'
   | 'logs.retried'
   | 'logs.retry'
+  | 'logs.retryUnavailable'
   | 'logs.action'
   | 'config.title'
   | 'config.open'
@@ -125,7 +126,7 @@ export const zh: WakatimeDict = {
   'status.configured': '已配置凭证',
   'status.notConfigured': '未配置凭证',
   'status.account': '当前账号',
-  'status.loginSuccess': '登录成功, ',
+  'status.loggedInAs': '已登录: {name}',
   'credential.title': '凭证',
   'credential.count': '已存凭证',
   'credential.activeType': '当前凭证',
@@ -170,8 +171,8 @@ export const zh: WakatimeDict = {
   'stats.cacheHitTokens': '缓存命中 TOKEN 总量',
   'stats.noteCacheHitTokens': '输入侧命中提示词缓存的 TOKEN',
   'stats.scope': '战绩显示策略',
-  'stats.scopeAll': '全部密钥战绩',
-  'stats.scopeCurrent': '当前密钥战绩',
+  'stats.scopeAll': '全部凭证战绩',
+  'stats.scopeCurrent': '当前凭证战绩',
   'cloud.sync': '同步',
   'cloud.syncing': '同步中…',
   'cloud.syncedAt': '同步时间',
@@ -191,6 +192,7 @@ export const zh: WakatimeDict = {
   'logs.failed': '失败',
   'logs.retried': '已重试',
   'logs.retry': '重试',
+  'logs.retryUnavailable': '该失败任务由其它进程持有, 请在对应进程重试',
   'logs.action': '操作',
   'config.title': '配置',
   'config.open': '配置',
@@ -237,7 +239,7 @@ export const en: WakatimeDict = {
   'status.configured': 'Credential configured',
   'status.notConfigured': 'Credential not configured',
   'status.account': 'Current account',
-  'status.loginSuccess': 'Logged in as ',
+  'status.loggedInAs': 'Logged in as {name}',
   'credential.title': 'Credential',
   'credential.count': 'Saved credentials',
   'credential.activeType': 'Active credential',
@@ -282,8 +284,8 @@ export const en: WakatimeDict = {
   'stats.cacheHitTokens': 'Cache hit TOKEN total',
   'stats.noteCacheHitTokens': 'Input TOKENs served from the prompt cache',
   'stats.scope': 'Stats display scope',
-  'stats.scopeAll': 'All API keys',
-  'stats.scopeCurrent': 'Current API key',
+  'stats.scopeAll': 'All credentials',
+  'stats.scopeCurrent': 'Current credential',
   'cloud.sync': 'Sync',
   'cloud.syncing': 'Syncing…',
   'cloud.syncedAt': 'Synced at',
@@ -303,6 +305,7 @@ export const en: WakatimeDict = {
   'logs.failed': 'Failed',
   'logs.retried': 'Retried',
   'logs.retry': 'Retry',
+  'logs.retryUnavailable': 'That failed task belongs to another process; retry it there',
   'logs.action': 'Action',
   'config.title': 'Configuration',
   'config.open': 'Settings',

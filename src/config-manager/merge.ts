@@ -35,7 +35,7 @@ function mergeCredentials(
   const result: StoredCredentialRecord[] = []
   for (const record of byId.values()) {
     const tomb = tombstones[record.id] ?? 0
-    if (tomb > 0 && tomb >= record.addedAt) continue
+    if (tomb > 0 && tomb > record.addedAt) continue
     result.push(record)
   }
   return result.sort((a, b) => a.addedAt - b.addedAt)
@@ -85,13 +85,13 @@ export function normalizeStoredConfig(value: unknown): StoredConfig | null {
   for (const item of Array.isArray(raw.credentials) ? raw.credentials : []) {
     if (typeof item !== 'object' || item === null) continue
     const record = item as Record<string, unknown>
-    if (typeof record.id !== 'string' || typeof record.secret !== 'string' || typeof record.maskedSecret !== 'string') continue
+    if (typeof record.id !== 'string' || typeof record.secret !== 'string') continue
     if (record.type !== 'api_key' && record.type !== 'oauth') continue
     records.push({
       id: record.id,
       type: record.type,
       secret: record.secret,
-      maskedSecret: record.maskedSecret,
+      ...(typeof record.maskedSecret === 'string' ? { maskedSecret: record.maskedSecret } : {}),
       ...(typeof record.userId === 'string' ? { userId: record.userId } : {}),
       ...(typeof record.username === 'string' ? { username: record.username } : {}),
       addedAt: typeof record.addedAt === 'number' ? record.addedAt : 0,
@@ -109,6 +109,7 @@ export function normalizeStoredConfig(value: unknown): StoredConfig | null {
     ...(records.length === 0 ? {} : { credentials: records }),
     ...(typeof raw.activeCredentialId === 'string' ? { activeCredentialId: raw.activeCredentialId } : {}),
     ...(typeof raw.activeUpdatedAt === 'number' ? { activeUpdatedAt: raw.activeUpdatedAt } : {}),
+    ...(typeof raw.settingsUpdatedAt === 'number' ? { settingsUpdatedAt: raw.settingsUpdatedAt } : {}),
     ...(Object.keys(tombstones).length === 0 ? {} : { credentialTombstones: tombstones }),
     ...(typeof raw.apiKey === 'string' ? { apiKey: raw.apiKey } : {}),
     ...(typeof raw.oauthToken === 'string' ? { oauthToken: raw.oauthToken } : {}),

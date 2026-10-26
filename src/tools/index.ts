@@ -29,6 +29,8 @@ export interface WakatimeToolsOptions {
   resolveStats: () => StatsView
   /* 读取前同步其它 profile 进程写入的数据(按文件 mtime 检测), 缺省时跳过 */
   refresh?: () => Promise<boolean>
+  /* 移除凭证后连带删除其数据桶(与 Web 通道一致), 缺省时保留桶 */
+  dropBucket?: (id: string) => void
 }
 
 /* 配置工具可写的键(白名单,与 WebConfigPatch 对齐,不含凭证) */
@@ -258,6 +260,8 @@ export class WakatimeTools {
   private async removeCredential(id: string): Promise<string> {
     try {
       await this.options.auth.removeCredential(id)
+      /* 与 Web 通道一致: 连带删除该凭证的数据桶, 避免留下无法辨认的孤儿桶 */
+      this.options.dropBucket?.(id)
       return translate('credential.removed')
     } catch (error) {
       return credentialErrorText(error)

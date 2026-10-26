@@ -258,7 +258,7 @@ async function handleCredentialRemove(req: IncomingMessage, res: ServerResponse,
     const id = String(payload.id ?? '')
     /* 正在使用的凭证不可移除:其数据桶就是当前桶, 删掉后写入会以空桶复活并丢失累计战绩 */
     if (id === deps.currentBucket()) {
-      writeJson(res, 400, { ok: false, error: 'bucket-in-use' })
+      writeJson(res, 409, { ok: false, error: 'bucket-in-use' })
       return
     }
     await deps.auth.removeCredential(id)
@@ -298,12 +298,15 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
   const bucket = deps.store.buckets()[deps.currentBucket()]
   const local = deps.heartbeat.pendingState()
   const disk = bucket?.pending
+  const localFailedIds = new Set(local.failed.map((task) => task.id))
   const failed = new Map([...local.failed, ...(disk?.failed ?? [])].map((task) => [task.id, task]))
   const merged = new Map<string, ReportEntry>()
   for (const entry of [...(disk?.report ?? []), ...deps.heartbeat.reportLog()]) merged.set(entry.id, entry)
   const entries = [...merged.values()].sort((a, b) => b.time - a.time).slice(0, REPORT_LOG_LIMIT)
   const body: WebLogEntry[] = entries.map((entry) => {
     const task = entry.taskId !== undefined ? failed.get(entry.taskId) : undefined
+    /* 只有本进程持有的失败任务才可重试, 其它进程的只读展示 */
+    const localTask = entry.taskId !== undefined && localFailedIds.has(entry.taskId)
     return {
       id: entry.id,
       time: entry.time,
@@ -315,6 +318,7 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
       ...(entry.detail !== undefined ? { detail: entry.detail } : {}),
       ...(entry.taskId !== undefined ? { taskId: entry.taskId } : {}),
       ...(task !== undefined ? { entity: task.heartbeat.entity, attempts: task.attempts } : {}),
+      ...(entry.taskId === undefined ? {} : { retryable: localTask }),
     }
   })
   writeJson(res, 200, body)

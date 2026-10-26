@@ -29,6 +29,7 @@ import {
   BUCKET_STALE_DAYS,
   FAILED_TASK_LIMIT,
   LEGACY_HEARTBEAT_FILE_NAME,
+  KEY_MASK_STARS,
   LEGACY_STATS_FILE_NAME,
   REPORT_LOG_LIMIT,
   STORAGE_LOCK_BACKOFF_MS,
@@ -114,7 +115,8 @@ function normalizeBucket(value: unknown): DataBucket | undefined {
   if (typeof raw.accountId === 'string' && raw.accountId !== '') bucket.accountId = raw.accountId
   const masked = raw.maskedKey
   if (typeof masked === 'string' && masked.length > 0 && masked.length <= 128 && /^[A-Za-z0-9*_-]+$/.test(masked)) {
-    bucket.maskedKey = masked
+    /* 旧版按隐藏位数展开星号, 这里折叠成固定长度, 保持与新算法一致 */
+    bucket.maskedKey = masked.replace(/\*{2,}/g, '*'.repeat(KEY_MASK_STARS))
   }
   return bucket
 }

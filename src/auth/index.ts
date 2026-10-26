@@ -96,10 +96,9 @@ export class AuthManagerImpl implements AuthManager {
     const stored = await this.config()
     const record = this.activeRecord(stored)
     if (!record) return null
+    /* 只认该凭证自己的账号标识: 回落全局会影响其它账号凭证的云端去重 */
     const fromRecord = typeof record.userId === 'string' ? record.userId.trim() : ''
-    if (fromRecord !== '') return fromRecord
-    const fromConfig = typeof stored?.userId === 'string' ? stored.userId.trim() : ''
-    return fromConfig === '' ? null : fromConfig
+    return fromRecord === '' ? null : fromRecord
   }
 
   async getAuthHeader(): Promise<AuthHeader> {
@@ -330,7 +329,8 @@ export class AuthManagerImpl implements AuthManager {
     return {
       id: record.id,
       type: record.type,
-      maskedSecret: record.maskedSecret,
+      /* 始终按当前算法重算, 避免旧版落盘的长打码值继续显示 */
+      maskedSecret: maskCredential(record.secret),
       ...(record.userId === undefined ? {} : { userId: record.userId }),
       ...(record.username === undefined ? {} : { username: record.username }),
       active,
@@ -369,6 +369,8 @@ export class AuthManagerImpl implements AuthManager {
       this.profileFailures.delete(record.id)
       return profile.username
     } catch {
+      /* 负缓存按凭证标识计数, 超过上限时清空重来(条目极少, 仅防退化) */
+      if (this.profileFailures.size >= 32) this.profileFailures.clear()
       this.profileFailures.set(record.id, Date.now())
       return undefined
     }

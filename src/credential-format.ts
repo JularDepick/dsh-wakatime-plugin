@@ -15,6 +15,7 @@ import {
   CREDENTIAL_PREFIX_OAUTH,
   CREDENTIAL_PREFIX_SECRET,
   KEY_MASK_EDGE_CHARS,
+  KEY_MASK_STARS,
 } from './constants'
 
 /* 凭证类型: 插件密钥与 OAuth 访问令牌同权, 只有认证方式不同 */
@@ -49,5 +50,6 @@ export function maskCredential(secret: string): string {
   if (value.length <= KEY_MASK_EDGE_CHARS * 2) return '*'.repeat(value.length)
   const head = value.slice(0, KEY_MASK_EDGE_CHARS)
   const tail = value.slice(-KEY_MASK_EDGE_CHARS)
-  return head + '*'.repeat(value.length - KEY_MASK_EDGE_CHARS * 2) + tail
+  /* 中间段固定星号个数, 不按实际隐藏位数展开: 既避免泄露长度, 也避免长凭证在界面上占过多宽度 */
+  return head + '*'.repeat(KEY_MASK_STARS) + tail
 }

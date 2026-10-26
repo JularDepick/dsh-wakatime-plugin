@@ -33,6 +33,8 @@ export const STORAGE_LOCK_BACKOFF_MS = 50
 export const BUCKET_STALE_DAYS = 30
 /* 展示用模糊 API Key:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
 export const KEY_MASK_EDGE_CHARS = 8
+/* 打码中间段固定星号个数(不按实际隐藏位数展开, 避免长度泄露与视觉噪音) */
+export const KEY_MASK_STARS = 8
 /* 待发送队列上限:超过即触发相邻两条合并压缩(保留较早那条 + AI 计数相加) */
 export const PENDING_QUEUE_LIMIT = 5000
 /* 失败任务列表上限与上报记录保留条数 */
@@ -72,8 +74,6 @@ export const CREDENTIAL_PREFIX_OAUTH = 'waka_tok_'
 export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
 /* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
 export const CREDENTIAL_MIN_LENGTH = 20
-/* 用户获取 OAuth 访问令牌的页面 */
-
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
 /* 云端同步结果缓存时长(毫秒):窗口内重复请求(切换标签页、刷新页面)直接复用,

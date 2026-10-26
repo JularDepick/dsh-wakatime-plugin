@@ -209,13 +209,17 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       body: JSON.stringify({ id }),
     })
       .then((response) => {
+        if (response.status === 404) {
+          setNotice({ kind: 'error', text: t('logs.retryUnavailable') })
+          return
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
   }
 
-  /* 凭证操作错误码映射为字典文案(格式类错误码由前端直接给出) */
+  /* 凭证操作错误码直接映射为字典文案 */
   const credentialErrorText = (code: string | undefined): string => {
     if (code === 'empty') return t('credential.errEmpty')
     if (code === 'client_secret') return t('credential.errClientSecret')
@@ -579,7 +583,7 @@ function WakatimePanels(props: PanelsProps) {
       </span>
       {data.configured && data.username ? (
         <span className={`${css.muted} ${css.statusText}`}>
-          {t('status.loginSuccess')}{t('status.account')}:{data.username}
+          {t('status.loggedInAs').replace('{name}', data.username)}
         </span>
       ) : null}
     </span>
@@ -912,7 +916,7 @@ function WakatimePanels(props: PanelsProps) {
                           <td className={entry.ok ? css.ok : css.error}>{logStateText(entry)}</td>
                           <td className={css.muted} data-column="detail">{logDetail(entry)}</td>
                           <td data-column="action">
-                            {entry.state === 'failed' && entry.taskId !== undefined ? (
+                            {entry.state === 'failed' && entry.taskId !== undefined && entry.retryable !== false ? (
                               <button
                                 type="button"
                                 className={compactButton}
