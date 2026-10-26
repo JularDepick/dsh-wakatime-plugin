@@ -69,7 +69,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 安装并启用插件后,在配置视图的凭证区粘贴一份凭证即可.**类型按前缀自动识别,不需要选择**:
 
 - **插件密钥(API Key)**: 前缀 `waka_`,在 wakatime.com/settings/api-key 获取;
-- **OAuth 访问令牌**: 前缀 `waka_tok_`,在 https://wakatime.com/oauth 获取,建议勾选 write_heartbeats、read_summaries、email 三个 scope;
+- **OAuth 访问令牌**: 前缀 `waka_tok_`,登录后访问 https://wakatime.com/oauth 获取(页面直接给出个人令牌,自用无需创建应用);需要自定义 scope 或供他人使用时,在 https://wakatime.com/apps 创建应用,授权时以 `scope` 参数申请 write_heartbeats、read_summaries、email;
 - 前缀 `waka_sec_` 是 OAuth 应用密钥,不能当凭证使用,粘贴会被拒绝并提示.
 
 配置方式:

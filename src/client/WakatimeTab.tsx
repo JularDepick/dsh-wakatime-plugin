@@ -375,6 +375,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        /* 服务端已按新配置重算战绩与展示项, 刷新状态使主视图同步 */
+        setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
         setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` })
@@ -618,14 +620,20 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       </div>
       {data.configured ? (
-        <p className={css.ok} role="status">
-          {t('credential.activeType')}
-          {': '}
-          {data.activeType === 'oauth' ? t('credential.typeOauth') : t('credential.typeApiKey')}
-          {data.activeMaskedSecret === undefined ? '' : ' ' + data.activeMaskedSecret}
-          {data.username === undefined ? '' : ' · ' + t('status.account') + ':' + data.username}
-          {data.fromEnv ? ' · ' + t('credential.fromEnv') : ''}
-        </p>
+        <>
+          <p className={css.ok} role="status">
+            {t('credential.activeType')}
+            {': '}
+            {data.activeType === 'oauth' ? t('credential.typeOauth') : t('credential.typeApiKey')}
+            {data.activeMaskedSecret === undefined ? '' : ' ' + data.activeMaskedSecret}
+            {data.fromEnv ? ' · ' + t('credential.fromEnv') : ''}
+          </p>
+          <p className={css.muted}>
+            {t('status.account')}
+            {': '}
+            {data.username ?? t('credential.accountUnknown')}
+          </p>
+        </>
       ) : null}
       <div className={css.field}>
         <span className={css.fieldLabel}>{t('credential.add')}</span>
@@ -650,6 +658,7 @@ function WakatimePanels(props: PanelsProps) {
         {inputError === undefined ? null : <p className={css.invalid}>{inputError}</p>}
         <span className={css.muted}>{t('credential.hintApiKey')}</span>
         <span className={css.muted}>{t('credential.hintOauth')}</span>
+        <span className={css.muted}>{t('credential.hintOauthScopes')}</span>
         <span className={css.muted}>{t('credential.overwrite')}</span>
       </div>
     </section>
@@ -662,62 +671,78 @@ function WakatimePanels(props: PanelsProps) {
         <div className={css.toolbar}>{toggleButton}</div>
         {credentialSection}
         <section className={css.section}>
-          <h3 className={css.sectionTitle}>{t('config.title')}</h3>
-          <ToggleField
-            label={t('config.enabled')}
-            checked={draft.enabled}
-            onChange={(value) => { onPatch('enabled', value) }}
-          />
-          <ToggleField
-            label={t('config.reportEnabled')}
-            checked={draft.reportEnabled}
-            onChange={(value) => { onPatch('reportEnabled', value) }}
-          />
-          <NumberField
-            label={t('config.reportInterval')}
-            value={draft.reportInterval}
-            onChange={(value) => { onDraft('reportInterval', value) }}
-            onCommit={(value) => { onPatch('reportInterval', value) }}
-          />
-          <ToggleField
-            label={t('config.includeTokens')}
-            checked={draft.includeTokens}
-            onChange={(value) => { onPatch('includeTokens', value) }}
-          />
-          <ToggleField
-            label={t('config.includePrompts')}
-            checked={draft.includePrompts}
-            onChange={(value) => { onPatch('includePrompts', value) }}
-          />
-          <ToggleField
-            label={t('config.debug')}
-            checked={draft.debug}
-            onChange={(value) => { onPatch('debug', value) }}
-          />
-          <ToggleField
-            label={t('config.tableBorders')}
-            checked={draft.tableBorders}
-            onChange={(value) => { onPatch('tableBorders', value) }}
-          />
-          <SegmentedField
-            label={t('config.statsScope')}
-            value={draft.statsScope}
-            options={[
-              { value: 'all', label: t('config.statsScopeAll') },
-              { value: 'current', label: t('config.statsScopeCurrent') },
-            ]}
-            onChange={(value) => { onPatch('statsScope', value === 'current' ? 'current' : 'all') }}
-          />
-          <SegmentedField
-            label={t('config.digitGrouping')}
-            value={draft.digitGrouping}
-            options={[
-              { value: 'thousand', label: t('config.digitGroupingThousand') },
-              { value: 'myriad', label: t('config.digitGroupingMyriad') },
-            ]}
-            onChange={(value) => { onPatch('digitGrouping', value === 'myriad' ? 'myriad' : 'thousand') }}
-          />
-          <p className={css.muted}>{t('config.instantHint')}</p>
+          <div className={css.sectionHead}>
+            <h3 className={css.sectionTitle}>{t('config.title')}</h3>
+            <span className={css.muted}>{t('config.instantHint')}</span>
+          </div>
+          <div className={css.configGrid}>
+            <div className={css.configGroup}>
+              <span className={css.groupTitle}>{t('config.groupReporting')}</span>
+              <ToggleField
+                label={t('config.enabled')}
+                checked={draft.enabled}
+                onChange={(value) => { onPatch('enabled', value) }}
+              />
+              <ToggleField
+                label={t('config.reportEnabled')}
+                checked={draft.reportEnabled}
+                onChange={(value) => { onPatch('reportEnabled', value) }}
+              />
+              <NumberField
+                label={t('config.reportInterval')}
+                value={draft.reportInterval}
+                onChange={(value) => { onDraft('reportInterval', value) }}
+                onCommit={(value) => { onPatch('reportInterval', value) }}
+              />
+            </div>
+            <div className={css.configGroup}>
+              <span className={css.groupTitle}>{t('config.groupPayload')}</span>
+              <ToggleField
+                label={t('config.includeTokens')}
+                checked={draft.includeTokens}
+                onChange={(value) => { onPatch('includeTokens', value) }}
+              />
+              <ToggleField
+                label={t('config.includePrompts')}
+                checked={draft.includePrompts}
+                onChange={(value) => { onPatch('includePrompts', value) }}
+              />
+            </div>
+            <div className={css.configGroup}>
+              <span className={css.groupTitle}>{t('config.groupDisplay')}</span>
+              <SegmentedField
+                label={t('config.statsScope')}
+                value={draft.statsScope}
+                options={[
+                  { value: 'all', label: t('config.statsScopeAll') },
+                  { value: 'current', label: t('config.statsScopeCurrent') },
+                ]}
+                onChange={(value) => { onPatch('statsScope', value === 'current' ? 'current' : 'all') }}
+              />
+              <SegmentedField
+                label={t('config.digitGrouping')}
+                value={draft.digitGrouping}
+                options={[
+                  { value: 'thousand', label: t('config.digitGroupingThousand') },
+                  { value: 'myriad', label: t('config.digitGroupingMyriad') },
+                ]}
+                onChange={(value) => { onPatch('digitGrouping', value === 'myriad' ? 'myriad' : 'thousand') }}
+              />
+              <ToggleField
+                label={t('config.tableBorders')}
+                checked={draft.tableBorders}
+                onChange={(value) => { onPatch('tableBorders', value) }}
+              />
+            </div>
+            <div className={css.configGroup}>
+              <span className={css.groupTitle}>{t('config.groupDiagnostics')}</span>
+              <ToggleField
+                label={t('config.debug')}
+                checked={draft.debug}
+                onChange={(value) => { onPatch('debug', value) }}
+              />
+            </div>
+          </div>
         </section>
 
         <section className={css.section}>

@@ -69,7 +69,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.3.0.tgz
 After installing and enabling the plugin, paste one credential in the config view. **The type is detected from the prefix, no selection needed**:
 
 - **Plugin API key**: prefix `waka_`, get one at wakatime.com/settings/api-key;
-- **OAuth access token**: prefix `waka_tok_`, get one at https://wakatime.com/oauth and select the write_heartbeats, read_summaries and email scopes;
+- **OAuth access token**: prefix `waka_tok_`, open https://wakatime.com/oauth while signed in to get a personal token (no app needed for personal use); for custom scopes or acting for others, create an app at https://wakatime.com/apps and request write_heartbeats, read_summaries and email through the `scope` argument;
 - A `waka_sec_` value is an OAuth client secret, not a credential: pasting it is rejected with a hint.
 
 Ways to configure:

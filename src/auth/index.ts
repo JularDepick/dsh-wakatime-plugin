@@ -12,14 +12,17 @@
 
 import {
   ANONYMOUS_DISPLAY_NAME,
+  CLOUD_SUMMARY_RANGE,
   DEFAULT_REPORT_INTERVAL_SECONDS,
   ENV_API_KEY,
   ENV_OAUTH_TOKEN,
+  SUMMARIES_PATH,
   USER_INFO_PATH,
 } from '../constants'
 import type { ConfigManager, StoredConfig, StoredCredentialRecord } from '../config-manager'
 import { CredentialInputError, NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
+import { WakaTimeError } from '../http'
 import { detectCredentialType, maskCredential } from '../credential-format'
 import { CredentialBase, credentialIdOf, credentialOf } from './credential'
 import type { AddCredentialResult, AuthManager, AuthStatus, CredentialSummary, UserProfile } from './types'
@@ -98,8 +101,8 @@ export class AuthManagerImpl implements AuthManager {
     const detection = detectCredentialType(input)
     if (!detection.ok) throw new CredentialInputError(detection.reason === 'unknown' ? 'unknown_format' : detection.reason)
     const credential = credentialOf(detection.type, input)
-    /* 验证失败(无效凭证或网络异常)不落盘 */
-    const profile = await this.fetchUserProfile(credential.authHeader())
+    /* 验证失败(无效凭证或网络异常)不落盘;校验策略按类型区分, 见 validateCredential */
+    const profile = await this.validateCredential(credential)
     const stored = (await this.config()) ?? emptyConfig()
     const records = [...(stored.credentials ?? [])]
     const index = records.findIndex((record) => record.id === credential.id)
@@ -175,6 +178,25 @@ export class AuthManagerImpl implements AuthManager {
     if (fromEnv !== null || stored === null || record === null) return base
     const username = await this.resolveUsername(stored, record)
     return username === undefined ? base : { ...base, username }
+  }
+
+  /* 按凭证类型校验有效性(官方把插件密钥限定为写入专用, 令牌的读取权限取决于 scope):
+     - 先试账号资料接口(官方标注需 email scope):成功即有效, 并带回账号名;
+     - 被 401/403 拒绝时:令牌再退战绩接口(需 read_summaries)确认, 战绩可用即视为有效(账号名未知);
+       插件密钥按写入专用处理, 视为无法做读取校验而接受(账号名未知);
+     - 网络异常一律拒绝, 避免把拼写错误当成可用凭证 */
+  private async validateCredential(credential: CredentialBase): Promise<UserProfile> {
+    const header = credential.authHeader()
+    try {
+      return await this.fetchUserProfile(header)
+    } catch (error) {
+      if (!(error instanceof WakaTimeError) || (error.status !== 401 && error.status !== 403)) throw error
+      if (credential.type === 'oauth') {
+        await this.http.request(`${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`, { method: 'GET', auth: header, noRetry: true })
+        return {}
+      }
+      return {}
+    }
   }
 
   /* 用认证头拉取账号资料并验证有效性:HTTP 非 2xx(如 401)或网络异常
