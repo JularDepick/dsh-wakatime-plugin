@@ -1,7 +1,7 @@
 {
   "name": "dsh-wakatime-plugin",
   "version": "0.3.0",
-  "description": "将 DSH 的 AI 交互量化并上报至 WakaTime",
+  "description": "dsh 插件: 将 DSH 的每一次 Agent 交互量化为可视化表现指标并自动同步至 WakaTime,用数据展示你与 Agent 协作的生产力",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
