@@ -28,4 +28,6 @@ export interface DataBucket {
 export interface BucketFile {
   version: number
   buckets: Record<string, DataBucket>
+  /* 删除墓碑:桶标识 -> 删除时刻(Unix 毫秒)。多进程合并时墓碑优先, 已删除的桶不会被其它进程复活 */
+  tombstones?: Record<string, number>
 }

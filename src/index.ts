@@ -90,7 +90,7 @@ export function apply(ctx: Context, config: ConfigType) {
   const collector = new SessionEventCollector({ heartbeat, stats, project })
   const cloudSync = new CloudSync(http, auth)
   const resolveStats = () => resolveStatsView(store.buckets(), runtimeConfig.get().statsScope, currentBucket)
-  const tools = new WakatimeTools({ auth, runtimeConfig, resolveStats })
+  const tools = new WakatimeTools({ auth, runtimeConfig, resolveStats, refresh: () => store.reloadIfChanged() })
 
   /* 切换数据桶:把当前桶的实时累计量与待发送状态落库,再载入目标桶;
      同时刷新展示用模糊 Key(值不同才写,避免无谓的落盘) */

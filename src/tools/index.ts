@@ -26,6 +26,8 @@ export interface WakatimeToolsOptions {
   runtimeConfig: RuntimeConfig
   /* 按当前显示策略解析战绩(与 Web 战绩表同源) */
   resolveStats: () => StatsView
+  /* 读取前同步其它 profile 进程写入的数据(按文件 mtime 检测), 缺省时跳过 */
+  refresh?: () => Promise<boolean>
 }
 
 /* 配置工具可写的键(白名单,与 WebConfigPatch 对齐,不含凭证) */
@@ -106,6 +108,7 @@ export class WakatimeTools {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
+        await this.options.refresh?.()
         const status = await this.options.auth.getStatus()
         if (!status.configured) return translate('status.notConfigured')
         const lines = [`${translate('status.configured')}`]
@@ -129,6 +132,7 @@ export class WakatimeTools {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
+        await this.options.refresh?.()
         try {
           /* 任一凭证已激活即可查看战绩(两种凭证同权) */
           if ((await this.options.auth.getActiveSecret()) === null) return translate('status.notConfigured')

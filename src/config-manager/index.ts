@@ -3,14 +3,23 @@
  * 作者: JularDepick
  *
  * 凭证与配置以 JSON 持久化于用户目录(默认 ~/.dsh/plugins/wakatime/config.json),
- * 目录与文件权限尽力收紧。读写串行化,避免并发覆盖。
+ * 目录与文件权限尽力收紧。
+ * 同一数据目录可能被多个 dsh profile 进程同时写入, 因此:
+ * - 写操作先抢文件锁, 持锁后重读磁盘并与本次写入按 id 并集合并;
+ * - 写入走临时文件 + rename 原子替换;
+ * - refresh() 按 mtime 检测其它进程的改动, 供读取面按需同步.
  */
 
-import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME } from '../constants'
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
+import { fileMtime, readJsonFile, withFileLock, writeFileAtomic } from '../storage'
+import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
+
+/* 锁参数:同一目录下的多进程共用同一套等待策略 */
+const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES, backoffMs: STORAGE_LOCK_BACKOFF_MS }
 
 /* dsh home:DSH_HOME 优先,回退用户主目录(主目录不可用时回退进程工作目录) */
 function dshHome(): string {
@@ -30,30 +39,53 @@ function configPath(): string {
 }
 
 export class ConfigManagerImpl implements ConfigManager {
-  /* 串行化写操作,避免覆盖竞争 */
+  /* 串行化本进程内的写操作 */
   private writeQueue: Promise<unknown> = Promise.resolve()
+  /* 上次读到的文件内容与其 mtime:作为合并基线并用于检测外部改动 */
+  private lastKnown: StoredConfig | null = null
+  private mtime: number | null = null
 
   async load(): Promise<StoredConfig | null> {
-    try {
-      const text = await readFile(configPath(), 'utf-8')
-      const parsed = JSON.parse(text) as StoredConfig
-      return parsed && typeof parsed === 'object' ? parsed : null
-    } catch {
-      return null
-    }
+    const path = configPath()
+    const parsed = normalizeStoredConfig(await readJsonFile(path))
+    this.lastKnown = parsed
+    this.mtime = await fileMtime(path)
+    return parsed
   }
 
-  save(config: StoredConfig): Promise<void> {
+  save(config: StoredConfig): Promise<StoredConfig> {
     const task = this.writeQueue.then(async () => {
       const dir = resolveConfigDir()
       const path = configPath()
       await mkdir(dir, { recursive: true, mode: 0o700 })
-      await writeFile(path, JSON.stringify(config, null, 2), { mode: 0o600 })
+      const merged = await withFileLock(join(dir, CONFIG_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
+        /* 持锁后重读:其它进程可能刚写入过凭证或切换过激活项 */
+        const disk = normalizeStoredConfig(await readJsonFile(path))
+        const result = mergeConfig(disk ?? this.lastKnown, config)
+        await writeFileAtomic(path, JSON.stringify(result, null, 2))
+        this.lastKnown = result
+        this.mtime = await fileMtime(path)
+        return result
+      })
       await hardenPathPermissions(dir, path)
+      return merged
     })
-    /* 失败不阻塞后续写入 */
     this.writeQueue = task.catch(() => {})
-    return task
+    /* 写失败时退回本次期望值:内存态继续可用, 下次写入再合并 */
+    return task.catch(() => config)
+  }
+
+  async refresh(): Promise<StoredConfig | null> {
+    const path = configPath()
+    const mtime = await fileMtime(path)
+    if (mtime === null || mtime === this.mtime) return null
+    const disk = normalizeStoredConfig(await readJsonFile(path))
+    this.mtime = mtime
+    if (!disk) return null
+    /* 并集合并:外部新增的凭证与本次内存变化都要保留 */
+    const merged = this.lastKnown === null ? disk : mergeConfig(disk, this.lastKnown)
+    this.lastKnown = merged
+    return merged
   }
 
   clear(): Promise<void> {
@@ -64,6 +96,8 @@ export class ConfigManagerImpl implements ConfigManager {
         /* 文件本就不存在时视为清除完成 */
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
+      this.lastKnown = null
+      this.mtime = null
     })
     this.writeQueue = task.catch(() => {})
     return task

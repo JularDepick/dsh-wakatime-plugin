@@ -123,6 +123,8 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     res.end()
     return
   }
+  /* 其它 profile 进程可能刚写过数据:先按 mtime 并入, 界面立即看到对方增量 */
+  await deps.store.reloadIfChanged()
   await deps.syncBucket()
   const status = await deps.auth.getStatus()
   const config = deps.runtimeConfig.get()
@@ -338,6 +340,7 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
     res.end()
     return
   }
+  await deps.store.reloadIfChanged()
   await deps.syncBucket()
   const force = isForceRequest(req.url)
   const data = await deps.sync.sync({ force })
@@ -361,6 +364,7 @@ async function handleBuckets(req: IncomingMessage, res: ServerResponse, deps: We
     res.end()
     return
   }
+  await deps.store.reloadIfChanged()
   await deps.syncBucket()
   const current = deps.currentBucket()
   const now = Date.now()

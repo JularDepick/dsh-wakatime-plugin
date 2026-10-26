@@ -123,6 +123,7 @@ export class AuthManagerImpl implements AuthManager {
       ...stored,
       credentials: records,
       activeCredentialId: record.id,
+      activeUpdatedAt: now,
       settings: stored.settings ?? defaultSettings(),
       ...(profile.userId === undefined ? {} : { userId: profile.userId }),
       ...(profile.username === undefined ? {} : { username: profile.username }),
@@ -138,7 +139,7 @@ export class AuthManagerImpl implements AuthManager {
     if (!stored || index < 0) throw new CredentialInputError('not_found')
     const record: StoredCredentialRecord = { ...records[index], lastUsedAt: Date.now() }
     records[index] = record
-    await this.setStored({ ...stored, credentials: records, activeCredentialId: id })
+    await this.setStored({ ...stored, credentials: records, activeCredentialId: id, activeUpdatedAt: Date.now() })
     return this.summarize(record, true)
   }
 
@@ -150,14 +151,26 @@ export class AuthManagerImpl implements AuthManager {
     if (!stored || index < 0) throw new CredentialInputError('not_found')
     if (this.activeRecord(stored)?.id === id) throw new CredentialInputError('active')
     records.splice(index, 1)
-    await this.setStored({ ...stored, credentials: records })
+    /* 记墓碑:其它进程合并时不会把这条凭证复活 */
+    const tombstones = { ...(stored.credentialTombstones ?? {}), [id]: Date.now() }
+    await this.setStored({ ...stored, credentials: records, credentialTombstones: tombstones })
   }
 
   /* 清除全部已存凭证(本地数据桶保留, 可在缓存清单里逐个移除) */
   async clearCredentials(): Promise<void> {
     const stored = await this.config()
     if (!stored) return
-    await this.setStored({ ...stored, credentials: [], activeCredentialId: undefined })
+    /* 为每条已存凭证记墓碑, 否则其它进程合并时会把它们带回 */
+    const now = Date.now()
+    const tombstones = { ...(stored.credentialTombstones ?? {}) }
+    for (const record of stored.credentials ?? []) tombstones[record.id] = now
+    await this.setStored({
+      ...stored,
+      credentials: [],
+      activeCredentialId: undefined,
+      activeUpdatedAt: now,
+      credentialTombstones: tombstones,
+    })
   }
 
   async getStatus(): Promise<AuthStatus> {
@@ -214,26 +227,31 @@ export class AuthManagerImpl implements AuthManager {
 
   /* 读取并缓存配置;首次读取时把旧版单字段凭证迁移为凭证列表 */
   private async config(): Promise<StoredConfig | null> {
-    if (this.loaded) return this.stored
-    const loaded = await this.configManager.load()
-    const migrated = await this.migrateLegacy(loaded)
-    this.stored = migrated
-    this.loaded = true
-    return migrated
+    /* 首次读取:走完整载入与旧版单字段迁移(迁移本身会落盘) */
+    if (!this.loaded) {
+      const loaded = await this.configManager.load()
+      const migrated = await this.migrateLegacy(loaded)
+      this.stored = migrated
+      this.loaded = true
+      return migrated
+    }
+    /* 后续读取:其它 profile 进程可能刚改过配置, 按 mtime 检查并并入内存 */
+    const refreshed = await this.configManager.refresh()
+    if (refreshed !== null) this.stored = refreshed
+    return this.stored
   }
 
   /* 写入配置并通知订阅者 */
   private async setStored(next: StoredConfig): Promise<void> {
-    await this.configManager.save(next)
-    this.stored = next
+    /* save 会持锁与磁盘内容合并, 返回值才是最终生效的配置 */
+    this.stored = await this.configManager.save(next)
     this.loaded = true
     this.notify()
   }
 
   /* 静默写入(仅刷新缓存字段时不触发数据桶切换) */
   private async saveQuietly(next: StoredConfig): Promise<void> {
-    await this.configManager.save(next)
-    this.stored = next
+    this.stored = await this.configManager.save(next)
     this.loaded = true
   }
 
@@ -268,6 +286,7 @@ export class AuthManagerImpl implements AuthManager {
     }
     const migrated: StoredConfig = { ...stored, credentials: records }
     migrated.activeCredentialId = stored.activeCredentialId ?? records[records.length - 1]?.id
+    migrated.activeUpdatedAt = now
     migrated.apiKey = undefined
     migrated.oauthToken = undefined
     await this.saveQuietly(migrated)

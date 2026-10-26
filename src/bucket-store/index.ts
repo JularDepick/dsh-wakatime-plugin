@@ -1,24 +1,31 @@
 /*
- * 分 Key 数据桶持久化
+ * 分凭证数据桶持久化
  * 作者: JularDepick
  *
- * 每个 API Key 一份本地数据(本地战绩累计、该 Key 的云端快照、待发送队列、
+ * 每份凭证一份本地数据(本地战绩累计、该凭证的云端快照、待发送队列、
  * 失败任务与上报记录),统一落盘在凭证目录的 BUCKET_FILE_NAME(与配置文件同目录、
- * 同权限收紧);未配置 API Key 期间的数据落在未指派桶,由此后首个配置的 Key 认领。
- * 桶标识取 API Key 的 sha256 摘要前 16 位,桶内另存展示用模糊 Key(首尾各 8 字符,
- * 其余以 * 代替),两者都不含密钥明文,明文只在配置与请求头里短暂出现。
- * 写入防抖(BUCKET_SAVE_DEBOUNCE_MS),初始读取完成前忽略写入;
- * 本模块不自动清除任何桶:非当前 Key 且超过 BUCKET_STALE_DAYS 未更新的桶
- * 只是被标记为"可由用户移除"(判定交给界面与 Web 后端,删除动作由用户触发)。
+ * 同权限收紧);未配置凭证期间的数据落在未指派桶,由此后首个配置的凭证认领。
+ * 桶标识取凭证原文的 sha256 摘要前 16 位,桶内另存展示用模糊凭证(首尾各 8 字符,
+ * 其余以 * 代替),两者都不含凭证明文。
+ *
+ * 多进程(同一目录被多个 dsh profile 共用)落盘策略:
+ * - 互斥:flush 前抢文件锁(O_EXCL), 持锁期间完成读-改-写;
+ * - 原子:写入走临时文件 + rename;
+ * - 合并:以磁盘为基底叠加本进程增量(见 merge.ts), 累计量两侧都不丢;
+ * - 读侧:reloadIfChanged() 按 mtime 检测其它进程写入并并入内存;
+ * - 删除:记墓碑(tombstones), 已删除的桶不会被其它进程复活。
+ * 本模块不自动清除任何桶:非当前凭证且超过 BUCKET_STALE_DAYS 未更新的桶
+ * 只被标记为"可由用户移除"(判定交给界面与 Web 后端,删除动作由用户触发)。
  * 首次升级时把旧版独立快照(stats.json / heartbeats.json)一次性并入当前桶。
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   BUCKET_FILE_NAME,
   BUCKET_FILE_VERSION,
+  BUCKET_LOCK_FILE_NAME,
   BUCKET_SAVE_DEBOUNCE_MS,
   BUCKET_STALE_DAYS,
   FAILED_TASK_LIMIT,
@@ -26,28 +33,36 @@ import {
   LEGACY_HEARTBEAT_FILE_NAME,
   LEGACY_STATS_FILE_NAME,
   REPORT_LOG_LIMIT,
+  STORAGE_LOCK_BACKOFF_MS,
+  STORAGE_LOCK_RETRIES,
+  STORAGE_LOCK_TTL_MS,
 } from '../constants'
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import { normalizePendingState } from '../heartbeat'
 import type { PendingHeartbeatState } from '../heartbeat'
+import { fileMtime, readJsonFile, withFileLock, writeFileAtomic } from '../storage'
 import { emptyTotals, normalizeTotals } from '../stats'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
+import { isMergeSane, mergeBucketFiles } from './merge'
 import { UNASSIGNED_BUCKET } from './types'
 import type { BucketFile, DataBucket } from './types'
 
-/* 桶标识:API Key 的 sha256 摘要前 16 位(文件内不出现密钥明文) */
-export function bucketKeyOf(apiKey: string): string {
-  return createHash('sha256').update(apiKey).digest('hex').slice(0, 16)
+/* 锁参数:与配置文件共用同一套等待策略 */
+const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES, backoffMs: STORAGE_LOCK_BACKOFF_MS }
+
+/* 桶标识:凭证原文的 sha256 摘要前 16 位(文件内不出现明文) */
+export function bucketKeyOf(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 16)
 }
 
-/* 展示用模糊 API Key:保留首尾各 KEY_MASK_EDGE_CHARS 个字符,其余以 * 代替;
+/* 展示用模糊凭证:保留首尾各 KEY_MASK_EDGE_CHARS 个字符,其余以 * 代替;
    短于两倍保留长度的串整体打码(避免把整串都露出来) */
-export function maskApiKey(apiKey: string): string {
-  const key = apiKey.trim()
+export function maskApiKey(secret: string): string {
+  const key = secret.trim()
   const edge = KEY_MASK_EDGE_CHARS
   if (key.length <= edge * 2) return '*'.repeat(key.length)
-  return `${key.slice(0, edge)}${'*'.repeat(key.length - edge * 2)}${key.slice(-edge)}`
+  return key.slice(0, edge) + '*'.repeat(key.length - edge * 2) + key.slice(-edge)
 }
 
 /* 新建空桶 */
@@ -57,6 +72,20 @@ function emptyBucket(): DataBucket {
     stats: emptyTotals(),
     cloud: null,
     pending: { queue: [], failed: [], report: [] },
+  }
+}
+
+/* 空文件 */
+function emptyFile(): BucketFile {
+  return { version: BUCKET_FILE_VERSION, buckets: {}, tombstones: {} }
+}
+
+/* 深拷贝:基线必须与内存态完全隔离,否则累加会污染基线导致增量恒为 0 */
+function cloneFile(file: BucketFile): BucketFile {
+  return {
+    version: file.version,
+    buckets: JSON.parse(JSON.stringify(file.buckets)) as Record<string, DataBucket>,
+    tombstones: { ...(file.tombstones ?? {}) },
   }
 }
 
@@ -91,7 +120,7 @@ function normalizeBucket(value: unknown): DataBucket | undefined {
     cloud: normalizeCloud(raw.cloud),
     pending: normalizePendingState(raw.pending),
   }
-  /* 模糊 Key 只接受受限长度与字符集的字符串(界面标识用,不参与任何请求) */
+  /* 模糊凭证只接受受限长度与字符集的字符串(界面标识用,不参与任何请求) */
   const masked = raw.maskedKey
   if (typeof masked === 'string' && masked.length > 0 && masked.length <= 128 && /^[A-Za-z0-9*_-]+$/.test(masked)) {
     bucket.maskedKey = masked
@@ -99,16 +128,24 @@ function normalizeBucket(value: unknown): DataBucket | undefined {
   return bucket
 }
 
-/* 文件归一化:非法桶整条丢弃 */
+/* 文件归一化:非法桶整条丢弃;墓碑只接受有效时间戳 */
 export function normalizeBucketFile(value: unknown): BucketFile {
-  const file: BucketFile = { version: BUCKET_FILE_VERSION, buckets: {} }
+  const file = emptyFile()
   if (typeof value !== 'object' || value === null) return file
-  const raw = (value as { buckets?: unknown }).buckets
-  if (typeof raw !== 'object' || raw === null) return file
-  for (const [key, bucket] of Object.entries(raw as Record<string, unknown>)) {
-    if (key === '') continue
-    const normalized = normalizeBucket(bucket)
-    if (normalized) file.buckets[key] = normalized
+  const raw = value as { buckets?: unknown, tombstones?: unknown }
+  if (typeof raw.buckets === 'object' && raw.buckets !== null) {
+    for (const [key, bucket] of Object.entries(raw.buckets as Record<string, unknown>)) {
+      if (key === '') continue
+      const normalized = normalizeBucket(bucket)
+      if (normalized) file.buckets[key] = normalized
+    }
+  }
+  if (typeof raw.tombstones === 'object' && raw.tombstones !== null) {
+    const tombstones: Record<string, number> = {}
+    for (const [key, ts] of Object.entries(raw.tombstones as Record<string, unknown>)) {
+      if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) tombstones[key] = ts
+    }
+    file.tombstones = tombstones
   }
   return file
 }
@@ -117,19 +154,41 @@ export class BucketStore {
   /* 初始读取完成前不写入,避免启动瞬间用空文件覆盖历史数据 */
   private ready = false
   private timer: ReturnType<typeof setTimeout> | undefined
-  private data: BucketFile = { version: BUCKET_FILE_VERSION, buckets: {} }
+  private data: BucketFile = emptyFile()
+  /* 上次与磁盘对齐的内容:合并时作为本进程增量基线 */
+  private baseline: BucketFile = emptyFile()
+  /* 上次看到的文件 mtime:用于检测其它进程的写入 */
+  private mtime: number | null = null
 
   /* 读取数据桶文件;文件不存在时尝试迁移旧版快照到当前桶 */
   async load(currentKey: string): Promise<void> {
-    try {
-      const text = await readFile(this.path(), 'utf-8')
-      this.data = normalizeBucketFile(JSON.parse(text))
-    } catch {
-      this.data = { version: BUCKET_FILE_VERSION, buckets: {} }
+    const path = this.path()
+    const raw = await readJsonFile(path)
+    if (raw === undefined) {
+      this.data = emptyFile()
       await this.migrateLegacy(currentKey)
+    } else {
+      this.data = normalizeBucketFile(raw)
     }
+    this.baseline = cloneFile(this.data)
+    this.mtime = await fileMtime(path)
     this.ready = true
     this.scheduleSave()
+  }
+
+  /* 检测其它进程是否写入过数据:有变化时并入内存(磁盘为基底 + 本进程增量),返回是否变更 */
+  async reloadIfChanged(): Promise<boolean> {
+    const path = this.path()
+    const mtime = await fileMtime(path)
+    if (mtime === null || mtime === this.mtime) return false
+    const raw = await readJsonFile(path)
+    this.mtime = mtime
+    if (raw === undefined) return false
+    const disk = normalizeBucketFile(raw)
+    this.data = mergeBucketFiles(disk, this.data, this.baseline)
+    /* 基线对齐到磁盘:保留"本进程未落盘增量"作为下次合并的差额 */
+    this.baseline = disk
+    return true
   }
 
   /* 取桶(不存在则创建;不落 updatedAt,由写入方触发) */
@@ -147,17 +206,17 @@ export class BucketStore {
     return this.data.buckets
   }
 
-  /* 写入展示用模糊 API Key(每次该 Key 生效时刷新,兼作历史桶的回填) */
+  /* 写入展示用模糊凭证(每次该凭证生效时刷新,兼作历史桶的回填) */
   setMaskedKey(key: string, maskedKey: string): void {
     this.touch(key).maskedKey = maskedKey
   }
 
-  /* 写入本地战绩累计量 */
+  /* 写入本地战绩累计量(绝对累计值,合并时与本进程基线做差得到增量) */
   setStats(key: string, totals: StatsTotals): void {
     this.touch(key).stats = totals
   }
 
-  /* 写入该 Key 的云端快照 */
+  /* 写入该凭证的云端快照 */
   setCloud(key: string, cloud: CloudSummary | null): void {
     this.touch(key).cloud = cloud
   }
@@ -167,7 +226,7 @@ export class BucketStore {
     this.touch(key).pending = pending
   }
 
-  /* 认领未指派桶:把未登录期间的数据并入目标 Key 的桶并删除未指派桶 */
+  /* 认领未指派桶:把未登录期间的数据并入目标凭证的桶并删除未指派桶(记墓碑防止复活) */
   claimUnassigned(targetKey: string): boolean {
     const source = this.data.buckets[UNASSIGNED_BUCKET]
     if (!source) return false
@@ -185,11 +244,12 @@ export class BucketStore {
     }
     target.updatedAt = Math.max(target.updatedAt, source.updatedAt)
     delete this.data.buckets[UNASSIGNED_BUCKET]
+    this.markDeleted(UNASSIGNED_BUCKET)
     this.scheduleSave()
     return true
   }
 
-  /* 该桶是否已超过静默期(非当前 Key 且 BUCKET_STALE_DAYS 天未更新);仅作界面判定,不自动删除 */
+  /* 该桶是否已超过静默期(非当前凭证且 BUCKET_STALE_DAYS 天未更新);仅作界面判定,不自动删除 */
   isStale(key: string, now: number = Date.now()): boolean {
     const bucket = this.data.buckets[key]
     if (!bucket) return false
@@ -202,6 +262,7 @@ export class BucketStore {
     if (key === UNASSIGNED_BUCKET) return false
     if (!this.data.buckets[key]) return false
     delete this.data.buckets[key]
+    this.markDeleted(key)
     this.scheduleSave()
     return true
   }
@@ -211,7 +272,7 @@ export class BucketStore {
     this.scheduleSave()
   }
 
-  /* 立即落盘(卸载时调用);失败静默,不影响插件运行 */
+  /* 立即落盘(卸载时调用);持锁读-改-写,失败静默,不影响插件运行 */
   async flush(): Promise<void> {
     if (this.timer !== undefined) {
       clearTimeout(this.timer)
@@ -222,7 +283,17 @@ export class BucketStore {
     const path = this.path()
     try {
       await mkdir(dir, { recursive: true, mode: 0o700 })
-      await writeFile(path, JSON.stringify(this.data, null, 2), { mode: 0o600 })
+      await withFileLock(join(dir, BUCKET_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
+        const raw = await readJsonFile(path)
+        const disk = raw === undefined ? emptyFile() : normalizeBucketFile(raw)
+        const merged = mergeBucketFiles(disk, this.data, this.baseline)
+        /* 自检:合并不得让已有桶消失或累计量变小,异常时放弃本次写入 */
+        if (!isMergeSane(disk, merged)) return
+        await writeFileAtomic(path, JSON.stringify(merged, null, 2))
+        this.data = merged
+        this.baseline = cloneFile(merged)
+        this.mtime = await fileMtime(path)
+      })
       await hardenPathPermissions(dir, path)
     } catch {
       /* 尽力而为:落盘失败不影响统计与上报 */
@@ -235,6 +306,13 @@ export class BucketStore {
     bucket.updatedAt = Date.now()
     this.scheduleSave()
     return bucket
+  }
+
+  /* 记录删除墓碑:多个进程合并时删除状态优先,避免已删除的桶被复活 */
+  private markDeleted(key: string): void {
+    const tombstones = this.data.tombstones ?? {}
+    tombstones[key] = Date.now()
+    this.data.tombstones = tombstones
   }
 
   private scheduleSave(): void {

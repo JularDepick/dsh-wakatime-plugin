@@ -18,8 +18,16 @@ export const CONFIG_FILE_NAME = 'config.json'
    待发送队列、失败任务与上报记录),未配置 API Key 期间的数据落在未指派桶;
    写入防抖(毫秒),避免高频统计变更频繁写盘 */
 export const BUCKET_FILE_NAME = 'buckets.json'
-export const BUCKET_FILE_VERSION = 1
+export const BUCKET_FILE_VERSION = 2
 export const BUCKET_SAVE_DEBOUNCE_MS = 2000
+/* 跨进程互斥:锁文件名与等待参数(同一数据目录可能被多个 dsh profile 进程同时写入) */
+export const BUCKET_LOCK_FILE_NAME = 'buckets.lock'
+export const CONFIG_LOCK_FILE_NAME = 'config.lock'
+/* 锁文件超过该时长视为陈旧锁(持有进程异常退出) */
+export const STORAGE_LOCK_TTL_MS = 10_000
+/* 抢锁重试次数与退避基数(按次数线性递增) */
+export const STORAGE_LOCK_RETRIES = 3
+export const STORAGE_LOCK_BACKOFF_MS = 50
 /* 桶静默期:未更新超过该天数的非当前 Key 桶,才允许用户在界面手动移除;
    本策略不自动清除任何桶(长期不用的 Key 数据保留,由用户决定何时移除) */
 export const BUCKET_STALE_DAYS = 30
