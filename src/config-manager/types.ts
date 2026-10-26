@@ -6,11 +6,32 @@
  * API Key 与 OAuth 访问令牌同为敏感凭证,只允许覆盖写入,任何读取面均不回显明文。
  */
 
+/* 一条已保存的凭证(明文只在本文件与 host 进程内出现, 任何接口只下发 maskedSecret) */
+export interface StoredCredentialRecord {
+  /* 凭证标识(凭证原文摘要前 16 位, 与数据桶标识同源) */
+  id: string
+  /* 凭证类型:插件密钥 / OAuth 访问令牌(由前缀识别, 同权使用) */
+  type: 'api_key' | 'oauth'
+  /* 凭证原文(仅本地保存, 不回显) */
+  secret: string
+  /* 展示用打码凭证 */
+  maskedSecret: string
+  /* 验证成功时缓存的用户 id 与账号名 */
+  userId?: string
+  username?: string
+  /* 加入与最近使用时刻(Unix 毫秒) */
+  addedAt: number
+  lastUsedAt: number
+}
+
 /* 本地持久化配置(含凭证,存于用户目录,权限收紧由实现负责) */
 export interface StoredConfig {
-  /* WakaTime API Key(仅覆盖写入,不提供查看) */
+  /* 已保存的凭证列表(多凭证缓存, 可切换) */
+  credentials?: StoredCredentialRecord[]
+  /* 当前激活凭证的标识(缺省回退到列表最后一项) */
+  activeCredentialId?: string
+  /* 旧版单字段凭证:仅用于首次启动迁移为凭证列表, 迁移后置空 */
   apiKey?: string
-  /* WakaTime OAuth 访问令牌(仅覆盖写入,不提供查看;读取面的首选凭证) */
   oauthToken?: string
   /* 最近一次验证成功时的用户资料(缓存,仅展示用) */
   userId?: string

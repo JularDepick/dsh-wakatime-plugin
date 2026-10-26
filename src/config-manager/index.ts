@@ -82,4 +82,4 @@ export async function hardenPathPermissions(dir: string, path: string): Promise<
   }
 }
 
-export type { ConfigManager, StoredConfig } from './types'
+export type { ConfigManager, StoredConfig, StoredCredentialRecord } from './types'

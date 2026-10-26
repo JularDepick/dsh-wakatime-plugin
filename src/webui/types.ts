@@ -7,20 +7,21 @@
  */
 
 import type { StatsView } from '../bucket-store/resolve'
-import type { CredentialKind } from '../auth/types'
+import type { CredentialSummary, CredentialType } from '../auth/types'
 import type { DigitGrouping, StatsScope } from '../config'
 
 /* 状态接口响应:认证状态 + 生效配置 + 按显示策略解析好的战绩视图 */
 export interface WebStatusResponse {
-  /* 是否已配置任一凭证(明文永不回传) */
+  /* 是否已有可用凭证(明文永不回传) */
   configured: boolean
-  /* 是否已配置插件 API Key */
-  apiKeyConfigured: boolean
-  /* 是否已配置 OAuth 访问令牌 */
-  oauthConfigured: boolean
-  /* 心跳上报面实际生效的凭证种类 */
-  credentialKind?: CredentialKind
+  /* 已存凭证数量 */
+  count: number
+  /* 激活凭证的类型与打码值 */
+  activeType?: CredentialType
+  activeMaskedSecret?: string
   username?: string
+  /* 激活凭证是否来自环境变量(不落盘) */
+  fromEnv: boolean
   config: {
     enabled: boolean
     reportInterval: number
@@ -49,14 +50,32 @@ export interface WebConfigPayload {
   digitGrouping?: DigitGrouping
 }
 
-/* API Key 覆盖写入请求(仅覆盖,不提供查看) */
-export interface WebApiKeyPayload {
-  apiKey: string
+/* 凭证添加请求:只提交原文,类型由小后端按前缀自动识别(仅覆盖写入,不提供查看) */
+export interface WebCredentialPayload {
+  secret: string
 }
 
-/* OAuth 访问令牌覆盖写入请求(仅覆盖,不提供查看) */
-export interface WebTokenPayload {
-  token: string
+/* 凭证切换请求 */
+export interface WebSwitchPayload {
+  id: string
+}
+
+/* 凭证添加响应:ok 时携带摘要(不含明文)与账号名 */
+export interface WebCredentialResponse {
+  ok: boolean
+  credential?: CredentialSummary
+  username?: string | null
+  /* 该凭证此前已存在,本次仅切换并刷新信息 */
+  existed?: boolean
+  /* 稳定错误码(empty / client_secret / unknown_format)或验证失败原因 */
+  error?: string
+}
+
+/* 切换与移除的响应 */
+export interface WebCredentialActionResponse {
+  ok: boolean
+  /* 稳定错误码(not_found / active) */
+  error?: string
 }
 
 /* 配置写入响应 */
@@ -102,23 +121,26 @@ export interface WebRetryResponse {
   error?: string
 }
 
-/* API Key 缓存(数据桶)条目:模糊 Key + 该 Key 自己的战绩视图 */
+/* 凭证缓存(数据桶)条目:一份凭证一个桶, 另含无凭证归属的历史桶 */
 export interface WebBucketEntry {
-  /* 桶标识(API Key 的 sha256 摘要前 16 位) */
+  /* 桶标识(= 凭证标识) */
   key: string
-  /* 展示用模糊 Key(保留首尾各 8 字符,其余 *);旧版桶回退为 #摘要 标识 */
+  /* 展示用模糊凭证(保留首尾各 8 字符, 其余 *);旧版桶回退为 #摘要 标识 */
   maskedKey: string
+  /* 该桶归属凭证的类型与账号名(历史桶可能没有) */
+  credentialType?: CredentialType
+  username?: string
+  /* 是否为当前激活凭证的桶 */
+  active: boolean
   /* 该桶最后更新时刻(Unix 毫秒) */
   updatedAt: number
-  /* 是否为当前生效的 Key */
-  current: boolean
-  /* 是否允许移除(非当前 Key 且已超过静默期) */
+  /* 是否允许移除(非激活且已超过静默期) */
   removable: boolean
-  /* 该 Key 自己的战绩视图(仅此桶,不与其它 Key 混算) */
+  /* 该凭证自己的战绩视图(仅此桶,不与其它凭证混算) */
   stats: StatsView
 }
 
-/* API Key 缓存清单响应 */
+/* 凭证缓存清单响应 */
 export interface WebBucketsResponse {
   buckets: WebBucketEntry[]
 }

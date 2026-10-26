@@ -13,6 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AuthManager } from '../auth'
+import { CredentialInputError } from '../errors'
 import type { StatsView } from '../bucket-store/resolve'
 import { NotAuthenticatedError } from '../errors'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
@@ -64,18 +65,18 @@ export class WakatimeTools {
   register(ctx: Context): void {
     ctx.tools.register(defineTool({
       name: 'wakatime_config',
-      description: 'Read or update WakaTime plugin configuration. The API key or OAuth access token can be overwritten but never read back.',
+      description: 'Read or update WakaTime plugin configuration and saved credentials. The credential type is detected from its prefix; plaintext is never read back.',
       parameters: {
         op: {
           type: 'string',
-          enum: ['get', 'set', 'set_apikey', 'set_token'],
-          description: 'get: read config; set: update one config key; set_apikey: overwrite the API key; set_token: overwrite the OAuth access token',
+          enum: ['get', 'set', 'list_credentials', 'set_credential', 'switch_credential', 'remove_credential'],
+          description: 'get: read config; set: update one config key; list_credentials: list saved credentials; set_credential: save and activate a credential (plugin key or OAuth access token, type auto-detected); switch_credential: activate one by id; remove_credential: delete one by id',
           required: true,
         },
         key: { type: 'string', description: 'Config key for op=set' },
         value: { type: 'json', description: 'Config value for op=set' },
-        apiKey: { type: 'string', description: 'New API key for op=set_apikey (overwrite only)' },
-        token: { type: 'string', description: 'New OAuth access token for op=set_token (overwrite only)' },
+        secret: { type: 'string', description: 'Plugin key or OAuth access token for op=set_credential (overwrite only, never read back)' },
+        id: { type: 'string', description: 'Credential id for op=switch_credential or op=remove_credential' },
       },
       output: {
         schema: { type: 'string' },
@@ -85,15 +86,15 @@ export class WakatimeTools {
     }))
     ctx.tools.register(defineTool({
       name: 'wakatime_logout',
-      description: 'Clear the locally stored WakaTime credentials (API key and OAuth access token).',
+      description: 'Clear every locally stored WakaTime credential.',
       parameters: {},
       output: {
         schema: { type: 'string' },
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
-        await this.options.auth.clearCredential()
-        return translate('apikey.cleared')
+        await this.options.auth.clearCredentials()
+        return translate('credential.cleared')
       },
     }))
     ctx.tools.register(defineTool({
@@ -108,7 +109,13 @@ export class WakatimeTools {
         const status = await this.options.auth.getStatus()
         if (!status.configured) return translate('status.notConfigured')
         const lines = [`${translate('status.configured')}`]
+        if (status.activeType !== undefined) {
+          const label = status.activeType === 'oauth' ? translate('credential.typeOauth') : translate('credential.typeApiKey')
+          const masked = status.activeMaskedSecret === undefined ? '' : ` ${status.activeMaskedSecret}`
+          lines.push(`${translate('credential.activeType')}: ${label}${masked}`)
+        }
         if (status.username) lines.push(`${translate('status.username')}: ${status.username}`)
+        lines.push(`${translate('credential.count')}: ${status.count}`)
         lines.push(translate('apikey.hidden'))
         return lines.join('\n')
       },
@@ -123,8 +130,8 @@ export class WakatimeTools {
       },
       execute: async () => {
         try {
-          /* 任一凭证已配置即可查看战绩(令牌单独配置时同样成立) */
-          if ((await this.options.auth.getCredentialSecret()) === null) return translate('status.notConfigured')
+          /* 任一凭证已激活即可查看战绩(两种凭证同权) */
+          if ((await this.options.auth.getActiveSecret()) === null) return translate('status.notConfigured')
         } catch (error) {
           if (error instanceof NotAuthenticatedError) return translate('status.notConfigured')
           throw error
@@ -148,20 +155,25 @@ export class WakatimeTools {
     }))
   }
 
-  /* 配置工具:get 全部配置(set 单键)、set_apikey 覆盖写入 Key */
+  /* 配置工具:get 全部配置 / set 单键 / 凭证的列出与增删切换 */
   private async handleConfig(args: Record<string, unknown>): Promise<string> {
     const op = String(args.op ?? '')
     if (op === 'get') return this.describeConfig()
     if (op === 'set') return this.setConfig(args)
-    if (op === 'set_apikey') return this.setApiKey(String(args.apiKey ?? ''))
-    if (op === 'set_token') return this.setToken(String(args.token ?? ''))
+    if (op === 'list_credentials') return this.listCredentials()
+    if (op === 'set_credential') return this.setCredential(String(args.secret ?? ''))
+    if (op === 'switch_credential') return this.switchCredential(String(args.id ?? ''))
+    if (op === 'remove_credential') return this.removeCredential(String(args.id ?? ''))
     return `${translate('config.writeError')}: ${translate('config.unknownOp')}`
   }
 
-  /* get:返回全部配置;apiKey 仅显示是否配置,不回显明文 */
+  /* get:返回全部配置;凭证只报激活类型与打码值,不回显明文 */
   private async describeConfig(): Promise<string> {
     const config = this.options.runtimeConfig.get()
     const status = await this.options.auth.getStatus()
+    const active = status.activeType === undefined
+      ? '(not configured)'
+      : `${status.activeType} ${status.activeMaskedSecret ?? ''}`.trim()
     const lines = [
       `enabled=${config.enabled}`,
       `locale=${config.locale}`,
@@ -173,8 +185,8 @@ export class WakatimeTools {
       `tableBorders=${config.tableBorders}`,
       `statsScope=${config.statsScope}`,
       `digitGrouping=${config.digitGrouping}`,
-      `apiKey=${status.apiKeyConfigured ? '(configured)' : '(not configured)'}`,
-      `oauthToken=${status.oauthConfigured ? '(configured)' : '(not configured)'}`,
+      `credential=${active}`,
+      `credentials=${status.count}`,
     ]
     return lines.join('\n')
   }
@@ -198,29 +210,68 @@ export class WakatimeTools {
     return `${key}=${String(value)}`
   }
 
-  /* set_token:覆盖写入 OAuth 访问令牌(Agent 可代替用户配置,仅覆盖不可查看) */
-  private async setToken(token: string): Promise<string> {
-    if (!token.trim()) return translate('config.invalidValue') + ': token'
+  /* list_credentials:列出已保存凭证(打码), 当前激活项标注 */
+  private async listCredentials(): Promise<string> {
+    const list = await this.options.auth.listCredentials()
+    if (list.length === 0) return translate('credential.listEmpty')
+    const lines = list.map((item) => {
+      const marks = [item.id, credentialTypeLabel(item.type), item.maskedSecret]
+      if (item.active) marks.push(translate('credential.current'))
+      if (item.username !== undefined) marks.push(item.username)
+      return marks.join('  ')
+    })
+    return [translate('credential.listTitle'), ...lines].join('\n')
+  }
+
+  /* set_credential:保存并激活一份凭证(类型自动识别, 仅覆盖不可查看) */
+  private async setCredential(secret: string): Promise<string> {
     try {
-      const profile = await this.options.auth.setOauthToken(token)
-      return profile.username
-        ? translate('apikey.setOk') + ': ' + profile.username
-        : translate('apikey.setOk')
-    } catch {
-      return translate('token.invalid')
+      const result = await this.options.auth.addCredential(secret)
+      const label = credentialTypeLabel(result.summary.type)
+      const suffix = result.profile.username === undefined ? '' : `: ${result.profile.username}`
+      const prefix = result.existed ? translate('credential.switched') : translate('credential.added')
+      return `${prefix} ${label}${suffix}`
+    } catch (error) {
+      return credentialErrorText(error)
     }
   }
 
-  /* set_apikey:覆盖写入 API Key(Agent 可代替用户配置,仅覆盖不可查看) */
-  private async setApiKey(apiKey: string): Promise<string> {
-    if (!apiKey.trim()) return `${translate('config.invalidValue')}: apiKey`
+  /* switch_credential:切换激活凭证 */
+  private async switchCredential(id: string): Promise<string> {
     try {
-      const profile = await this.options.auth.setApiKey(apiKey)
-      return profile.username
-        ? `${translate('apikey.setOk')}: ${profile.username}`
-        : translate('apikey.setOk')
-    } catch {
-      return translate('apikey.invalid')
+      const summary = await this.options.auth.switchCredential(id)
+      return `${translate('credential.switched')}: ${credentialTypeLabel(summary.type)} ${summary.maskedSecret}`
+    } catch (error) {
+      return credentialErrorText(error)
     }
   }
+
+  /* remove_credential:移除一份凭证(当前激活项需先切换) */
+  private async removeCredential(id: string): Promise<string> {
+    try {
+      await this.options.auth.removeCredential(id)
+      return translate('credential.removed')
+    } catch (error) {
+      return credentialErrorText(error)
+    }
+  }
+}
+
+/* 凭证类型 -> 文案 */
+function credentialTypeLabel(type: 'api_key' | 'oauth'): string {
+  return type === 'oauth' ? translate('credential.typeOauth') : translate('credential.typeApiKey')
+}
+
+/* 凭证操作错误 -> 可读文案 */
+function credentialErrorText(error: unknown): string {
+  if (error instanceof CredentialInputError) {
+    switch (error.code) {
+      case 'empty': return translate('credential.errEmpty')
+      case 'client_secret': return translate('credential.errClientSecret')
+      case 'unknown_format': return translate('credential.errUnknownFormat')
+      case 'not_found': return translate('credential.errNotFound')
+      case 'active': return translate('credential.errActive')
+    }
+  }
+  return translate('credential.errInvalid')
 }

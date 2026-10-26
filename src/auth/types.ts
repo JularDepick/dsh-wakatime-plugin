@@ -1,70 +1,79 @@
 /*
  * 认证管理模块类型定义
  * 作者: JularDepick
+ *
+ * 凭证分插件密钥与 OAuth 访问令牌两类, 地位相同: 都可用于上报与读取,
+ * 仅认证方式(HTTP Basic / Bearer)不同; 列表与切换只暴露打码后的凭证.
  */
 
 import type { AuthHeader } from '../http/types'
-import type { EndpointUsage } from '../constants'
 
-/* 凭证种类: WakaTime 插件密钥(API Key, HTTP Basic)与 OAuth 访问令牌(Bearer)。
-   官方口径: API Key 属插件凭证, 只授权提交编码活动; 其余用途(含账号与战绩读取)
-   应使用 OAuth 访问令牌, 2026-11-01 起生效 */
-export type CredentialKind = 'api_key' | 'oauth'
+export type { CredentialRejectReason, CredentialType } from '../credential-format'
 
-/* 按端点用途解析出的生效凭证 */
-export interface ResolvedCredential {
-  /* 实际使用的凭证种类 */
-  kind: CredentialKind
-  /* 写入 Authorization 的认证头 */
-  header: AuthHeader
+/* 凭证摘要(不含明文): 列表展示与切换使用 */
+export interface CredentialSummary {
+  /* 凭证标识(与数据桶标识同源) */
+  id: string
+  /* 凭证类型 */
+  type: 'api_key' | 'oauth'
+  /* 展示用打码凭证 */
+  maskedSecret: string
+  /* 验证成功时缓存的用户 id 与账号名 */
+  userId?: string
+  username?: string
+  /* 是否为当前激活凭证 */
+  active: boolean
+  /* 加入与最近使用时刻(Unix 毫秒) */
+  addedAt: number
+  lastUsedAt: number
 }
 
-/* 已验证的账号资料(用于界面展示账号名) */
+/* 已验证的账号资料 */
 export interface UserProfile {
-  /* WakaTime 用户 id */
   userId?: string
-  /* 展示用账号名:依次取 username、full_name、display_name、email、id */
   username?: string
+}
+
+/* 添加凭证的结果 */
+export interface AddCredentialResult {
+  summary: CredentialSummary
+  profile: UserProfile
+  /* 该凭证此前已存在(本次只是切换并刷新校验信息) */
+  existed: boolean
 }
 
 export interface AuthStatus {
-  /* 是否已配置任一可用凭证 */
+  /* 是否已有可用的激活凭证 */
   configured: boolean
-  /* 是否已配置插件 API Key */
-  apiKeyConfigured: boolean
-  /* 是否已配置 OAuth 访问令牌 */
-  oauthConfigured: boolean
-  /* 心跳上报面实际生效的凭证种类 */
-  kind?: CredentialKind
-  /* 已配置时缓存的 WakaTime 用户名 */
+  /* 已存凭证数量(环境变量注入的凭证不计入) */
+  count: number
+  /* 激活凭证的类型与打码值 */
+  activeType?: 'api_key' | 'oauth'
+  activeMaskedSecret?: string
+  /* 账号名 */
   username?: string
+  /* 激活凭证是否来自环境变量(不落盘) */
+  fromEnv: boolean
 }
 
 export interface AuthManager {
-  /* 当前生效的 API Key:未配置时抛 NotAuthenticatedError */
-  getApiKey(): Promise<string>
-  /* 当前生效的 API Key;未配置时返回 null(供不抛错的调用方使用) */
-  tryGetApiKey(): Promise<string | null>
-  /* 当前生效的 OAuth 访问令牌:未配置时抛 NotAuthenticatedError */
-  getOauthToken(): Promise<string>
-  /* 当前生效的 OAuth 访问令牌;未配置时返回 null */
-  tryGetOauthToken(): Promise<string | null>
-  /* 数据桶归属用的凭证原文:写活动面优先 API Key, 只有令牌时取令牌, 两者都无时 null */
-  getCredentialSecret(): Promise<string | null>
-  /* 按端点用途解析生效凭证与认证头;两种凭证都未配置时抛 NotAuthenticatedError */
-  getCredential(usage: EndpointUsage): Promise<ResolvedCredential>
-  /* 订阅凭证变更(覆盖写入或清除后触发);返回取消订阅函数 */
+  /* 当前激活凭证的认证头;未配置时抛 NotAuthenticatedError */
+  getAuthHeader(): Promise<AuthHeader>
+  /* 当前激活凭证原文(数据桶归属用);未配置时返回 null */
+  getActiveSecret(): Promise<string | null>
+  /* 全部已存凭证摘要(不含明文, 不含环境变量注入项) */
+  listCredentials(): Promise<CredentialSummary[]>
+  /* 添加凭证: 自动识别类型 -> 经服务端验证 -> 落盘并设为激活;格式或有效性不通过时抛 CredentialInputError */
+  addCredential(input: string): Promise<AddCredentialResult>
+  /* 切换激活凭证 */
+  switchCredential(id: string): Promise<CredentialSummary>
+  /* 移除凭证(不影响其它凭证与其本地缓存) */
+  removeCredential(id: string): Promise<void>
+  /* 清除全部已存凭证(本地数据桶保留) */
+  clearCredentials(): Promise<void>
+  /* 凭证变更订阅 */
   onChange(listener: () => void): () => void
-  /* 覆盖写入 API Key:先经验证, 验证失败抛错且不保存 */
-  setApiKey(apiKey: string): Promise<UserProfile>
-  /* 覆盖写入 OAuth 访问令牌:同上 */
-  setOauthToken(token: string): Promise<UserProfile>
-  /* 当前认证状态(配置情况) */
   getStatus(): Promise<AuthStatus>
-  /* 只清除 API Key(保留 OAuth 令牌) */
-  clearApiKey(): Promise<void>
-  /* 清除本地全部凭证(API Key 与 OAuth 令牌) */
-  clearCredential(): Promise<void>
   /* 用认证头拉取账号资料, 顺带验证凭证有效性 */
   fetchUserProfile(header: AuthHeader): Promise<UserProfile>
 }

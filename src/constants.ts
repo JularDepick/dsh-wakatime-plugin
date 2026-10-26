@@ -47,7 +47,7 @@ export const BRANCH_CACHE_TTL_MS = 5000
 export const WAKATIME_API_BASE = 'https://wakatime.com/api/v1'
 export const HEARTBEATS_PATH = '/users/current/heartbeats'
 export const HEARTBEATS_BULK_PATH = '/users/current/heartbeats.bulk'
-/* 读取面(EndpointUsage 的 other_use):官方要求 OAuth 令牌 */
+/* 账号资料接口(读取面) */
 export const USER_INFO_PATH = '/users/current'
 export const SUMMARIES_PATH = '/users/current/summaries'
 
@@ -55,11 +55,17 @@ export const SUMMARIES_PATH = '/users/current/summaries'
    官方 /users/current 的 username 与 full_name 均可为 null,故展示账号名时需要剔除该占位 */
 export const ANONYMOUS_DISPLAY_NAME = 'Anonymous User'
 
-/* 端点用途归类(官方把 API Key 限定为插件凭证, 只授权提交编码活动; 其余用途含读取面,
-   应使用 OAuth 访问令牌, 2026-11-01 起生效)。认证层据此选轨:
-   - plugin_write: 心跳上报, 官方声明的插件用途, 首选 API Key, 令牌兜底(令牌需 write_heartbeats)
-   - other_use   : 账号资料与战绩读取, 首选 OAuth 令牌, API Key 兜底(令牌需 email 与 read_summaries) */
-export type EndpointUsage = 'plugin_write' | 'other_use'
+/* 凭证前缀(用于自动识别类型, 无需用户选择):
+   插件密钥形如 waka_ 加 UUID(共 41 字符),
+   OAuth 访问令牌形如 waka_tok_ 加随机串,
+   OAuth 应用密钥形如 waka_sec_ 加随机串(属客户端密钥, 不能当凭证使用) */
+export const CREDENTIAL_PREFIX_API_KEY = 'waka_'
+export const CREDENTIAL_PREFIX_OAUTH = 'waka_tok_'
+export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
+/* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
+export const CREDENTIAL_MIN_LENGTH = 20
+/* 用户获取 OAuth 访问令牌的页面 */
+export const CREDENTIAL_OAUTH_HELP_URL = 'https://wakatime.com/oauth'
 
 /* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
@@ -103,15 +109,16 @@ export const STEP_TIMING_LIMIT = 512
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'
 export const WEB_CONFIG_PATH = '/api/wakatime/config'
-export const WEB_APIKEY_PATH = '/api/wakatime/apikey'
+/* 凭证: 添加(自动识别类型) / 切换 / 移除 / 清除, 以及缓存清单 */
+export const WEB_CREDENTIAL_PATH = '/api/wakatime/credential'
+export const WEB_CREDENTIAL_SWITCH_PATH = '/api/wakatime/credential/switch'
+export const WEB_CREDENTIAL_REMOVE_PATH = '/api/wakatime/credential/remove'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
-export const WEB_APIKEY_CLEAR_PATH = '/api/wakatime/apikey/clear'
-/* OAuth 访问令牌覆盖写入路由(与 apikey 路由平行;apikey/clear 路由沿用旧路径名, 语义为清除全部凭证) */
-export const WEB_TOKEN_PATH = '/api/wakatime/token'
+export const WEB_CREDENTIAL_CLEAR_PATH = '/api/wakatime/credential/clear'
 /* 手动重试一条失败推送任务 */
 export const WEB_RETRY_PATH = '/api/wakatime/retry'
-/* API Key 缓存(数据桶)清单与手动移除 */
+/* 缓存(数据桶)清单与手动移除: 每份凭证一个桶 */
 export const WEB_BUCKETS_PATH = '/api/wakatime/buckets'
 export const WEB_BUCKET_REMOVE_PATH = '/api/wakatime/bucket/remove'
 

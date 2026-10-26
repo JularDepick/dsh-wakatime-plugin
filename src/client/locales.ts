@@ -14,24 +14,29 @@ export type WakatimeKey =
   | 'status.account'
   | 'status.loginSuccess'
   | 'credential.title'
-  | 'credential.kind'
-  | 'credential.kindApiKey'
-  | 'credential.kindOauth'
-  | 'credential.saveApiKey'
-  | 'credential.saveOauth'
-  | 'credential.clear'
-  | 'credential.clearConfirm'
-  | 'credential.keyConfigured'
-  | 'credential.keyMissing'
-  | 'credential.oauthConfigured'
-  | 'credential.oauthMissing'
-  | 'credential.overwrite'
+  | 'credential.count'
+  | 'credential.activeType'
+  | 'credential.fromEnv'
+  | 'credential.add'
+  | 'credential.save'
+  | 'credential.placeholder'
   | 'credential.hintApiKey'
   | 'credential.hintOauth'
-  | 'credential.placeholderApiKey'
-  | 'credential.placeholderOauth'
-  | 'credential.invalidApiKey'
-  | 'credential.invalidOauth'
+  | 'credential.overwrite'
+  | 'credential.clear'
+  | 'credential.clearConfirm'
+  | 'credential.current'
+  | 'credential.switch'
+  | 'credential.remove'
+  | 'credential.removeConfirm'
+  | 'credential.typeApiKey'
+  | 'credential.typeOauth'
+  | 'credential.errEmpty'
+  | 'credential.errClientSecret'
+  | 'credential.errUnknownFormat'
+  | 'credential.errInvalid'
+  | 'credential.errNotFound'
+  | 'credential.errActive'
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
@@ -117,24 +122,29 @@ export const zh: WakatimeDict = {
   'status.account': '当前账号',
   'status.loginSuccess': '登录成功, ',
   'credential.title': '凭证',
-  'credential.kind': '凭证类型',
-  'credential.kindApiKey': '插件密钥',
-  'credential.kindOauth': 'OAuth 令牌',
-  'credential.saveApiKey': '保存插件密钥',
-  'credential.saveOauth': '保存 OAuth 令牌',
-  'credential.clear': '清除凭证',
-  'credential.clearConfirm': '确认清除凭证?',
-  'credential.keyConfigured': '插件密钥已配置',
-  'credential.keyMissing': '插件密钥未配置',
-  'credential.oauthConfigured': 'OAuth 令牌已配置',
-  'credential.oauthMissing': 'OAuth 令牌未配置',
-  'credential.overwrite': '仅覆盖、不可查看。',
-  'credential.hintApiKey': '在 wakatime.com/settings/api-key 生成; WakaTime 自 2026-11-01 起只允许插件用它提交活动。',
-  'credential.hintOauth': '在 wakatime.com/settings 生成个人令牌; 勾选 write_heartbeats、read_summaries、email 三个 scope。',
-  'credential.placeholderApiKey': '粘贴新的插件密钥…',
-  'credential.placeholderOauth': '粘贴新的 OAuth 访问令牌…',
-  'credential.invalidApiKey': '插件密钥无效或验证失败',
-  'credential.invalidOauth': 'OAuth 令牌无效或验证失败',
+  'credential.count': '已存凭证',
+  'credential.activeType': '当前凭证',
+  'credential.fromEnv': '由环境变量提供',
+  'credential.add': '新增凭证',
+  'credential.save': '保存凭证',
+  'credential.placeholder': '粘贴插件密钥或 OAuth 访问令牌…',
+  'credential.hintApiKey': '插件密钥: 在 wakatime.com/settings/api-key 获取。',
+  'credential.hintOauth': 'OAuth 访问令牌: 在 https://wakatime.com/oauth 获取, 勾选 write_heartbeats、read_summaries、email 三个 scope。',
+  'credential.overwrite': '类型按前缀自动识别(无需选择), 仅覆盖、不可查看。',
+  'credential.clear': '清除全部凭证',
+  'credential.clearConfirm': '确认清除全部?',
+  'credential.current': '使用中',
+  'credential.switch': '切换',
+  'credential.remove': '移除凭证',
+  'credential.removeConfirm': '确认移除?',
+  'credential.typeApiKey': '插件密钥',
+  'credential.typeOauth': 'OAuth 令牌',
+  'credential.errEmpty': '凭证不能为空',
+  'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 不能当凭证使用; 访问令牌请到 https://wakatime.com/oauth 获取',
+  'credential.errUnknownFormat': '无法识别的凭证格式: 插件密钥以 waka_ 开头, OAuth 令牌以 waka_tok_ 开头',
+  'credential.errInvalid': '凭证无效或验证失败',
+  'credential.errNotFound': '凭证不存在',
+  'credential.errActive': '该凭证正在使用, 请先切换到其它凭证',
   'stats.title': 'Agent 协作战绩',
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
@@ -219,24 +229,29 @@ export const en: WakatimeDict = {
   'status.account': 'Current account',
   'status.loginSuccess': 'Logged in as ',
   'credential.title': 'Credential',
-  'credential.kind': 'Credential type',
-  'credential.kindApiKey': 'Plugin key',
-  'credential.kindOauth': 'OAuth token',
-  'credential.saveApiKey': 'Save plugin key',
-  'credential.saveOauth': 'Save OAuth token',
-  'credential.clear': 'Clear credential',
-  'credential.clearConfirm': 'Confirm clear?',
-  'credential.keyConfigured': 'Plugin key configured',
-  'credential.keyMissing': 'Plugin key not configured',
-  'credential.oauthConfigured': 'OAuth token configured',
-  'credential.oauthMissing': 'OAuth token not configured',
-  'credential.overwrite': 'Overwrite only, never shown.',
-  'credential.hintApiKey': 'Generate one at wakatime.com/settings/api-key; since 2026-11-01 WakaTime only lets plugins submit activity with it.',
-  'credential.hintOauth': 'Create a personal token at wakatime.com/settings; select the write_heartbeats, read_summaries and email scopes.',
-  'credential.placeholderApiKey': 'Paste a new plugin key…',
-  'credential.placeholderOauth': 'Paste a new OAuth access token…',
-  'credential.invalidApiKey': 'Plugin key invalid or verification failed',
-  'credential.invalidOauth': 'OAuth token invalid or verification failed',
+  'credential.count': 'Saved',
+  'credential.activeType': 'Active credential',
+  'credential.fromEnv': 'from environment',
+  'credential.add': 'Add credential',
+  'credential.save': 'Save credential',
+  'credential.placeholder': 'Paste a plugin key or OAuth access token…',
+  'credential.hintApiKey': 'Plugin key: generate one at wakatime.com/settings/api-key.',
+  'credential.hintOauth': 'OAuth access token: get one at https://wakatime.com/oauth with the write_heartbeats, read_summaries and email scopes.',
+  'credential.overwrite': 'Type is detected from the prefix, no selection needed; overwrite only, never shown.',
+  'credential.clear': 'Clear all credentials',
+  'credential.clearConfirm': 'Confirm clear all?',
+  'credential.current': 'In use',
+  'credential.switch': 'Switch',
+  'credential.remove': 'Remove credential',
+  'credential.removeConfirm': 'Confirm remove?',
+  'credential.typeApiKey': 'Plugin key',
+  'credential.typeOauth': 'OAuth token',
+  'credential.errEmpty': 'The credential must not be empty',
+  'credential.errClientSecret': 'This is an OAuth client secret and cannot be used as a credential; get an access token at https://wakatime.com/oauth',
+  'credential.errUnknownFormat': 'Unrecognized credential format: plugin keys start with waka_, OAuth tokens start with waka_tok_',
+  'credential.errInvalid': 'Credential invalid or verification failed',
+  'credential.errNotFound': 'Credential not found',
+  'credential.errActive': 'This credential is in use; switch to another one first',
   'stats.title': 'Agent collaboration battle stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',

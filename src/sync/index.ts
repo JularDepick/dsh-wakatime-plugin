@@ -12,8 +12,7 @@
 
 import { CLOUD_SUMMARY_RANGE, SUMMARIES_PATH, SYNC_CACHE_TTL_MS } from '../constants'
 import type { AuthManager } from '../auth'
-import type { ResolvedCredential } from '../auth/types'
-import type { HttpClient } from '../http'
+import type { AuthHeader, HttpClient } from '../http'
 
 /* 云端 AI 聚合结果(summaries grand_total 的 AI 字段,7 天窗口) */
 export interface CloudSummary {
@@ -66,11 +65,11 @@ export class CloudSync {
 
   /* 拉取云端 AI 聚合;缓存窗口内直接复用;任何失败(未配置/网络/解析)均返回 null */
   async sync(options: SyncOptions = {}): Promise<CloudSummary | null> {
-    let credential: ResolvedCredential
+    let header: AuthHeader
     let secret: string
     try {
-      credential = await this.auth.getCredential('other_use')
-      secret = (await this.auth.getCredentialSecret()) ?? ''
+      header = await this.auth.getAuthHeader()
+      secret = (await this.auth.getActiveSecret()) ?? ''
     } catch {
       /* 未配置凭证:与网络/云端异常同等待遇,静默失败 */
       return null
@@ -88,7 +87,7 @@ export class CloudSync {
     try {
       const data = await this.http.request<SummariesResponse>(
         `${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`,
-        { method: 'GET', auth: credential.header, noRetry: true },
+        { method: 'GET', auth: header, noRetry: true },
       )
       const totals = data?.data ?? []
       const sum = (pick: (grand: GrandTotal) => number | null | undefined): number =>

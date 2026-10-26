@@ -2,48 +2,27 @@
  * 认证管理模块实现
  * 作者: JularDepick
  *
- * 双轨凭证: WakaTime 插件密钥(API Key, HTTP Basic)与 OAuth 访问令牌(Bearer),
- * 均存于配置文件(0600 权限), 只允许覆盖写入, 任何读取面均不回显明文;
- * 环境变量 WAKATIME_API_KEY 与 WAKATIME_OAUTH_TOKEN 分别优先于配置文件。
- * 按端点用途选轨(官方把 API Key 限定为插件写活动, 其余用途应使用 OAuth 令牌):
- * 插件写活动优先 API Key, 其他用途(账号资料与战绩读取)优先 OAuth 令牌,
- * 只配置了其中一种时两种用途都走它, 保持旧配置可用。
- * 覆盖写入时先经验证(/users/current), 验证失败不落盘。
+ * 凭证模型: 插件密钥(HTTP Basic)与 OAuth 访问令牌(Bearer)同权, 用同一基类描述,
+ * 类型由前缀自动识别(见 src/credential-format.ts), 调用方无需选择类型.
+ * 本地维护一份凭证列表与一个激活凭证: 上报与读取统一使用激活凭证的认证头,
+ * 每个凭证按标识对应一个数据桶(缓存), 切换凭证即切换缓存与展示.
+ * 明文只存在于 host 进程与配置文件(0600), 任何读取面只下发打码值.
+ * 旧版单字段配置(apiKey / oauthToken)在首次读取时迁移为凭证列表, 原桶身份不变.
  */
 
-import { ANONYMOUS_DISPLAY_NAME, DEFAULT_REPORT_INTERVAL_SECONDS, ENV_API_KEY, ENV_OAUTH_TOKEN, USER_INFO_PATH } from '../constants'
-import type { EndpointUsage } from '../constants'
-import type { ConfigManager, StoredConfig } from '../config-manager'
-import { NotAuthenticatedError } from '../errors'
+import {
+  ANONYMOUS_DISPLAY_NAME,
+  DEFAULT_REPORT_INTERVAL_SECONDS,
+  ENV_API_KEY,
+  ENV_OAUTH_TOKEN,
+  USER_INFO_PATH,
+} from '../constants'
+import type { ConfigManager, StoredConfig, StoredCredentialRecord } from '../config-manager'
+import { CredentialInputError, NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
-import type { AuthManager, AuthStatus, CredentialKind, ResolvedCredential, UserProfile } from './types'
-
-/* 插件密钥的认证值:base64(密钥 + 冒号),即 HTTP Basic 的 username=api_key 口径 */
-export function basicAuthValueOf(apiKey: string): string {
-  return Buffer.from(apiKey + ':').toString('base64')
-}
-
-/* OAuth 访问令牌的认证头(Bearer) */
-export function bearerHeaderOf(token: string): AuthHeader {
-  return { scheme: 'Bearer', value: token }
-}
-
-/* 按凭证种类构造认证头 */
-export function authHeaderOf(kind: CredentialKind, secret: string): AuthHeader {
-  return kind === 'oauth' ? bearerHeaderOf(secret) : { scheme: 'Basic', value: basicAuthValueOf(secret) }
-}
-
-/* 端点用途到凭证尝试顺序的映射:首选在前, 另一种兜底 */
-const CREDENTIAL_ORDER: Record<EndpointUsage, CredentialKind[]> = {
-  plugin_write: ['api_key', 'oauth'],
-  other_use: ['oauth', 'api_key'],
-}
-
-/* 凭证种类到环境变量名的映射(环境变量优先于配置文件) */
-const SECRET_ENV: Record<CredentialKind, string> = {
-  api_key: ENV_API_KEY,
-  oauth: ENV_OAUTH_TOKEN,
-}
+import { detectCredentialType, maskCredential } from '../credential-format'
+import { CredentialBase, credentialIdOf, credentialOf } from './credential'
+import type { AddCredentialResult, AuthManager, AuthStatus, CredentialSummary, UserProfile } from './types'
 
 /* /users/current 响应中用于解析账号名的字段(官方 username 与 full_name 均可为 null) */
 export interface ProfileFields {
@@ -72,8 +51,9 @@ export function pickUsername(user: ProfileFields): string | undefined {
 }
 
 export class AuthManagerImpl implements AuthManager {
-  /* 内存缓存:避免每次请求读盘;覆盖写入后同步更新 */
-  private readonly secretCache: Record<CredentialKind, string | null> = { api_key: null, oauth: null }
+  /* 配置内存缓存(含凭证列表);任何写入后同步更新 */
+  private stored: StoredConfig | null = null
+  private loaded = false
   /* 凭证变更订阅者(切换数据桶等副作用由调用方处理) */
   private readonly listeners = new Set<() => void>()
 
@@ -82,148 +62,119 @@ export class AuthManagerImpl implements AuthManager {
     private readonly configManager: ConfigManager,
   ) {}
 
-  /* 订阅凭证变更(覆盖写入或清除后触发);返回取消订阅函数 */
+  /* 订阅凭证变更(添加/切换/移除/清除后触发);返回取消订阅函数 */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
 
-  /* 读取一种凭证:环境变量优先, 其次配置文件缓存, 最后读盘;未配置返回 null */
-  private async readSecret(kind: CredentialKind): Promise<string | null> {
-    const fromEnv = process.env[SECRET_ENV[kind]]
-    if (fromEnv) return fromEnv
-    const cached = this.secretCache[kind]
-    if (cached) return cached
-    const stored = await this.configManager.load()
-    const secret = kind === 'oauth' ? stored?.oauthToken : stored?.apiKey
-    if (!secret) return null
-    this.secretCache[kind] = secret
-    return secret
+  /* 全部已存凭证摘要;当前激活项置 active(环境变量注入项不在列表内) */
+  async listCredentials(): Promise<CredentialSummary[]> {
+    const stored = await this.config()
+    const activeId = this.activeRecord(stored)?.id
+    return (stored?.credentials ?? []).map((record) => this.summarize(record, record.id === activeId))
   }
 
-  /* 当前生效的 API Key:未配置时抛 NotAuthenticatedError */
-  async getApiKey(): Promise<string> {
-    const secret = await this.readSecret('api_key')
-    if (!secret) throw new NotAuthenticatedError()
-    return secret
+  /* 当前激活凭证原文(数据桶归属用);未配置时返回 null */
+  async getActiveSecret(): Promise<string | null> {
+    const fromEnv = this.envCredential()
+    if (fromEnv) return fromEnv.secret
+    const stored = await this.config()
+    return this.activeRecord(stored)?.secret ?? null
   }
 
-  /* 当前生效的 API Key;未配置时返回 null(供分桶路由使用,不抛错) */
-  async tryGetApiKey(): Promise<string | null> {
-    return this.readSecret('api_key')
+  /* 当前激活凭证的认证头;未配置时抛 NotAuthenticatedError */
+  async getAuthHeader(): Promise<AuthHeader> {
+    const fromEnv = this.envCredential()
+    if (fromEnv) return fromEnv.authHeader()
+    const stored = await this.config()
+    const record = this.activeRecord(stored)
+    if (!record) throw new NotAuthenticatedError()
+    return credentialOf(record.type, record.secret).authHeader()
   }
 
-  /* 当前生效的 OAuth 访问令牌:未配置时抛 NotAuthenticatedError */
-  async getOauthToken(): Promise<string> {
-    const secret = await this.readSecret('oauth')
-    if (!secret) throw new NotAuthenticatedError()
-    return secret
-  }
-
-  /* 当前生效的 OAuth 访问令牌;未配置时返回 null */
-  async tryGetOauthToken(): Promise<string | null> {
-    return this.readSecret('oauth')
-  }
-
-  /* 数据桶归属用的凭证原文:取写活动面首选(历史按 API Key 分桶的口径),
-     只有令牌时取令牌;两种都未配置时返回 null(未指派桶) */
-  async getCredentialSecret(): Promise<string | null> {
-    return (await this.readSecret('api_key')) ?? (await this.readSecret('oauth'))
-  }
-
-  /* 按端点用途解析生效凭证:按顺序取第一个已配置的种类 */
-  async getCredential(usage: EndpointUsage): Promise<ResolvedCredential> {
-    for (const kind of CREDENTIAL_ORDER[usage]) {
-      const secret = await this.readSecret(kind)
-      if (secret) return { kind, header: authHeaderOf(kind, secret) }
+  /* 添加凭证: 自动识别类型 -> 服务端验证 -> 落盘并设为激活;已存在时只切换并刷新信息 */
+  async addCredential(input: string): Promise<AddCredentialResult> {
+    const detection = detectCredentialType(input)
+    if (!detection.ok) throw new CredentialInputError(detection.reason === 'unknown' ? 'unknown_format' : detection.reason)
+    const credential = credentialOf(detection.type, input)
+    /* 验证失败(无效凭证或网络异常)不落盘 */
+    const profile = await this.fetchUserProfile(credential.authHeader())
+    const stored = (await this.config()) ?? emptyConfig()
+    const records = [...(stored.credentials ?? [])]
+    const index = records.findIndex((record) => record.id === credential.id)
+    const now = Date.now()
+    const record: StoredCredentialRecord = {
+      id: credential.id,
+      type: credential.type,
+      secret: credential.secret,
+      maskedSecret: credential.maskedSecret,
+      ...(profile.userId === undefined ? {} : { userId: profile.userId }),
+      ...(profile.username === undefined ? {} : { username: profile.username }),
+      addedAt: index >= 0 ? records[index].addedAt : now,
+      lastUsedAt: now,
     }
-    throw new NotAuthenticatedError()
+    if (index >= 0) records[index] = record
+    else records.push(record)
+    await this.setStored({
+      ...stored,
+      credentials: records,
+      activeCredentialId: record.id,
+      settings: stored.settings ?? defaultSettings(),
+      ...(profile.userId === undefined ? {} : { userId: profile.userId }),
+      ...(profile.username === undefined ? {} : { username: profile.username }),
+    })
+    return { summary: this.summarize(record, true), profile, existed: index >= 0 }
   }
 
-  async setApiKey(apiKey: string): Promise<UserProfile> {
-    return this.setCredential('api_key', apiKey)
+  /* 切换激活凭证: 只改选中项与最近使用时刻 */
+  async switchCredential(id: string): Promise<CredentialSummary> {
+    const stored = await this.config()
+    const records = [...(stored?.credentials ?? [])]
+    const index = records.findIndex((record) => record.id === id)
+    if (!stored || index < 0) throw new CredentialInputError('not_found')
+    const record: StoredCredentialRecord = { ...records[index], lastUsedAt: Date.now() }
+    records[index] = record
+    await this.setStored({ ...stored, credentials: records, activeCredentialId: id })
+    return this.summarize(record, true)
   }
 
-  async setOauthToken(token: string): Promise<UserProfile> {
-    return this.setCredential('oauth', token)
+  /* 移除凭证: 当前激活项不可移除(需先切换), 移除后其本地缓存仍保留在缓存清单里 */
+  async removeCredential(id: string): Promise<void> {
+    const stored = await this.config()
+    const records = [...(stored?.credentials ?? [])]
+    const index = records.findIndex((record) => record.id === id)
+    if (!stored || index < 0) throw new CredentialInputError('not_found')
+    if (this.activeRecord(stored)?.id === id) throw new CredentialInputError('active')
+    records.splice(index, 1)
+    await this.setStored({ ...stored, credentials: records })
+  }
+
+  /* 清除全部已存凭证(本地数据桶保留, 可在缓存清单里逐个移除) */
+  async clearCredentials(): Promise<void> {
+    const stored = await this.config()
+    if (!stored) return
+    await this.setStored({ ...stored, credentials: [], activeCredentialId: undefined })
   }
 
   async getStatus(): Promise<AuthStatus> {
-    const apiKey = await this.readSecret('api_key')
-    const oauthToken = await this.readSecret('oauth')
-    const kinds = { apiKeyConfigured: apiKey !== null, oauthConfigured: oauthToken !== null }
-    if (apiKey === null && oauthToken === null) {
-      return { configured: false, ...kinds }
+    const stored = await this.config()
+    const count = (stored?.credentials ?? []).length
+    const fromEnv = this.envCredential()
+    const record = fromEnv === null ? this.activeRecord(stored) : null
+    const active: CredentialBase | null = fromEnv ?? (record === null ? null : credentialOf(record.type, record.secret))
+    if (!active) return { configured: false, count, fromEnv: false }
+    const base: AuthStatus = {
+      configured: true,
+      count,
+      activeType: active.type,
+      activeMaskedSecret: active.maskedSecret,
+      fromEnv: fromEnv !== null,
     }
-    /* 写活动面生效种类:API Key 优先, 与 CREDENTIAL_ORDER.plugin_write 一致 */
-    const kind: CredentialKind = apiKey !== null ? 'api_key' : 'oauth'
     /* 环境变量注入的凭证不落盘, 也不回写账号名(与旧版一致:只报已配置) */
-    if (process.env[SECRET_ENV[kind]]) return { configured: true, ...kinds, kind }
-    const stored = await this.configManager.load()
-    if (!stored) return { configured: true, ...kinds, kind }
-    const username = await this.resolveUsername(stored)
-    return { configured: true, ...kinds, kind, ...(username === undefined ? {} : { username }) }
-  }
-
-  async clearApiKey(): Promise<void> {
-    await this.clearSecrets(['api_key'])
-  }
-
-  async clearCredential(): Promise<void> {
-    await this.clearSecrets(['api_key', 'oauth'])
-  }
-
-  /* 通知订阅者凭证已变更 */
-  private notify(): void {
-    for (const listener of [...this.listeners]) listener()
-  }
-
-  /* 覆盖写入一种凭证:先验证有效性(验证失败不落盘), 成功后回写账号名并通知订阅者 */
-  private async setCredential(kind: CredentialKind, secret: string): Promise<UserProfile> {
-    const trimmed = secret.trim()
-    if (!trimmed) throw new Error(kind === 'oauth' ? 'OAuth token must not be empty' : 'API key must not be empty')
-    const profile = await this.fetchUserProfile(authHeaderOf(kind, trimmed))
-    const stored = await this.configManager.load()
-    await this.configManager.save({
-      ...(stored ?? {}),
-      ...(kind === 'oauth' ? { oauthToken: trimmed } : { apiKey: trimmed }),
-      userId: profile.userId,
-      username: profile.username,
-      settings: stored?.settings ?? defaultSettings(),
-    })
-    this.secretCache[kind] = trimmed
-    this.notify()
-    return profile
-  }
-
-  /* 清除指定种类的凭证并清空缓存 */
-  private async clearSecrets(kinds: CredentialKind[]): Promise<void> {
-    const stored = await this.configManager.load()
-    if (stored) {
-      const next: StoredConfig = { ...stored }
-      if (kinds.includes('api_key')) next.apiKey = undefined
-      if (kinds.includes('oauth')) next.oauthToken = undefined
-      await this.configManager.save(next)
-    }
-    for (const kind of kinds) this.secretCache[kind] = null
-    this.notify()
-  }
-
-  /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时借生效凭证重新解析并回写,
-     解析失败返回 undefined(不展示匿名占位,也不阻塞状态查询) */
-  private async resolveUsername(stored: StoredConfig): Promise<string | undefined> {
-    const current = typeof stored.username === 'string' ? stored.username.trim() : ''
-    if (current && !isAnonymousPlaceholder(current)) return current
-    try {
-      const { header } = await this.getCredential('other_use')
-      const profile = await this.fetchUserProfile(header)
-      if (profile.username !== undefined && profile.username !== current) {
-        await this.configManager.save({ ...stored, userId: profile.userId, username: profile.username })
-      }
-      return profile.username
-    } catch {
-      return undefined
-    }
+    if (fromEnv !== null || stored === null || record === null) return base
+    const username = await this.resolveUsername(stored, record)
+    return username === undefined ? base : { ...base, username }
   }
 
   /* 用认证头拉取账号资料并验证有效性:HTTP 非 2xx(如 401)或网络异常
@@ -238,6 +189,132 @@ export class AuthManagerImpl implements AuthManager {
     if (!user) return {}
     return { userId: user.id, username: pickUsername(user) }
   }
+
+  /* 读取并缓存配置;首次读取时把旧版单字段凭证迁移为凭证列表 */
+  private async config(): Promise<StoredConfig | null> {
+    if (this.loaded) return this.stored
+    const loaded = await this.configManager.load()
+    const migrated = await this.migrateLegacy(loaded)
+    this.stored = migrated
+    this.loaded = true
+    return migrated
+  }
+
+  /* 写入配置并通知订阅者 */
+  private async setStored(next: StoredConfig): Promise<void> {
+    await this.configManager.save(next)
+    this.stored = next
+    this.loaded = true
+    this.notify()
+  }
+
+  /* 静默写入(仅刷新缓存字段时不触发数据桶切换) */
+  private async saveQuietly(next: StoredConfig): Promise<void> {
+    await this.configManager.save(next)
+    this.stored = next
+    this.loaded = true
+  }
+
+  /* 通知订阅者凭证已变更 */
+  private notify(): void {
+    for (const listener of [...this.listeners]) listener()
+  }
+
+  /* 旧版单字段(apiKey / oauthToken)迁移为凭证列表: 类型按前缀识别,
+     标识与旧桶一致(凭证原文摘要), 故迁移后历史战绩不丢 */
+  private async migrateLegacy(stored: StoredConfig | null): Promise<StoredConfig | null> {
+    if (!stored) return stored
+    const legacy = [stored.apiKey, stored.oauthToken].filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    if (legacy.length === 0) return stored
+    const records = [...(stored.credentials ?? [])]
+    const now = Date.now()
+    for (const secret of legacy) {
+      const detection = detectCredentialType(secret)
+      const record: StoredCredentialRecord = {
+        id: credentialIdOf(secret),
+        type: detection.ok ? detection.type : 'api_key',
+        secret: secret.trim(),
+        maskedSecret: maskCredential(secret),
+        ...(typeof stored.userId === 'string' ? { userId: stored.userId } : {}),
+        ...(typeof stored.username === 'string' ? { username: stored.username } : {}),
+        addedAt: now,
+        lastUsedAt: now,
+      }
+      const index = records.findIndex((item) => item.id === record.id)
+      if (index >= 0) records[index] = record
+      else records.push(record)
+    }
+    const migrated: StoredConfig = { ...stored, credentials: records }
+    migrated.activeCredentialId = stored.activeCredentialId ?? records[records.length - 1]?.id
+    migrated.apiKey = undefined
+    migrated.oauthToken = undefined
+    await this.saveQuietly(migrated)
+    return migrated
+  }
+
+  /* 环境变量注入的凭证:OAuth 令牌优先于插件密钥, 均不落盘 */
+  private envCredential(): CredentialBase | null {
+    const token = process.env[ENV_OAUTH_TOKEN]?.trim()
+    if (token) return credentialOf('oauth', token)
+    const apiKey = process.env[ENV_API_KEY]?.trim()
+    if (apiKey) return credentialOf('api_key', apiKey)
+    return null
+  }
+
+  /* 当前激活的凭证记录:未指定激活项时回退到列表最后一项 */
+  private activeRecord(stored: StoredConfig | null): StoredCredentialRecord | null {
+    const records = stored?.credentials ?? []
+    if (records.length === 0) return null
+    const activeId = stored?.activeCredentialId
+    return records.find((record) => record.id === activeId) ?? records[records.length - 1]
+  }
+
+  /* 摘要化凭证(不含明文) */
+  private summarize(record: StoredCredentialRecord, active: boolean): CredentialSummary {
+    return {
+      id: record.id,
+      type: record.type,
+      maskedSecret: record.maskedSecret,
+      ...(record.userId === undefined ? {} : { userId: record.userId }),
+      ...(record.username === undefined ? {} : { username: record.username }),
+      active,
+      addedAt: record.addedAt,
+      lastUsedAt: record.lastUsedAt,
+    }
+  }
+
+  /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时借该凭证重新解析并回写,
+     解析失败返回 undefined(不展示匿名占位,也不阻塞状态查询) */
+  private async resolveUsername(stored: StoredConfig, record: StoredCredentialRecord): Promise<string | undefined> {
+    const cached = typeof record.username === 'string' ? record.username.trim() : ''
+    if (cached && !isAnonymousPlaceholder(cached)) return cached
+    try {
+      const profile = await this.fetchUserProfile(credentialOf(record.type, record.secret).authHeader())
+      if (profile.username !== undefined && profile.username !== cached) {
+        const records = (stored.credentials ?? []).map((item) => item.id === record.id
+          ? {
+              ...item,
+              ...(profile.userId === undefined ? {} : { userId: profile.userId }),
+              ...(profile.username === undefined ? {} : { username: profile.username }),
+            }
+          : item)
+        await this.saveQuietly({
+          ...stored,
+          credentials: records,
+          ...(profile.userId === undefined ? {} : { userId: profile.userId }),
+          ...(profile.username === undefined ? {} : { username: profile.username }),
+        })
+      }
+      return profile.username
+    } catch {
+      return undefined
+    }
+  }
+}
+
+/* 空配置(首次添加凭证时使用) */
+function emptyConfig(): StoredConfig {
+  return { settings: defaultSettings() }
 }
 
 /* settings 缺省块(与 Config 默认值对齐) */
@@ -252,4 +329,5 @@ function defaultSettings(): StoredConfig['settings'] {
   }
 }
 
-export type { AuthManager, AuthStatus, CredentialKind, ResolvedCredential, UserProfile } from './types'
+export type { AuthManager, AuthStatus, CredentialSummary, CredentialType, UserProfile } from './types'
+export type { AddCredentialResult } from './types'

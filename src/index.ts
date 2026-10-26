@@ -37,7 +37,7 @@ export const inject = ['tools']
 export { Config }
 
 /* 导出模块类:便于复用与测试 */
-export { AuthManagerImpl, authHeaderOf, basicAuthValueOf, bearerHeaderOf, pickUsername } from './auth'
+export { AuthManagerImpl, pickUsername } from './auth'
 export { bucketKeyOf, BucketStore, maskApiKey, UNASSIGNED_BUCKET } from './bucket-store'
 export { resolveStatsView } from './bucket-store/resolve'
 export type { StatsView } from './bucket-store/resolve'
@@ -78,7 +78,7 @@ export function apply(ctx: Context, config: ConfigType) {
   const store = new BucketStore()
   /* 当前数据桶:未配置 API Key 时为未指派桶 */
   let currentBucket: string = UNASSIGNED_BUCKET
-  const heartbeat = new HeartbeatEngineImpl(http, async () => (await auth.getCredential('plugin_write')).header, {
+  const heartbeat = new HeartbeatEngineImpl(http, async () => auth.getAuthHeader(), {
     enabled: config.enabled,
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,
@@ -133,7 +133,7 @@ export function apply(ctx: Context, config: ConfigType) {
   const syncBucket = async (): Promise<void> => {
     /* 先等启动载入完成:此前的数据桶切换会与初始载入竞争,可能丢掉激活窗口内的战绩 */
     await storeReady
-    const secret = await auth.getCredentialSecret()
+    const secret = await auth.getActiveSecret()
     if (secret === null) {
       await applyBucket(UNASSIGNED_BUCKET)
       return
@@ -187,7 +187,7 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 启动时读取数据桶:确定当前桶、认领未指派数据、恢复战绩与待发送状态
      (用合并语义:启动瞬间已入队的心跳不会被覆盖) */
   const restoreBuckets = async (): Promise<void> => {
-    const secret = await auth.getCredentialSecret()
+    const secret = await auth.getActiveSecret()
     currentBucket = secret === null ? UNASSIGNED_BUCKET : bucketKeyOf(secret)
     await store.load(currentBucket)
     if (secret !== null) store.setMaskedKey(currentBucket, maskApiKey(secret))

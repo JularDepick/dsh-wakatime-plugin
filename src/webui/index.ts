@@ -28,11 +28,12 @@ import type { AuthManager } from '../auth'
 import type { BucketStore } from '../bucket-store'
 import { resolveStatsView, UNASSIGNED_BUCKET } from '../bucket-store'
 import type { StatsView } from '../bucket-store/resolve'
-import { WEB_APIKEY_CLEAR_PATH, WEB_APIKEY_PATH, WEB_TOKEN_PATH, WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { WEB_BUCKET_REMOVE_PATH, WEB_BUCKETS_PATH, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_CREDENTIAL_REMOVE_PATH, WEB_CREDENTIAL_SWITCH_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { CredentialInputError } from '../errors'
 import type { HeartbeatEngine } from '../heartbeat'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import type { CloudSync } from '../sync'
-import type { WebApiKeyPayload, WebBucketEntry, WebTokenPayload, WebBucketRemovePayload, WebBucketRemoveResponse, WebBucketsResponse, WebConfigResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
+import type { WebBucketEntry, WebBucketRemovePayload, WebBucketRemoveResponse, WebBucketsResponse, WebConfigResponse, WebCredentialActionResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSwitchPayload, WebSyncResponse } from './types'
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
@@ -92,14 +93,15 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
     const disposers = [
       webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: safe((req, res) => handleStatus(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: safe((req, res) => handleConfig(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_APIKEY_PATH, handler: safe((req, res) => handleApiKey(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_TOKEN_PATH, handler: safe((req, res) => handleToken(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_PATH, handler: safe((req, res) => handleCredential(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_SWITCH_PATH, handler: safe((req, res) => handleCredentialSwitch(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_REMOVE_PATH, handler: safe((req, res) => handleCredentialRemove(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_BUCKETS_PATH, handler: safe((req, res) => handleBuckets(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_BUCKET_REMOVE_PATH, handler: safe((req, res) => handleBucketRemove(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: safe((req, res) => handleSync(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_APIKEY_CLEAR_PATH, handler: safe((req, res) => handleApiKeyClear(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_CLEAR_PATH, handler: safe((req, res) => handleCredentialClear(req, res, deps)) }),
     ]
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
@@ -126,10 +128,11 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
   const config = deps.runtimeConfig.get()
   const body: WebStatusResponse = {
     configured: status.configured,
-    apiKeyConfigured: status.apiKeyConfigured,
-    oauthConfigured: status.oauthConfigured,
-    ...(status.kind === undefined ? {} : { credentialKind: status.kind }),
-    ...(status.configured && status.username !== undefined ? { username: status.username } : {}),
+    count: status.count,
+    ...(status.activeType === undefined ? {} : { activeType: status.activeType }),
+    ...(status.activeMaskedSecret === undefined ? {} : { activeMaskedSecret: status.activeMaskedSecret }),
+    ...(status.username === undefined ? {} : { username: status.username }),
+    fromEnv: status.fromEnv,
     config: {
       enabled: config.enabled,
       reportInterval: config.reportInterval,
@@ -171,63 +174,102 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
   writeJson(res, 200, body)
 }
 
-/* API Key 覆盖写入:验证有效后存储,任何响应不回显 Key 明文 */
-async function handleApiKey(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+/* 凭证添加:类型由前缀自动识别(前端不再让用户选择),服务端验证通过后保存并设为激活 */
+async function handleCredential(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
     res.writeHead(405)
     res.end()
     return
   }
-  let payload: WebApiKeyPayload
+  let payload: WebCredentialPayload
   try {
-    payload = JSON.parse(await readBody(req)) as WebApiKeyPayload
+    payload = JSON.parse(await readBody(req)) as WebCredentialPayload
   } catch {
-    res.writeHead(400)
-    res.end('invalid json body')
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
-  if (typeof payload.apiKey !== 'string' || payload.apiKey.trim() === '') {
-    res.writeHead(400)
-    res.end('apiKey is required')
-    return
-  }
-  /* 小后端先验证 API Key 有效性:失败不保存并回报结果(不携带 Key) */
   try {
-    const profile = await deps.auth.setApiKey(payload.apiKey)
+    const secret = typeof payload.secret === 'string' ? payload.secret : ''
+    const result = await deps.auth.addCredential(secret)
     await deps.syncBucket()
-    writeJson(res, 200, { ok: true, username: profile.username ?? null })
+    const body: WebCredentialResponse = {
+      ok: true,
+      credential: result.summary,
+      username: result.profile.username ?? null,
+      existed: result.existed,
+    }
+    writeJson(res, 200, body)
   } catch (error) {
-    writeJson(res, 400, { ok: false, error: (error as Error).message })
+    /* 格式不合法给稳定错误码(前端按码翻译),其余为验证失败原因 */
+    const reason = error instanceof CredentialInputError ? error.code : (error as Error).message
+    writeJson(res, 400, { ok: false, error: reason })
   }
 }
 
-/* OAuth 访问令牌覆盖写入:先验证有效性,任何响应不回显令牌明文 */
-async function handleToken(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+/* 切换激活凭证:切换后重新对齐数据桶(每份凭证一个桶,互不混算) */
+async function handleCredentialSwitch(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
     res.writeHead(405)
     res.end()
     return
   }
-  let payload: WebTokenPayload
+  let payload: WebSwitchPayload
   try {
-    payload = JSON.parse(await readBody(req)) as WebTokenPayload
+    payload = JSON.parse(await readBody(req)) as WebSwitchPayload
   } catch {
-    res.writeHead(400)
-    res.end('invalid json body')
-    return
-  }
-  if (typeof payload.token !== 'string' || payload.token.trim() === '') {
-    res.writeHead(400)
-    res.end('token is required')
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
   try {
-    const profile = await deps.auth.setOauthToken(payload.token)
+    await deps.auth.switchCredential(String(payload.id ?? ''))
     await deps.syncBucket()
-    writeJson(res, 200, { ok: true, username: profile.username ?? null })
+    const body: WebCredentialActionResponse = { ok: true }
+    writeJson(res, 200, body)
   } catch (error) {
-    writeJson(res, 400, { ok: false, error: (error as Error).message })
+    const reason = error instanceof CredentialInputError ? error.code : 'not_found'
+    writeJson(res, 400, { ok: false, error: reason })
   }
+}
+
+/* 移除凭证:当前激活项需先切换(返回 active);移除后其本地缓存仍留在缓存清单里 */
+async function handleCredentialRemove(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  let payload: WebSwitchPayload
+  try {
+    payload = JSON.parse(await readBody(req)) as WebSwitchPayload
+  } catch {
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
+    return
+  }
+  try {
+    const id = String(payload.id ?? '')
+    await deps.auth.removeCredential(id)
+    /* 连同该凭证的本地缓存一起移除, 避免留下无法再使用的孤儿桶 */
+    if (deps.store.removeBucket(id)) deps.store.save()
+    await deps.syncBucket()
+    const body: WebCredentialActionResponse = { ok: true }
+    writeJson(res, 200, body)
+  } catch (error) {
+    const reason = error instanceof CredentialInputError ? error.code : 'not_found'
+    writeJson(res, 400, { ok: false, error: reason })
+  }
+}
+
+/* 清除全部已存凭证(本地缓存保留, 由用户在缓存清单里逐个移除) */
+async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  await deps.auth.clearCredentials()
+  await deps.syncBucket()
+  const body: WebCredentialActionResponse = { ok: true }
+  writeJson(res, 200, body)
 }
 
 /* 上报记录:失败任务附带心跳对象与尝试次数,供前端渲染重试入口 */
@@ -288,19 +330,6 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
 }
 
 /* 清除本地 API Key(回退未登录;成功不回显任何密钥信息) */
-async function handleApiKeyClear(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
-    return
-  }
-  /* 清除本地全部凭证(API Key 与 OAuth 令牌):任一残留都会让状态显示已配置 */
-  await deps.auth.clearCredential()
-  await deps.syncBucket()
-  const body: WebConfigResponse = { ok: true }
-  writeJson(res, 200, body)
-}
-
 /* 云端同步:拉取 summaries AI 聚合写入当前 Key 的数据桶,返回解析后的战绩视图;
    ?force=1 跳过缓存;未配置 Key 或失败均返回可读原因 */
 async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
@@ -335,20 +364,28 @@ async function handleBuckets(req: IncomingMessage, res: ServerResponse, deps: We
   await deps.syncBucket()
   const current = deps.currentBucket()
   const now = Date.now()
+  /* 每份凭证一个桶: 清单按凭证列表补充类型与账号, 无凭证归属的历史桶照样列出 */
+  const credentials = await deps.auth.listCredentials()
+  const byId = new Map(credentials.map((item) => [item.id, item]))
   const buckets: WebBucketEntry[] = Object.entries(deps.store.buckets())
-    /* 未指派桶不是真实 API Key:既不在缓存清单展示,也不可移除 */
+    /* 未指派桶不是真实凭证: 既不在缓存清单展示, 也不可移除 */
     .filter(([key]) => key !== UNASSIGNED_BUCKET)
-    .map(([key, bucket]) => ({
-      key,
-      /* 模糊 Key 只在此接口下发;旧版桶没有该字段时回退为摘要标识 */
-      maskedKey: bucket.maskedKey ?? `#${key.slice(0, 8)}`,
-      updatedAt: bucket.updatedAt,
-      current: key === current,
-      removable: key !== current && deps.store.isStale(key, now),
-      stats: resolveStatsView(deps.store.buckets(), 'current', key),
-    }))
+    .map(([key, bucket]) => {
+      const credential = byId.get(key)
+      return {
+        key,
+        /* 模糊凭证只在此接口下发;旧版桶没有该字段时回退为摘要标识 */
+        maskedKey: bucket.maskedKey ?? credential?.maskedSecret ?? '#' + key.slice(0, 8),
+        ...(credential === undefined ? {} : { credentialType: credential.type }),
+        ...(credential?.username === undefined ? {} : { username: credential.username }),
+        active: key === current,
+        updatedAt: bucket.updatedAt,
+        removable: key !== current && deps.store.isStale(key, now),
+        stats: resolveStatsView(deps.store.buckets(), 'current', key),
+      }
+    })
   buckets.sort((left, right) => {
-    if (left.current !== right.current) return left.current ? -1 : 1
+    if (left.active !== right.active) return left.active ? -1 : 1
     return right.updatedAt - left.updatedAt
   })
   const body: WebBucketsResponse = { buckets }
