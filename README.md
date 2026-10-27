@@ -61,7 +61,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 - 安装校验: 包清单以 `engines.dsh` 与宿主包对等依赖声明实测版本区间 `>=0.2.1-rc.1 <=0.2.1-rc.3`;若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本尚未实测,不在区间内.
 - 后续版本: 高于 0.2.1-rc.3 的 dsh 版本(含 0.2.1 正式版与 0.3.x)都会被本插件拒绝,需要等待插件实测并推进上界.
 - 从 0.3.0 升级: 首次启动自动迁移: 从已保存的凭证列表里挑出一份 OAuth 令牌作为唯一凭证(插件密钥因官方只允许写入、无法读取战绩而不再支持,只保存过插件密钥的用户需要改用个人 OAuth 令牌),分凭证的多份本地数据合并为一份(战绩逐项求和、待发送队列与失败任务按标识去重合并、云端快照取最新),更早版本的 `stats.json` 与 `heartbeats.json` 在数据文件缺失时并入;迁移后本地数据与凭证解耦,此后更换凭证不再影响战绩;`statsScope` 配置项与 `WAKATIME_API_KEY` 环境变量已移除,旧 `cordis.yml` 里的残留项不会被拒绝,但插件不再读取,因此不生效,其余默认值不变(`tableBorders` 默认开启,`digitGrouping` 默认 `thousand`).
-- 升级前请备份 `~/.dsh/plugins/wakatime` 目录;0.3.0 与 0.4.0 不能同时使用同一数据目录(旧版本会把新版结构重写成空的旧结构,导致战绩丢失),升级后也不要回退,确需回退时先用备份恢复.首次迁移会保留一份 `buckets.json.v2.bak`.
+- 升级前请备份 `~/.dsh/plugins/wakatime` 目录;0.3.0 与 0.4.0 不能同时使用同一数据目录(旧版本会把新版结构重写成空的旧结构,导致战绩丢失),升级后也不要回退,确需回退时先用备份恢复.首次迁移会把旧数据文件归档为 `buckets.json.v2.<时间戳>.bak`,损坏或无法识别的文件同样会把原件归档为 `*.corrupt.*.bak` 或 `*.unknown.*.bak` 后重建.
 
 
 ## 使用
@@ -78,7 +78,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 - **Agent 引导**: 让 Agent 调用 `wakatime_config` 工具(op=set_credential)代替你完成配置;
 - **环境变量**: 设置 `WAKATIME_OAUTH_TOKEN`(作为临时凭证优先于文件配置,不落盘).
 
-只保留一份凭证: 再次保存即覆盖原凭证(本地战绩继续累计),「清除凭证」回退到未登录状态(本地战绩保留).
+只保留一份凭证: 再次保存即覆盖原凭证(本地战绩继续累计),「清除凭证」回退到未登录状态(本地战绩保留).若设置了 `WAKATIME_OAUTH_TOKEN`,环境变量优先于文件配置,此时保存与清除都会被拒绝并提示,需要先移除该变量再重启 dsh.
 
 配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入).
 
@@ -108,7 +108,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
     includePrompts: true   # 是否上报提示词长度
     debug: false           # 调试日志开关
     tableBorders: true     # 战绩表是否显示表格边框(纯展示项)
-    digitGrouping: thousand # 数位分隔符:thousand 千位(3 位一组)/ myriad 万位(4 位一组),纯展示项
+    digitGrouping: thousand # 数位分隔符: thousand 千位(3 位一组)/ myriad 万位(4 位一组),纯展示项
 ```
 
 环境变量:
@@ -124,7 +124,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 
 ## 平台与路径
 
-- 运行平台: Windows, macOS, Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;同目录下另有本地数据文件 `buckets.json`,保存唯一一份战绩累计、云端快照、待发送队列与上报记录(与凭证无关);该目录被同一用户下的多个 dsh profile 共用,写入有文件锁与增量合并保护,不建议手工编辑.
+- 运行平台: Windows, macOS, Linux(WSL);凭证与配置默认位于 `$DSH_HOME/plugins/wakatime/config.json`,即通常的 `~/.dsh/plugins/wakatime/config.json`;同目录下另有本地数据文件 `buckets.json`,保存唯一一份战绩累计、云端快照、待发送队列与上报记录(与凭证无关);该目录被同一用户下的多个 dsh profile 共用,写入有文件锁与增量合并保护,不建议手工编辑;升级或数据文件异常时该目录内会出现带时间戳的 `*.bak` 归档文件,可据此核对或恢复.
 - 权限: POSIX 平台下配置目录与文件分别收紧为 `0700` 与 `0600`;Windows 无 POSIX 权限位,依赖用户目录 ACL.
 - 项目与分支识别: 以会话工作目录为基准,项目名取 Git 仓库根目录名,会话位于仓库子目录或 worktree 中也归到同一项目;分支名解析 Git 头文件,detached HEAD 时分支留空.
 - 网络: 单次请求超时 30 秒,超时按网络失败重试;上报请求带插件与宿主标识,便于 WakaTime 归类编辑器与操作系统;需要走代理时设置 `NODE_USE_ENV_PROXY=1` 并配置 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上).

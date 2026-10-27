@@ -16,7 +16,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
 import { migrateStoredConfig } from '../migrate'
-import { backupFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
 
@@ -52,18 +52,9 @@ export class ConfigManagerImpl implements ConfigManager {
     const file = await readJsonFileState(path)
     const current = normalizeStoredConfig(file.value)
     if (current === null) {
-      /* 旧结构:先留底再迁移落盘(写入路径自带锁、合并与原子替换) */
+      /* 旧结构交给写入路径在锁内归档并迁移; 损坏或结构未知同样由写入路径归档 */
       const migrated = migrateStoredConfig(file.value)
-      if (migrated !== null) {
-        await backupFile(path, 'v2.bak')
-        return this.save(migrated)
-      }
-      if (file.state === 'corrupt') {
-        await backupFile(path, 'corrupt.bak')
-        this.lastKnown = null
-        this.mtime = await fileMtime(path)
-        return null
-      }
+      if (migrated !== null) return this.save(migrated)
     }
     this.lastKnown = current
     this.mtime = await fileMtime(path)
@@ -77,15 +68,18 @@ export class ConfigManagerImpl implements ConfigManager {
       await mkdir(dir, { recursive: true, mode: 0o700 })
       const merged = await withFileLock(join(dir, CONFIG_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
         /* 持锁后重读:其它进程可能刚写入过凭证或改过设置;
-           旧结构先留底再按迁移结果合并, 损坏文件同样先备份 */
+           旧结构或损坏文件在锁内归档(重命名)后再按迁移结果合并 */
         const file = await readJsonFileState(path)
-        if (file.state === 'corrupt') await backupFile(path, 'corrupt.bak')
+        if (file.state === 'unreadable') return config
         let disk = normalizeStoredConfig(file.value)
         if (disk === null) {
           const migrated = migrateStoredConfig(file.value)
           if (migrated !== null) {
-            await backupFile(path, 'v2.bak')
+            await archiveFile(path, 'v2')
             disk = migrated
+          } else if (file.state !== 'missing') {
+            await archiveFile(path, 'corrupt')
+            disk = null
           }
         }
         const result = mergeConfig(disk ?? this.lastKnown, config)
@@ -106,10 +100,15 @@ export class ConfigManagerImpl implements ConfigManager {
     const path = configPath()
     const mtime = await fileMtime(path)
     if (mtime === null || mtime === this.mtime) return null
-    const disk = normalizeStoredConfig((await readJsonFileState(path)).value)
-      ?? migrateStoredConfig((await readJsonFileState(path)).value)
+    const file = await readJsonFileState(path)
+    if (file.state === 'unreadable') return null
+    const disk = normalizeStoredConfig(file.value) ?? migrateStoredConfig(file.value)
     this.mtime = mtime
-    if (!disk) return null
+    if (!disk) {
+      /* 损坏或结构未知: 归档留痕, 本次按无配置处理 */
+      if (file.state !== 'missing') await archiveFile(path, 'corrupt')
+      return null
+    }
     /* 按变更时刻合并:外部新增的凭证与本次内存变化都要保留 */
     const merged = this.lastKnown === null ? disk : mergeConfig(disk, this.lastKnown)
     this.lastKnown = merged

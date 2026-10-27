@@ -216,7 +216,8 @@ export class WakatimeTools {
     try {
       const result = await this.options.auth.setCredential(secret)
       const suffix = result.username === undefined ? '' : ': ' + result.username
-      const prefix = result.existed ? translate('credential.replaced') : translate('credential.added')
+      /* existed 表示与已保存内容相同(重复保存), replaced 表示换成了另一份凭证 */
+      const prefix = result.replaced ? translate('credential.replaced') : translate('credential.added')
       return prefix + ' ' + translate('credential.typeOauth') + suffix
     } catch (error) {
       if (error instanceof CredentialInputError) {

@@ -24,6 +24,10 @@ export interface SetCredentialResult {
   username?: string
   /* 与已保存的是同一份凭证(内容相同) */
   existed: boolean
+  /* 之前保存的是另一份凭证(内容不同), 即本次为更换 */
+  replaced: boolean
+  /* 凭证写盘时刻 */
+  updatedAt: number
 }
 
 export interface AuthStatus {

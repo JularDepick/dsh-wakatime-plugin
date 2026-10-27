@@ -15,13 +15,14 @@ export const CONFIG_DIR_NAME = 'wakatime'
 export const CONFIG_FILE_NAME = 'config.json'
 
 /* 本地数据文件(与配置文件同目录):全插件一份数据(战绩累计、云端快照、
-   待发送队列、失败任务与上报记录),与凭证无关;写入防抖(毫秒),避免高频统计变更频繁写盘 */
+   待发送队列、失败任务与上报记录),与凭证无关 */
 /* 数据文件名沿用历史名称(buckets.json), 避免 0.3.0 与 0.4.0 并存时各写一份文件导致数据分裂 */
 export const BUCKET_FILE_NAME = 'buckets.json'
 /* 数据文件结构版本: 0.3.0 为 2(分凭证数据桶), 0.4.0 起为 3(单份本地数据) */
 export const STORE_FILE_VERSION = 3
 /* 配置文件结构版本: 0.3.0 及更早无该字段, 0.4.0 起为 3 */
 export const CONFIG_FILE_VERSION = 3
+/* 统计变更触发落盘的防抖窗口(毫秒):避免高频统计变更频繁写盘 */
 export const BUCKET_SAVE_DEBOUNCE_MS = 2000
 /* 跨进程互斥:锁文件名与等待参数(同一数据目录可能被多个 dsh profile 进程同时写入) */
 export const BUCKET_LOCK_FILE_NAME = 'buckets.lock'
@@ -136,3 +137,7 @@ export const ENV_DEBUG = 'WAKATIME_DEBUG'
 export const ENV_CONFIG_DIR = 'WAKATIME_CONFIG_DIR'
 /* dsh home 覆盖项(默认 home 推导用,与 dsh 本体的 DSH_HOME 对齐) */
 export const ENV_DSH_HOME = 'DSH_HOME'
+
+/* 凭证被拒(401/403)时上报记录的节流间隔(毫秒): 凭证持续失效期间每轮推送都会命中,
+   不节流会把上报记录上限挤满 */
+export const CREDENTIAL_REJECT_LOG_INTERVAL_MS = 300_000

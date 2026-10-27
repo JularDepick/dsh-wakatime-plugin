@@ -9,7 +9,7 @@
  * 3. 合并前重读: 调用方持锁期间重新读盘, 以磁盘为基底叠加本进程增量.
  */
 
-import { copyFile, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 
 export interface LockOptions {
   /* 锁文件最长存活时长, 超过视为陈旧锁 */
@@ -84,19 +84,11 @@ export async function fileMtime(path: string): Promise<number | null> {
   }
 }
 
-/* 读取并解析 JSON;不存在或解析失败返回 undefined */
-export async function readJsonFile(path: string): Promise<unknown> {
-  try {
-    return JSON.parse(await readFile(path, 'utf-8'))
-  } catch {
-    return undefined
-  }
-}
-
 /* 读取状态: 区分"文件不存在"与"存在但读不出或不是合法 JSON",
    后者不能再被当成空数据覆盖(否则一次读失败就会把历史数据清零) */
 export interface JsonFileState {
-  state: 'missing' | 'ok' | 'corrupt'
+  /* missing 不存在 / ok 合法 / corrupt 解析失败 / unreadable 存在但读不出(权限或占用) */
+  state: 'missing' | 'ok' | 'corrupt' | 'unreadable'
   value?: unknown
 }
 
@@ -104,8 +96,11 @@ export async function readJsonFileState(path: string): Promise<JsonFileState> {
   let text: string
   try {
     text = await readFile(path, 'utf-8')
-  } catch {
-    return { state: 'missing' }
+  } catch (error) {
+    /* 只有"不存在"可以当作空数据处理; 权限或占用导致的读失败必须区分开,
+       否则会把读不出的文件当成空文件覆盖掉 */
+    const code = (error as NodeJS.ErrnoException).code
+    return { state: code === 'ENOENT' ? 'missing' : 'unreadable' }
   }
   try {
     return { state: 'ok', value: JSON.parse(text) as unknown }
@@ -114,11 +109,15 @@ export async function readJsonFileState(path: string): Promise<JsonFileState> {
   }
 }
 
-/* 备份一个文件为 <路径>.<后缀>(覆盖同名备份);失败静默, 不阻塞主流程 */
-export async function backupFile(path: string, suffix: string): Promise<void> {
+/* 归档一个文件: 重命名为 <路径>.<标签>.<时间戳>.bak.
+   用重命名而不是复制, 归档后原路径不再存在, 后续写入可以正常建立新文件;
+   时间戳后缀保证反复归档不会覆盖上一次的痕迹. 失败(含文件不存在)返回 false */
+export async function archiveFile(path: string, tag: string): Promise<boolean> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   try {
-    await copyFile(path, `${path}.${suffix}`)
+    await rename(path, `${path}.${tag}.${stamp}.bak`)
+    return true
   } catch {
-    /* 尽力而为 */
+    return false
   }
 }

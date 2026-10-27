@@ -45,7 +45,8 @@ function normalizeSettings(value: unknown): StoredSettings | undefined {
   return settings as StoredSettings
 }
 
-/* 当前结构版本归一化: 版本不符或 settings 缺失时返回 null(交给迁移或按未配置处理) */
+/* 当前结构版本归一化: 版本不符返回 null(交给迁移或按未配置处理);
+   settings 缺失或损坏不丢弃凭证, 用默认值兜底 */
 export function normalizeStoredConfig(value: unknown): StoredConfig | null {
   if (typeof value !== 'object' || value === null) return null
   const raw = value as Record<string, unknown>

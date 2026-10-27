@@ -114,6 +114,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [notice, setNotice] = useState<Notice>()
   const [keySaving, setKeySaving] = useState(false)
   const [tick, setTick] = useState(0)
+  /* 刷新请求序号: 只采用最后一次请求的结果, 避免旧响应覆盖新状态 */
+  const reloadSeq = useRef(0)
+  /* 正在提交的配置键: 提交未落定前不用服务端值覆盖草稿, 否则正在编辑的数字会被重置 */
+  const pendingPatch = useRef<keyof ConfigDraft | undefined>(undefined)
   /* 云端同步状态(战绩数值与云端快照由服务端按数据桶解析后下发) */
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 同步失败原因(区分未配置凭证与网络失败),失败时展示在战绩标题行 */
@@ -241,6 +245,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   /* 拉取状态与上报日志;已配置且本地无云端缓存时才同步 */
   const reload = (): void => {
+    const seq = reloadSeq.current + 1
+    reloadSeq.current = seq
     setLoadError(undefined)
     fetch(STATUS_PATH, { cache: 'no-store' })
       .then((response) => {
@@ -248,11 +254,18 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         return response.json() as Promise<WebStatusResponse>
       })
       .then((next) => {
+        if (seq !== reloadSeq.current) return
         setData(next)
-        setDraft(fromConfig(next.config))
+        /* 有未落定的配置提交时保留草稿, 服务端值在提交成功后随下一次刷新落地 */
+        if (pendingPatch.current === undefined) setDraft(fromConfig(next.config))
         if (next.configured && !syncedRecently()) syncCloud()
       })
-      .catch((error: unknown) => { setLoadError((error as Error).message) })
+      .catch((error: unknown) => {
+        if (seq !== reloadSeq.current) return
+        setLoadError((error as Error).message)
+        /* 已有数据时刷新失败也要让用户看见, 否则会以为界面是最新的 */
+        if (data !== null) setNotice({ kind: 'error', text: t('state.loadFailed') })
+      })
     fetch(LOGS_PATH, { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -266,9 +279,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   useEffect(() => { reload() }, [tick])
 
-  /* 上报记录失败原因:稳定标识映射为字典文案,其余(如网络错误细节)原样展示 */
+  /* 上报记录失败原因: 已知类别映射为字典文案, 其余(如底层网络错误)原样展示便于排查 */
   const describeLogError = (error: string | undefined): string => {
-    return error ?? ''
+    if (error === undefined || error === '') return ''
+    if (/credential|401|403|Unauthorized|Forbidden/i.test(error)) return t('logs.errCredential')
+    if (/network|timeout|ENOTFOUND|ECONN|fetch failed|5\d\d/i.test(error)) return t('logs.errNetwork')
+    if (/^HTTP \d{3}$/.test(error)) return t('logs.errNetwork')
+    return error
   }
 
   /* 提示停留后自动消失(与官方 Toast 的 3000ms 停留 + 1000ms 淡出一致) */
@@ -279,8 +296,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   }, [notice])
 
   const patch = (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]): void => {
-    /* 值未变化时不重复写入(数字字段失焦时常见) */
-    if (draft && draft[key] === value) return
+    /* 与"服务端已生效的值"比较: 数字字段先在草稿改值再提交, 拿草稿比较会把提交全部短路掉 */
+    if (data !== null && (data.config as ConfigDraft)[key] === value) return
+    pendingPatch.current = key
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
     setNotice(undefined)
     /* 单键写入,小后端即时应用并持久化:配置改动无需保存按钮 */
@@ -292,11 +310,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         /* 服务端已按新配置重算战绩与展示项, 刷新状态使主视图同步 */
+        pendingPatch.current = undefined
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
         setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` })
         /* 写入失败:重新拉取状态,使草稿回到服务端已生效的值 */
+        pendingPatch.current = undefined
         setTick((value) => value + 1)
       })
   }
@@ -326,9 +346,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         }
         return result
       })
-      .then(() => {
+      .then((result) => {
         setCredentialInput('')
-        setNotice({ kind: 'ok', text: t('credential.replaced') })
+        setNotice({ kind: 'ok', text: result.replaced ? t('credential.replaced') : t('credential.added') })
         /* 换了账号:同步节流与错误态重置,下次按新令牌重新同步 */
         clearSynced()
         setCloudState('idle')
@@ -346,7 +366,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         <div className={css.content}>
           {loadError !== undefined && data === null ? (
             <p className={css.error} role="status">
-              {t('state.loadFailed')}:{loadError}
+              {t('state.loadFailed')}: {loadError}
             </p>
           ) : null}
 
@@ -438,9 +458,10 @@ function WakatimePanels(props: PanelsProps) {
   const bordered = draft.tableBorders ? 'true' : 'false'
   /* 数值展示的每组位数:千位 3 位、万位 4 位(两者都用英文逗号分隔) */
   const groupSize = DIGIT_GROUP_SIZES[draft.digitGrouping]
+  const syncFailure = cloudState === 'error' ? (syncError ?? t('cloud.failed')) : ''
   const cloudMeta = view.cloud
-    ? `${t('cloud.syncedAt')}: ${formatTime(view.cloud.syncedAt)}`
-    : (cloudState === 'error' ? (syncError ?? t('cloud.failed')) : t('cloud.never'))
+    ? `${t('cloud.syncedAt')}: ${formatTime(view.cloud.syncedAt)}${syncFailure === '' ? '' : ` · ${syncFailure}`}`
+    : (syncFailure === '' ? t('cloud.never') : syncFailure)
 
   /* 上报记录结果文案:成功 / 失败 / 已重试(重试行不关心重试结果) */
   const logStateText = (entry: WebLogEntry): string => {
@@ -912,6 +933,7 @@ function SegmentedField({ label, value, options, onChange }: {
   onChange: (value: string) => void
 }) {
   const activeIndex = Math.max(0, options.findIndex((option) => option.value === value))
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
   return (
     <div className={css.field}>
       <div className={css.row}>
@@ -928,8 +950,12 @@ function SegmentedField({ label, value, options, onChange }: {
               : (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0)
             if (step === 0) return
             event.preventDefault()
-            const next = options[(activeIndex + step + options.length) % options.length]
-            if (next !== undefined) onChange(next.value)
+            const nextIndex = (activeIndex + step + options.length) % options.length
+            const next = options[nextIndex]
+            if (next === undefined) return
+            onChange(next.value)
+            /* 选中项改变后 tabIndex 也变了: 焦点必须跟着移过去, 否则下一次 Tab 会跳过整组 */
+            buttons.current[nextIndex]?.focus()
           }}
         >
           <span className={css.segmentKnob} aria-hidden="true" />
@@ -937,6 +963,7 @@ function SegmentedField({ label, value, options, onChange }: {
             <button
               key={option.value}
               type="button"
+              ref={(element) => { buttons.current[options.indexOf(option)] = element }}
               role="radio"
               aria-checked={option.value === value}
               tabIndex={option.value === value ? 0 : -1}

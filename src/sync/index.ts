@@ -92,7 +92,10 @@ export class CloudSync {
         `${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`,
         { method: 'GET', auth: header, noRetry: true },
       )
-      const totals = data?.data ?? []
+      /* 只有"对象 + data 是数组"才算有效响应: 网关登录页或代理错误页可能返回 200 HTML,
+         当成空数组会构造出全零成功快照并把已有云端聚合覆盖掉 */
+      if (typeof data !== 'object' || data === null || !Array.isArray((data as SummariesResponse).data)) return null
+      const totals = (data as SummariesResponse).data ?? []
       const sum = (pick: (grand: GrandTotal) => number | null | undefined): number =>
         totals.reduce((acc, item) => acc + Math.max(0, pick(item?.grand_total ?? {}) ?? 0), 0)
       const summary: CloudSummary = {

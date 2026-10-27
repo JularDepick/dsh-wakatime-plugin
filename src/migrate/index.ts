@@ -129,7 +129,10 @@ function dedupeBy<T>(items: readonly T[], keyOf: (item: T) => string, limit: num
 export function migrateStoreFile(raw: unknown): StoreFile | null {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
-  if (record.version === STORE_FILE_VERSION) return null
+  /* 只接受 0.3.0 的结构(version 2)或更早的缺省写法;
+     其它版本(含未来版本)一律按"不可识别"交给上层归档 */
+  const version = record.version
+  if (version !== undefined && version !== 2) return null
   const buckets = record.buckets
   if (typeof buckets !== 'object' || buckets === null) return null
   /* 旧文件的删除墓碑:墓碑时刻晚于桶更新时刻的桶视为已删除, 不参与合并 */

@@ -61,7 +61,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 - Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.1-rc.3` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
 - Later versions: any dsh version above 0.2.1-rc.3 (including the 0.2.1 release and 0.3.x) is rejected by this plugin until it is tested and the upper bound is raised.
 - Upgrading from 0.3.0: the first start migrates automatically. One OAuth token is picked from the saved credential list as the only credential (plugin API keys are no longer accepted because the official API limits them to writing, so users who only saved an API key need to switch to a personal OAuth token), and the per-credential datasets are merged into one (stats summed item by item, pending queue and failed tasks deduplicated by identity, newest cloud snapshot kept); on a missing data file, the older `stats.json` and `heartbeats.json` are merged in as well. After the migration the local dataset is decoupled from the credential, so later credential changes no longer affect stats. The `statsScope` config field and the `WAKATIME_API_KEY` environment variable are gone; leftover entries in an existing `cordis.yml` are not rejected but no longer read, so they have no effect, and other defaults are unchanged (`tableBorders` on, `digitGrouping` `thousand`).
-- Back up `~/.dsh/plugins/wakatime` before upgrading. 0.3.0 and 0.4.0 must not share the same data directory (the older build rewrites the new structure as empty legacy data and loses stats), and do not downgrade after upgrading; restore from the backup if you must. The first migration keeps a `buckets.json.v2.bak` copy.
+- Back up `~/.dsh/plugins/wakatime` before upgrading. 0.3.0 and 0.4.0 must not share the same data directory (the older build rewrites the new structure as empty legacy data and loses stats), and do not downgrade after upgrading; restore from the backup if you must. The first migration archives the legacy data file as `buckets.json.v2.<timestamp>.bak`, and a corrupt or unrecognized file is likewise archived as `*.corrupt.*.bak` or `*.unknown.*.bak` before being rebuilt.
 
 
 ## Usage
@@ -78,7 +78,7 @@ Ways to configure:
 - **Agent-assisted**: ask the Agent to call the `wakatime_config` tool (op=set_credential) to configure it for you;
 - **Environment variable**: set `WAKATIME_OAUTH_TOKEN` (a temporary credential taking precedence over the file, never written to disk).
 
-Only one credential is kept: saving again overwrites the previous one (local stats keep accumulating), and "Clear credential" returns to the signed-out state while local stats stay intact.
+Only one credential is kept: saving again overwrites the previous one (local stats keep accumulating), and "Clear credential" returns to the signed-out state while local stats stay intact. When `WAKATIME_OAUTH_TOKEN` is set it takes precedence over the file, so saving and clearing are both rejected with a hint until you remove the variable and restart dsh.
 
 Switches and the report interval in the config view apply immediately, with no save button (numeric fields commit on blur or Enter).
 
@@ -124,7 +124,7 @@ Environment variables:
 
 ## Platforms & Paths
 
-- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a local data file `buckets.json` in the same directory holds the single set of stats totals, cloud snapshot, pending queue, and report log (independent of the credential); this directory is shared by every dsh profile of the same user and writes are guarded by file locks plus incremental merging, so do not edit it by hand.
+- Platforms: Windows, macOS, Linux (WSL); credentials and configuration live at `$DSH_HOME/plugins/wakatime/config.json` by default, that is `~/.dsh/plugins/wakatime/config.json` in the usual case; a local data file `buckets.json` in the same directory holds the single set of stats totals, cloud snapshot, pending queue, and report log (independent of the credential); this directory is shared by every dsh profile of the same user and writes are guarded by file locks plus incremental merging, so do not edit it by hand; after an upgrade or an abnormal data file you will find timestamped `*.bak` archives there for verification or recovery.
 - Permissions: on POSIX platforms the config directory and file are tightened to `0700` and `0600` respectively; Windows has no POSIX permission bits and relies on user-profile ACLs.
 - Project and branch detection: based on the session working directory, the project name comes from the Git repository root (sessions in a repository subdirectory or a worktree belong to the same project); the branch comes from the Git head file, and stays empty on a detached HEAD.
 - Network: single requests time out after 30 seconds and are retried as network failures; report requests carry plugin and host identification, so WakaTime can classify the editor and operating system; to use a proxy, set `NODE_USE_ENV_PROXY=1` together with `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later).

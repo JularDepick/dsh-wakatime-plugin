@@ -143,6 +143,8 @@ export class AuthManagerImpl implements AuthManager {
       maskedSecret: credential.maskedSecret,
       ...(profile.username === undefined ? {} : { username: profile.username }),
       existed,
+      replaced: stored.credential !== undefined && !existed,
+      updatedAt: now,
     }
   }
 

@@ -26,6 +26,7 @@ import {
   PENDING_QUEUE_LIMIT,
   PUSH_BATCH_DIVISOR,
   PUSH_BATCH_THRESHOLD,
+  CREDENTIAL_REJECT_LOG_INTERVAL_MS,
   PUSH_TASK_MAX_ATTEMPTS,
   REPORT_LOG_LIMIT,
 } from '../constants'
@@ -79,6 +80,10 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private report: ReportEntry[] = []
   /* 推送轮重入保护:同一时刻只允许一轮推送 */
   private pushing = false
+  /* 在途推送的完成信号(手动重试前等待它结算) */
+  private inFlight: Promise<void> | undefined
+  /* 上次"凭证被拒"记录时刻:凭证持续失效时按间隔节流, 避免刷满上报记录 */
+  private lastRejectLoggedAt = 0
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -106,11 +111,19 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const size = this.batchSize()
     if (size === 0) return
     this.pushing = true
+    const task = this.deliverBatch(size)
+    this.inFlight = task
     try {
-      await this.deliverBatch(size)
+      await task
     } finally {
       this.pushing = false
+      this.inFlight = undefined
     }
+  }
+
+  /* 等待在途推送结束:手动重试在推送进行中时先等这一轮结算, 再发起下一轮 */
+  async whenIdle(): Promise<void> {
+    while (this.inFlight !== undefined) await this.inFlight.catch(() => {})
   }
 
   /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
@@ -118,6 +131,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const batch = this.queue.splice(0, size)
     try {
       await this.deliver(batch.map((entry) => entry.heartbeat))
+      /* 推送成功即视为凭证可用, 下一次被拒重新记一条 */
+      this.lastRejectLoggedAt = 0
       this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
@@ -132,7 +147,12 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
          整批放回队首、不计尝试次数, 避免把积压烧进失败列表后按上限丢弃 */
       if (isCredentialRejected(error)) {
         this.queue.unshift(...batch)
-        this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+        /* 凭证持续失效时每轮推送都会命中, 按间隔只记一条, 避免把上报记录挤满 */
+        const now = Date.now()
+        if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
+          this.lastRejectLoggedAt = now
+          this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+        }
         this.log('warn', `[wakatime] credential rejected, heartbeat kept in queue: ${message}`)
         return
       }

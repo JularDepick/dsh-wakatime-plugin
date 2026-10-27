@@ -26,7 +26,7 @@ import {
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import type { PendingHeartbeatState } from '../heartbeat'
 import { loadLegacySnapshots, migrateStoreFile } from '../migrate'
-import { backupFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
 import { isMergeSane, mergeStore } from './merge'
@@ -56,32 +56,35 @@ export class LocalStore {
   private baseline: StoreFile = emptyStore()
   /* 上次看到的文件 mtime:用于检测其它进程的写入 */
   private mtime: number | null = null
+  /* 数据文件读不出(权限/占用)时禁止写盘, 本进程只做统计与上报 */
+  private writeBlocked = false
 
   constructor(options: LocalStoreOptions = {}) {
     this.options = options
   }
 
   /* 读取数据文件;旧结构经 migrate 转换, 更早的独立快照在文件缺失时并入.
-     存在但无法识别的内容先备份再按空数据起步, 不会静默覆盖成空文件 */
+     旧结构、损坏或结构未知的文件由落盘路径先归档再重建, 不会静默覆盖;
+     读取失败(权限/占用)时按空数据运行且不写盘, 避免覆盖读不出的文件 */
   async load(): Promise<void> {
     const path = this.path()
     const file = await readJsonFileState(path)
     let data = normalizeStore(file.value)
-    let migratedNow = false
+    let needsRewrite = false
     if (data === null) {
       const migrated = migrateStoreFile(file.value)
       if (migrated !== null) {
-        /* 迁移前留底: 回退旧版本或并存运行时仍可人工找回原始结构 */
-        await backupFile(path, 'v2.bak')
         data = migrated
-        migratedNow = true
+        needsRewrite = true
       } else {
         data = await loadLegacySnapshots(resolveConfigDir())
         if (data === null) {
-          if (file.state !== 'missing') {
-            /* 损坏或结构未知: 备份原文件后以空数据起步 */
-            await backupFile(path, file.state === 'corrupt' ? 'corrupt.bak' : 'unknown.bak')
-            this.options.logger?.warn?.('[wakatime] data file not recognized, backed up and started empty')
+          if (file.state === 'unreadable') {
+            this.writeBlocked = true
+            this.options.logger?.warn?.('[wakatime] data file is not readable, persistence disabled this run')
+          } else if (file.state !== 'missing') {
+            this.options.logger?.warn?.('[wakatime] data file not recognized, will be archived and recreated')
+            needsRewrite = true
           }
           data = emptyStore()
         }
@@ -91,8 +94,8 @@ export class LocalStore {
     this.baseline = cloneStore(data)
     this.mtime = await fileMtime(path)
     this.ready = true
-    /* 迁移结果立即落盘(不等防抖窗口);其余情况按防抖写回 */
-    if (migratedNow) await this.flush()
+    /* 旧结构或无法识别的文件立即归档重建(不等防抖窗口);其余按防抖写回 */
+    if (needsRewrite) await this.flush()
     else this.scheduleSave()
   }
 
@@ -103,6 +106,7 @@ export class LocalStore {
     if (mtime === null || mtime === this.mtime) return false
     const file = await readJsonFileState(path)
     this.mtime = mtime
+    if (file.state === 'unreadable') return false
     const disk = normalizeStore(file.value) ?? migrateStoreFile(file.value)
     if (disk === null) return false
     this.data = mergeStore(disk, this.data, this.baseline)
@@ -155,21 +159,34 @@ export class LocalStore {
       clearTimeout(this.timer)
       this.timer = undefined
     }
-    if (!this.ready) return
+    if (!this.ready || this.writeBlocked) return
     const dir = resolveConfigDir()
     const path = this.path()
     try {
       await mkdir(dir, { recursive: true, mode: 0o700 })
       await withFileLock(join(dir, BUCKET_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
         const file = await readJsonFileState(path)
+        if (file.state === 'unreadable') {
+          /* 读不出就不能写: 否则 rename 会把读不出的内容覆盖成空 */
+          this.options.logger?.warn?.('[wakatime] data file is not readable, skip writing')
+          return
+        }
         let disk = normalizeStore(file.value)
         if (disk === null) {
           const migrated = migrateStoreFile(file.value)
-          if (migrated !== null) disk = migrated
+          if (migrated !== null) {
+            /* 旧结构: 归档原文件后再写入新结构 */
+            await archiveFile(path, 'v2')
+            disk = migrated
+          }
           else if (file.state === 'missing') disk = emptyStore()
           else {
-            /* 存在但读不出或结构未知: 放弃本次写入, 避免把可恢复内容覆盖成空 */
-            return
+            /* 损坏或结构未知: 先归档(重命名)再重建, 归档后原路径已不存在, 本次可正常写入 */
+            const tag = file.state === 'corrupt' ? 'corrupt' : 'unknown'
+            const archived = await archiveFile(path, tag)
+            this.options.logger?.warn?.(`[wakatime] data file archived as *.${tag}.*.bak, recreating`)
+            if (!archived) return
+            disk = emptyStore()
           }
         }
         const merged = mergeStore(disk, this.data, this.baseline)

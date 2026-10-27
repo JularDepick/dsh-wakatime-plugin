@@ -35,18 +35,6 @@ export interface WebStatusResponse {
   stats: StatsView
 }
 
-/* 配置写入请求:Web 可编辑字段子集(不含凭证与语言) */
-export interface WebConfigPayload {
-  enabled?: boolean
-  reportInterval?: number
-  reportEnabled?: boolean
-  includeTokens?: boolean
-  includePrompts?: boolean
-  debug?: boolean
-  tableBorders?: boolean
-  digitGrouping?: DigitGrouping
-}
-
 /* 凭证保存请求:只提交原文, 类型固定为 OAuth 令牌(仅覆盖写入, 不提供查看) */
 export interface WebCredentialPayload {
   secret: string
@@ -59,8 +47,9 @@ export interface WebCredentialResponse {
   maskedSecret?: string
   credentialUpdatedAt?: number
   username?: string | null
-  /* 与已保存的是同一份凭证 */
+  /* 与已保存的是同一份凭证; replaced 表示之前存的是另一份(本次为更换) */
   existed?: boolean
+  replaced?: boolean
   /* 稳定错误码(empty / client_secret / api_key / unknown_format)或验证失败原因 */
   error?: string
 }

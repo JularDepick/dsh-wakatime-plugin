@@ -184,9 +184,10 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
     const body: WebCredentialResponse = {
       ok: true,
       maskedSecret: result.maskedSecret,
-      credentialUpdatedAt: Date.now(),
+      credentialUpdatedAt: result.updatedAt,
       username: result.username ?? null,
       existed: result.existed,
+      replaced: result.replaced,
     }
     writeJson(res, 200, body)
   } catch (error) {
@@ -260,6 +261,7 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     res.end()
     return
   }
+  if (!guardRequest(req, res)) return
   let payload: WebRetryPayload
   try {
     payload = JSON.parse(await readBody(req)) as WebRetryPayload
@@ -267,7 +269,6 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
-  if (!guardRequest(req, res)) return
   if (typeof payload.id !== 'string' || payload.id === '') {
     writeJson(res, 400, { ok: false, error: 'id is required' })
     return
@@ -277,7 +278,8 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     writeJson(res, 404, body)
     return
   }
-  /* 等待本轮推送结算后再响应:前端刷新上报记录即可看到重试结果 */
+  /* 在途推送先结算, 再发起一轮:避免 push() 因重入保护直接返回造成"假成功" */
+  await deps.heartbeat.whenIdle()
   await deps.heartbeat.push()
   const body: WebRetryResponse = { ok: true }
   writeJson(res, 200, body)
@@ -291,6 +293,8 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
     res.end()
     return
   }
+  /* 同步会写云端快照, 属有副作用操作: 带 Origin 时要求同源 */
+  if (!guardOrigin(req, res)) return
   await deps.store.reloadIfChanged()
   const force = isForceRequest(req.url)
   const data = await deps.sync.sync({ force })
@@ -309,20 +313,37 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
 
 /* 写操作来源校验: 要求 application/json(浏览器的跨站简单请求带不了该类型),
    并对自带 Origin 的请求校验同源, 防止任意网页清凭证或改开关 */
-function guardRequest(req: IncomingMessage, res: ServerResponse): boolean {
+function guardOrigin(req: IncomingMessage, res: ServerResponse): boolean {
   const origin = req.headers.origin
   const host = req.headers.host
-  if (typeof origin === 'string' && origin !== '' && typeof host === 'string') {
-    try {
-      if (new URL(origin).host !== host) {
-        writeJson(res, 403, { ok: false, error: 'origin not allowed' })
-        return false
-      }
-    } catch {
-      writeJson(res, 403, { ok: false, error: 'origin not allowed' })
-      return false
-    }
+  /* 同源 GET 通常不带 Origin, 带了才校验 */
+  if (typeof origin !== 'string' || origin === '' || typeof host !== 'string') return true
+  if (isSameOrigin(origin, host)) return true
+  writeJson(res, 403, { ok: false, error: 'origin not allowed' })
+  return false
+}
+
+/* 同源判定: Host 与 Origin 都按小写比较, 且把 localhost / 127.0.0.1 / [::1] 视为同一类本机来源
+   (反向代理可能改写 Host, 直连与回环名混用也不应被拒) */
+function isSameOrigin(origin: string, host: string): boolean {
+  const loopback = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+  try {
+    const parsed = new URL(origin)
+    const originHost = parsed.host.toLowerCase()
+    const requestHost = host.toLowerCase()
+    if (originHost === requestHost) return true
+    const originName = parsed.hostname.toLowerCase()
+    const requestName = requestHost.startsWith('[')
+      ? requestHost.slice(0, requestHost.indexOf(']') + 1)
+      : requestHost.split(':')[0]
+    return loopback.has(originName) && loopback.has(requestName)
+  } catch {
+    return false
   }
+}
+
+function guardRequest(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!guardOrigin(req, res)) return false
   const contentType = String(req.headers['content-type'] ?? '').toLowerCase()
   if (!contentType.startsWith('application/json')) {
     writeJson(res, 415, { ok: false, error: 'content-type must be application/json' })

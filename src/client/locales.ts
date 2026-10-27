@@ -27,6 +27,7 @@ export type WakatimeKey =
   | 'credential.clearConfirm'
   | 'credential.clearFailed'
   | 'credential.cleared'
+  | 'credential.added'
   | 'credential.errEmpty'
   | 'credential.errClientSecret'
   | 'credential.errApiKey'
@@ -73,6 +74,8 @@ export type WakatimeKey =
   | 'logs.retry'
   | 'logs.retrying'
   | 'logs.attempts'
+  | 'logs.errCredential'
+  | 'logs.errNetwork'
   | 'logs.retryUnavailable'
   | 'logs.action'
   | 'config.title'
@@ -123,10 +126,11 @@ export const zh: WakatimeDict = {
   'credential.clearConfirm': '确认清除?',
   'credential.clearFailed': '清除凭证失败, 请稍后重试',
   'credential.cleared': '已清除凭证, 本地战绩保留',
+  'credential.added': '已保存凭证',
   'credential.errEmpty': '凭证不能为空',
   'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 不能当凭证使用; 访问令牌请到 https://wakatime.com/oauth 获取',
   'credential.errApiKey': '插件密钥不再支持, 请改用个人 OAuth 访问令牌(在 https://wakatime.com/oauth 获取)',
-  'credential.errUnknownFormat': '无法识别的凭证格式: OAuth 令牌以 waka_tok_ 开头',
+  'credential.errUnknownFormat': '无法识别的凭证格式: OAuth 访问令牌以 waka_tok_ 开头且长度完整',
   'credential.errInvalid': '凭证无效或验证失败',
   'credential.errEnvLocked': '环境变量 WAKATIME_OAUTH_TOKEN 生效中, 其优先级高于本地保存; 请先移除该变量再重启 dsh',
   'stats.title': 'Agent 协作战绩',
@@ -169,7 +173,9 @@ export const zh: WakatimeDict = {
   'logs.retry': '重试',
   'logs.retrying': '重试中…',
   'logs.attempts': '已尝试 {n} 次',
-  'logs.retryUnavailable': '该失败任务由其它进程持有, 请在对应进程重试',
+  'logs.errCredential': '凭证失效或权限不足',
+  'logs.errNetwork': '网络或服务端异常',
+  'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.action': '操作',
   'config.title': '配置',
   'config.open': '配置',
@@ -217,10 +223,11 @@ export const en: WakatimeDict = {
   'credential.clearConfirm': 'Confirm clear?',
   'credential.clearFailed': 'Failed to clear the credential, please retry',
   'credential.cleared': 'Credential cleared; local stats are kept',
+  'credential.added': 'Credential saved',
   'credential.errEmpty': 'The credential must not be empty',
   'credential.errClientSecret': 'This is an OAuth client secret and cannot be used as a credential; get an access token at https://wakatime.com/oauth',
   'credential.errApiKey': 'Plugin keys are no longer supported; use a personal OAuth access token from https://wakatime.com/oauth',
-  'credential.errUnknownFormat': 'Unrecognized credential format: OAuth tokens start with waka_tok_',
+  'credential.errUnknownFormat': 'Unrecognized credential format: OAuth access tokens start with waka_tok_ and have full length',
   'credential.errInvalid': 'Credential invalid or verification failed',
   'credential.errEnvLocked': 'WAKATIME_OAUTH_TOKEN is set and takes precedence over the saved credential; remove it and restart dsh',
   'stats.title': 'Agent collaboration battle stats',
@@ -263,7 +270,9 @@ export const en: WakatimeDict = {
   'logs.retry': 'Retry',
   'logs.retrying': 'Retrying…',
   'logs.attempts': 'tried {n} times',
-  'logs.retryUnavailable': 'That failed task belongs to another process; retry it there',
+  'logs.errCredential': 'credential rejected or lacking permission',
+  'logs.errNetwork': 'network or upstream error',
+  'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.action': 'Action',
   'config.title': 'Configuration',
   'config.open': 'Settings',

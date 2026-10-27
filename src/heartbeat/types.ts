@@ -89,6 +89,8 @@ export interface HeartbeatEngine {
   push(): Promise<void>
   /* 手动重试一条失败任务:移回队列尾并重置尝试次数;返回是否找到该任务 */
   retryFailedTask(id: string): boolean
+  /* 等待在途推送结束(无在途时立即返回): 手动重试要确保真的推进了一轮 */
+  whenIdle(): Promise<void>
   /* 载入待发送状态并与当前队列合并(启动时用;不丢弃启动瞬间已入队的心跳) */
   restorePending(state: PendingHeartbeatState): void
   /* 当前待发送状态快照(供落盘) */
