@@ -22,10 +22,11 @@ import {
   STORAGE_LOCK_BACKOFF_MS,
   STORAGE_LOCK_RETRIES,
   STORAGE_LOCK_TTL_MS,
+  STORE_FILE_VERSION,
 } from '../constants'
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import type { PendingHeartbeatState } from '../heartbeat'
-import { loadLegacySnapshots, migrateStoreFile } from '../migrate'
+import { archiveLegacySnapshots, loadLegacySnapshots, migrateStoreFile } from '../migrate'
 import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
@@ -71,14 +72,34 @@ export class LocalStore {
     const file = await readJsonFileState(path)
     let data = normalizeStore(file.value)
     let needsRewrite = false
-    if (data === null) {
+    /* 数据来自更早版本的独立快照:磁盘上没有数据文件,基线应保持为空,
+       让并入的旧数据整体作为增量写回;若把基线设成并入结果,增量恒为 0,
+       落盘时会被算成全零空桶,旧战绩与旧队列等于被清零 */
+    let fromLegacy = false
+    /* 数据文件版本高于本插件支持的版本(降级并存或未来版本):不认识而非损坏,
+       一律只读运行并禁止写盘, 绝不归档重建, 否则旧数据会被直接抹掉 */
+    const rawVersion = typeof file.value === 'object' && file.value !== null
+      ? (file.value as Record<string, unknown>).version
+      : undefined
+    const futureVersion = typeof rawVersion === 'number' && Number.isFinite(rawVersion) && rawVersion > STORE_FILE_VERSION
+    if (data === null && futureVersion) {
+      this.writeBlocked = true
+      this.options.logger?.warn?.(
+        `[wakatime] data file version ${rawVersion} is newer than supported ${STORE_FILE_VERSION}, persistence disabled this run`,
+      )
+    }
+    if (data === null && !futureVersion) {
       const migrated = migrateStoreFile(file.value)
       if (migrated !== null) {
         data = migrated
         needsRewrite = true
       } else {
-        data = await loadLegacySnapshots(resolveConfigDir())
-        if (data === null) {
+        const legacy = await loadLegacySnapshots(resolveConfigDir())
+        if (legacy !== null) {
+          data = legacy
+          needsRewrite = true
+          fromLegacy = true
+        } else {
           if (file.state === 'unreadable') {
             this.writeBlocked = true
             this.options.logger?.warn?.('[wakatime] data file is not readable, persistence disabled this run')
@@ -90,13 +111,20 @@ export class LocalStore {
         }
       }
     }
+    if (data === null) data = emptyStore()
     this.data = data
-    this.baseline = cloneStore(data)
+    /* 来自旧快照时基线留空(全部数据都算增量),其余情况基线对齐内存 */
+    this.baseline = fromLegacy ? emptyStore() : cloneStore(data)
     this.mtime = await fileMtime(path)
     this.ready = true
     /* 旧结构或无法识别的文件立即归档重建(不等防抖窗口);其余按防抖写回 */
-    if (needsRewrite) await this.flush()
-    else this.scheduleSave()
+    if (needsRewrite) {
+      await this.flush()
+      /* 旧快照并入成功后归档: 只留一次并入痕迹, 下次启动不会重复并入 */
+      if (fromLegacy) await archiveLegacySnapshots(resolveConfigDir())
+      return
+    }
+    this.scheduleSave()
   }
 
   /* 检测其它进程是否写入过数据:有变化时并入内存,返回是否变更 */
@@ -153,7 +181,7 @@ export class LocalStore {
     this.scheduleSave()
   }
 
-  /* 立即落盘(卸载时调用);持锁读-改-写,失败静默,不影响插件运行 */
+  /* 立即落盘(卸载时调用);持锁读-改-写,失败只告警,不影响插件运行 */
   async flush(): Promise<void> {
     if (this.timer !== undefined) {
       clearTimeout(this.timer)
@@ -189,17 +217,24 @@ export class LocalStore {
             disk = emptyStore()
           }
         }
-        const merged = mergeStore(disk, this.data, this.baseline)
+        const merged = mergeStore(disk, this.data, this.baseline, (scope, count) => {
+          this.options.logger?.warn?.(`[wakatime] data file ${scope} overflow, ${count} entries dropped`)
+        })
         /* 自检:合并不得让累计量变小,异常时放弃本次写入 */
-        if (!isMergeSane(disk, merged)) return
+        if (!isMergeSane(disk, merged)) {
+          this.options.logger?.warn?.('[wakatime] merged data looks smaller than disk, skip writing')
+          return
+        }
         await writeFileAtomic(path, JSON.stringify(merged, null, 2))
         this.data = merged
         this.baseline = cloneStore(merged)
         this.mtime = await fileMtime(path)
       })
       await hardenPathPermissions(dir, path)
-    } catch {
-      /* 尽力而为:落盘失败不影响统计与上报 */
+    } catch (error) {
+      /* 落盘失败(锁超时/只读目录/磁盘满)时明确告警: 静默会让"数据没保存"变成无痕故障 */
+      const reason = error instanceof Error ? error.message : String(error)
+      this.options.logger?.warn?.(`[wakatime] failed to persist data file: ${reason}`)
     }
   }
 

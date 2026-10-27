@@ -90,7 +90,7 @@ export class CloudSync {
     try {
       const data = await this.http.request<SummariesResponse>(
         `${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`,
-        { method: 'GET', auth: header, noRetry: true },
+        { method: 'GET', auth: header },
       )
       /* 只有"对象 + data 是数组"才算有效响应: 网关登录页或代理错误页可能返回 200 HTML,
          当成空数组会构造出全零成功快照并把已有云端聚合覆盖掉 */

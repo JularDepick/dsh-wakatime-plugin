@@ -29,6 +29,7 @@ import {
   WEB_RETRY_PATH,
   WEB_STATUS_PATH,
   WEB_SYNC_PATH,
+  SYNC_FORCE_HEADER,
 } from '../constants'
 import type { DigitGrouping } from '../config'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
@@ -116,8 +117,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [tick, setTick] = useState(0)
   /* 刷新请求序号: 只采用最后一次请求的结果, 避免旧响应覆盖新状态 */
   const reloadSeq = useRef(0)
-  /* 正在提交的配置键: 提交未落定前不用服务端值覆盖草稿, 否则正在编辑的数字会被重置 */
-  const pendingPatch = useRef<keyof ConfigDraft | undefined>(undefined)
+  /* 正在提交的配置键: 提交未落定前不用服务端值覆盖草稿, 否则正在编辑的数字会被重置.
+     用集合记录: 多个键同时提交时互不清除对方的保护 */
+  const pendingPatch = useRef<Set<keyof ConfigDraft>>(new Set())
   /* 云端同步状态(战绩数值与云端快照由服务端按数据桶解析后下发) */
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 同步失败原因(区分未配置凭证与网络失败),失败时展示在战绩标题行 */
@@ -192,7 +194,12 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
      服务端把结果写入当前 Key 的数据桶并返回解析好的战绩视图,前端直接替换展示数据 */
   const syncCloud = (force = false): void => {
     setCloudState('syncing')
-    fetch(force ? `${SYNC_PATH}?force=1` : SYNC_PATH, { cache: 'no-store' })
+    /* 强制刷新走自定义请求头而非查询参数: 查询参数会触发跨源请求,
+       而浏览器对跨源子资源请求不带 Origin, 小后端会一律拒绝 */
+    fetch(SYNC_PATH, {
+      cache: 'no-store',
+      ...(force ? { headers: { [SYNC_FORCE_HEADER]: '1' } } : {}),
+    })
       .then((response) => response.json() as Promise<WebSyncResponse>)
       .then((result) => {
         if (result.ok && result.data) {
@@ -257,7 +264,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         if (seq !== reloadSeq.current) return
         setData(next)
         /* 有未落定的配置提交时保留草稿, 服务端值在提交成功后随下一次刷新落地 */
-        if (pendingPatch.current === undefined) setDraft(fromConfig(next.config))
+        if (pendingPatch.current.size === 0) setDraft(fromConfig(next.config))
         if (next.configured && !syncedRecently()) syncCloud()
       })
       .catch((error: unknown) => {
@@ -273,7 +280,11 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         /* 后端异常时回的是 { ok:false } 对象: 非数组一律不替换, 避免渲染层崩溃 */
         return Array.isArray(body) ? body as readonly WebLogEntry[] : null
       })
-      .then((next) => { if (next !== null) setLogs(next) })
+      .then((next) => {
+        /* 与状态请求同一序号: 过期响应的记录不覆盖新状态 */
+        if (seq !== reloadSeq.current) return
+        if (next !== null) setLogs(next)
+      })
       .catch(() => { /* 保留上一次拿到的记录 */ })
   }
 
@@ -298,7 +309,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const patch = (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]): void => {
     /* 与"服务端已生效的值"比较: 数字字段先在草稿改值再提交, 拿草稿比较会把提交全部短路掉 */
     if (data !== null && (data.config as ConfigDraft)[key] === value) return
-    pendingPatch.current = key
+    pendingPatch.current.add(key)
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
     setNotice(undefined)
     /* 单键写入,小后端即时应用并持久化:配置改动无需保存按钮 */
@@ -310,13 +321,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         /* 服务端已按新配置重算战绩与展示项, 刷新状态使主视图同步 */
-        pendingPatch.current = undefined
+        pendingPatch.current.delete(key)
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
         setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` })
         /* 写入失败:重新拉取状态,使草稿回到服务端已生效的值 */
-        pendingPatch.current = undefined
+        pendingPatch.current.delete(key)
         setTick((value) => value + 1)
       })
   }
@@ -489,7 +500,8 @@ function WakatimePanels(props: PanelsProps) {
       ref={configToggleRef}
       className={`${compactButton} ${css.toolbarEnd}`}
       aria-expanded={configOpen}
-      aria-controls={CONFIG_PANEL_ID}
+      /* 配置面板未渲染时不存在对应元素, 此时不指向它 */
+      {...(configOpen ? { 'aria-controls': CONFIG_PANEL_ID } : {})}
       onClick={onToggleConfig}
     >
       {configOpen ? t('config.collapse') : t('config.open')}
@@ -747,8 +759,8 @@ function WakatimePanels(props: PanelsProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {/* 展示顺序:时间最近优先(引擎按追加顺序保存,由旧到新) */}
-                      {[...logs].reverse().map((entry) => (
+                      {/* 展示顺序:时间最近优先(后端下发时已按时间倒序, 前端不再翻转) */}
+                      {logs.map((entry) => (
                         <tr key={entry.id}>
                           <td>{formatTime(entry.time)}</td>
                           <td>{groupDigits(entry.count, groupSize)} {t('logs.count')}</td>
@@ -855,6 +867,28 @@ function NumberField({ label, value, onChange, onCommit }: {
   onChange: (value: number) => void
   onCommit: (value: number) => void
 }) {
+  /* 本地草稿为字符串: 允许输入框被清空、允许输入过程中的中间值,
+     空值或非法值只影响草稿, 失焦/回车时回滚到服务端已生效的值 */
+  const [raw, setRaw] = useState(String(value))
+  const [editing, setEditing] = useState(false)
+  /* 编辑中不跟随服务端值刷新, 否则正在输入的内容会被覆盖 */
+  useEffect(() => {
+    if (editing) return
+    setRaw(Number.isFinite(value) ? String(value) : '')
+  }, [value, editing])
+
+  const commit = (next: string): void => {
+    setEditing(false)
+    const parsed = Number(next)
+    if (next.trim() === '' || !Number.isFinite(parsed) || parsed < 1) {
+      /* 非法或空: 回滚到服务端已生效的值 */
+      setRaw(Number.isFinite(value) ? String(value) : '')
+      return
+    }
+    setRaw(String(parsed))
+    onCommit(parsed)
+  }
+
   return (
     <div className={css.field}>
       <div className={css.row}>
@@ -864,24 +898,20 @@ function NumberField({ label, value, onChange, onCommit }: {
           type="number"
           min={1}
           aria-label={label}
-          value={Number.isFinite(value) ? value : ''}
+          value={raw}
           onChange={(event) => {
-            const next = Number(event.target.value)
-            if (event.target.value === '' || !Number.isFinite(next)) return
-            onChange(next)
+            const next = event.target.value
+            setEditing(true)
+            setRaw(next)
+            const parsed = Number(next)
+            if (next === '' || !Number.isFinite(parsed) || parsed < 1) return
+            onChange(parsed)
           }}
-          onBlur={(event) => {
-            const raw = event.target.value
-            const next = Number(raw)
-            if (raw === '' || !Number.isFinite(next) || next < 1) return
-            onCommit(next)
-          }}
+          onFocus={() => { setEditing(true) }}
+          onBlur={(event) => { commit(event.target.value) }}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return
-            const raw = event.currentTarget.value
-            const next = Number(raw)
-            if (raw === '' || !Number.isFinite(next) || next < 1) return
-            onCommit(next)
+            commit(event.currentTarget.value)
           }}
         />
       </div>

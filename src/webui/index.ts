@@ -10,7 +10,7 @@
  * - POST /api/wakatime/credential/clear  清除已保存凭证(本地数据保留)
  * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识;含其它进程写入的记录)
  * - POST /api/wakatime/retry    手动重试一条失败推送任务
- * - GET  /api/wakatime/sync     云端 AI 聚合(写入本地数据,带缓存,?force=1 强制刷新)
+ * - GET  /api/wakatime/sync     云端 AI 聚合(写入本地数据,带缓存,强制刷新请求头跳过缓存)
  * 战绩合并(本地与云端取最大)统一在本端完成, 前端只渲染结果。
  * 密钥安全边界: 明文凭证只在本端内部使用,任何响应都不回显, 只下发打码值。
  * 服务缺失(CLI profile)时自动跳过,不阻塞插件;服务出现/销毁经
@@ -20,7 +20,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
-import { REPORT_LOG_LIMIT, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { REPORT_LOG_LIMIT, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import { CredentialInputError } from '../errors'
 import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
 import type { LocalStore } from '../local-store'
@@ -286,7 +286,7 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
 }
 
 /* 云端同步:拉取 summaries AI 聚合写入本地数据,返回解析后的战绩视图;
-   ?force=1 跳过缓存;未配置凭证或失败均返回可读原因 */
+   请求头带强制刷新标记时跳过缓存;未配置凭证或失败均返回可读原因 */
 async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
     res.writeHead(405)
@@ -296,7 +296,7 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
   /* 同步会写云端快照, 属有副作用操作: 带 Origin 时要求同源 */
   if (!guardOrigin(req, res)) return
   await deps.store.reloadIfChanged()
-  const force = isForceRequest(req.url)
+  const force = isForceRequest(req)
   const data = await deps.sync.sync({ force })
   if (data !== null) {
     deps.store.setCloud(data)
@@ -352,12 +352,13 @@ function guardRequest(req: IncomingMessage, res: ServerResponse): boolean {
   return true
 }
 
-/* 手动同步:URL 携带 force=1 时跳过缓存 */
-function isForceRequest(url: string | undefined): boolean {
-  if (url === undefined) return false
-  const query = url.indexOf('?')
-  if (query < 0) return false
-  return new URLSearchParams(url.slice(query + 1)).get('force') === '1'
+/* 手动同步:请求头携带强制刷新标记时跳过缓存。
+   不用查询参数的原因: 带查询参数的 GET 会被浏览器当作跨源请求(不带 Origin),
+   小后端无法据此判定来源, 只能一律拒绝 */
+function isForceRequest(req: IncomingMessage): boolean {
+  const flag = req.headers[SYNC_FORCE_HEADER]
+  if (Array.isArray(flag)) return flag.some((item) => item === '1')
+  return flag === '1'
 }
 
 /* 白名单校验:未知字段忽略,已知字段类型不符(或枚举越界)整体拒绝 */

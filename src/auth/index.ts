@@ -188,7 +188,12 @@ export class AuthManagerImpl implements AuthManager {
       return await this.fetchUserProfile(header)
     } catch (error) {
       if (!(error instanceof WakaTimeError) || (error.status !== 401 && error.status !== 403)) throw error
-      await this.http.request(`${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`, { method: 'GET', auth: header, noRetry: true })
+      /* 凭证校验是交互式路径, 只重试一次:失败要尽快把结论交回调用方, 不做长退避 */
+      await this.http.request(`${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`, {
+        method: 'GET',
+        auth: header,
+        maxRetries: 1,
+      })
       return {}
     }
   }
@@ -198,7 +203,7 @@ export class AuthManagerImpl implements AuthManager {
   async fetchUserProfile(header: AuthHeader): Promise<UserProfile> {
     const data = await this.http.request<{ data?: ProfileFields }>(
       USER_INFO_PATH,
-      { method: 'GET', auth: header, noRetry: true },
+      { method: 'GET', auth: header, maxRetries: 1 },
     )
     /* 校验必须看到身份字段: 网关返回 HTML 或重定向页时 HTTP 仍是 2xx,
        不能把这种响应当成"凭证有效" */

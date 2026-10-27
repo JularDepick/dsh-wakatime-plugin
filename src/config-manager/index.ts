@@ -75,10 +75,11 @@ export class ConfigManagerImpl implements ConfigManager {
         if (disk === null) {
           const migrated = migrateStoredConfig(file.value)
           if (migrated !== null) {
-            await archiveFile(path, 'v2')
+            /* 归档失败就不写: 否则旧凭证备份会被覆盖成新结构, 失去回滚余地 */
+            if (!(await archiveFile(path, 'v2'))) throw new Error('failed to archive legacy config file')
             disk = migrated
           } else if (file.state !== 'missing') {
-            await archiveFile(path, 'corrupt')
+            if (!(await archiveFile(path, 'corrupt'))) throw new Error('failed to archive unreadable config file')
             disk = null
           }
         }

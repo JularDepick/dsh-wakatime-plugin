@@ -317,7 +317,8 @@
 }
 
 .statsTable td {
-  height: auto;
+  /* 行高下限沿用官方 40px, 内容需要换行时才增高 */
+  min-height: 40px;
   padding: 7px 8px;
   vertical-align: middle;
 }
@@ -372,7 +373,7 @@
 
 /* 详情列内容较长(本批心跳的类别与项目/分支,失败行还带原因):允许换行而不是用省略号截断 */
 .logsTable td[data-column='detail'] {
-  height: auto;
+  min-height: 40px;
   padding: 7px 8px;
   vertical-align: middle;
   white-space: normal;

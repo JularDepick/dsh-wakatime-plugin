@@ -34,6 +34,8 @@ export interface RequestOptions {
   auth?: AuthHeader
   /* 关闭重试(默认开启,429/5xx 指数退避) */
   noRetry?: boolean
+  /* 重试次数上限:用于交互式校验等需要快速失败的路径,缺省用全局默认 */
+  maxRetries?: number
 }
 
 /* HTTP 客户端对外能力 */

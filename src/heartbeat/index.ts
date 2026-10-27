@@ -29,11 +29,13 @@ import {
   CREDENTIAL_REJECT_LOG_INTERVAL_MS,
   PUSH_TASK_MAX_ATTEMPTS,
   REPORT_LOG_LIMIT,
+  IDLE_WAIT_MAX_ROUNDS,
 } from '../constants'
 import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
 import { compressPendingQueue } from './compress'
+import { heartbeatKeyOf } from './identity'
 import type {
   FailedPushTask,
   Heartbeat,
@@ -121,9 +123,13 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     }
   }
 
-  /* 等待在途推送结束:手动重试在推送进行中时先等这一轮结算, 再发起下一轮 */
+  /* 等待在途推送结束:手动重试在推送进行中时先等这一轮结算, 再发起下一轮;
+     上限轮次保证连续推送时不会把请求无限期挂住 */
   async whenIdle(): Promise<void> {
-    while (this.inFlight !== undefined) await this.inFlight.catch(() => {})
+    for (let round = 0; round < IDLE_WAIT_MAX_ROUNDS; round += 1) {
+      if (this.inFlight === undefined) return
+      await this.inFlight.catch(() => {})
+    }
   }
 
   /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
@@ -188,11 +194,18 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     return true
   }
 
-  /* 载入待发送状态并与当前队列合并:启动时用,启动瞬间已入队的心跳不会被覆盖 */
+  /* 载入待发送状态并与当前队列合并:启动时用,启动瞬间已入队的心跳不会被覆盖;
+     载入的条目与内存里已有的同标识条目只保留内存侧(避免启动竞态造成重复上报) */
   restorePending(state: PendingHeartbeatState): void {
-    this.queue = [...state.queue.map((entry) => ({ ...entry })), ...this.queue]
-    this.failed = [...state.failed.map((task) => ({ ...task })), ...this.failed]
-    this.report = [...state.report.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
+    const queued = new Set(this.queue.map(heartbeatKeyOf))
+    const restored = state.queue.filter((entry) => !queued.has(heartbeatKeyOf(entry)))
+    const failedIds = new Set(this.failed.map((task) => task.id))
+    const restoredFailed = state.failed.filter((task) => !failedIds.has(task.id))
+    const reportIds = new Set(this.report.map((entry) => entry.id))
+    const restoredReport = state.report.filter((entry) => !reportIds.has(entry.id))
+    this.queue = [...restored.map((entry) => ({ ...entry })), ...this.queue]
+    this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed]
+    this.report = [...restoredReport.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
     this.compressIfNeeded()
     this.notifyPending()
   }
@@ -255,7 +268,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         method: 'POST',
         body: heartbeats[0],
         auth,
-        noRetry: true,
       })
       return
     }
@@ -265,7 +277,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         method: 'POST',
         body: chunk,
         auth,
-        noRetry: true,
       })
     }
   }

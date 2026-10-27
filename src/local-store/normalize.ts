@@ -5,7 +5,6 @@
  * 只接受当前结构版本;损坏字段按空值补齐, 不污染统计与上报.
  */
 
-import type { PendingHeartbeatEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
 import { emptyTotals, normalizeTotals } from '../stats'
 import { STORE_FILE_VERSION } from '../constants'
@@ -42,11 +41,6 @@ export function normalizeCloud(value: unknown): CloudSummary | null {
     sessions: num('sessions'),
     promptEvents: num('promptEvents'),
   }
-}
-
-/* 队列条目标识: 心跳自身身份(时间 + 实体 + 类型)在队列内唯一 */
-export function heartbeatKeyOf(entry: PendingHeartbeatEntry): string {
-  return `${entry.heartbeat.time}|${entry.heartbeat.entity}|${entry.heartbeat.type}`
 }
 
 /* 当前结构版本归一化;版本不符返回 null(交给迁移模块或按空数据处理) */

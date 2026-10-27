@@ -11,9 +11,10 @@
  */
 
 import { FAILED_TASK_LIMIT, PENDING_QUEUE_LIMIT, REPORT_LOG_LIMIT, STORE_FILE_VERSION } from '../constants'
+import { compressPendingQueue } from '../heartbeat/compress'
 import type { PendingHeartbeatEntry } from '../heartbeat'
 import type { StatsTotals } from '../stats'
-import { heartbeatKeyOf } from './normalize'
+import { heartbeatKeyOf } from '../heartbeat/identity'
 import type { StoreFile } from './types'
 
 /* 累计量字段键(与 StatsTotals 一致) */
@@ -23,18 +24,39 @@ const TOTAL_KEYS = [
   'promptTokens', 'thinkingMs',
 ] as const satisfies readonly (keyof StatsTotals)[]
 
-/* 按标识合并列表: 磁盘条目在前, 仅追加本进程新增的条目, 超出上限时保留尾部 */
-function mergeList<T>(disk: readonly T[], memory: readonly T[], baseline: readonly T[], keyOf: (item: T) => string, limit?: number): T[] {
+/* 列表合并选项: 上限、超限时的压缩手段、被丢弃条数的通知 */
+interface MergeListOptions<T> {
+  limit?: number
+  compress?: (items: readonly T[]) => T[]
+  onDrop?: (count: number) => void
+}
+
+/* 按标识合并列表: 磁盘条目在前, 仅追加本进程新增的条目;
+   超出上限时若提供压缩手段则先压缩(待发送队列靠它保留最旧的未上报心跳),
+   否则才截断尾部, 并把丢弃条数通知出去 */
+function mergeList<T>(
+  disk: readonly T[],
+  memory: readonly T[],
+  baseline: readonly T[],
+  keyOf: (item: T) => string,
+  options: MergeListOptions<T> = {},
+): T[] {
+  const { limit, compress, onDrop } = options
   const baseKeys = new Set(baseline.map(keyOf))
   const seen = new Set(disk.map(keyOf))
-  const result = [...disk]
+  let result = [...disk]
   for (const item of memory) {
     const key = keyOf(item)
     if (seen.has(key) || baseKeys.has(key)) continue
     result.push(item)
     seen.add(key)
   }
-  return limit === undefined ? result : result.slice(-limit)
+  if (limit === undefined || result.length <= limit) return result
+  /* 有压缩手段时先压缩: 压缩把相邻两条并成一条, 不丢最旧的待发心跳 */
+  if (compress !== undefined) result = compress(result)
+  if (result.length <= limit) return result
+  onDrop?.(result.length - limit)
+  return result.slice(-limit)
 }
 
 /* 累计量合并: 磁盘值 + 本进程增量(基线为空时按 0 处理) */
@@ -64,16 +86,31 @@ function mergeCloud(
 }
 
 /* 合并整个数据文件: disk 为磁盘现值, memory 为本进程内存, baseline 为本进程上次落盘的内容 */
-export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFile): StoreFile {
+export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFile, onDrop?: (scope: string, count: number) => void): StoreFile {
+  /* 待发送队列超限时先压缩(相邻两条合并, 保留最旧的未上报心跳),
+     压缩后仍超限才截断, 并告知丢弃条数; 失败列表与上报记录超限时只保留最近若干条 */
+  const queueDrop = (count: number) => onDrop?.('queue', count)
+  const failedDrop = (count: number) => onDrop?.('failed', count)
+  const reportDrop = (count: number) => onDrop?.('report', count)
   return {
     version: STORE_FILE_VERSION,
     updatedAt: Math.max(disk.updatedAt, memory.updatedAt),
     stats: mergeStats(disk.stats, memory.stats, baseline.stats),
     cloud: mergeCloud(disk.cloud, memory.cloud, baseline.cloud),
     pending: {
-      queue: mergeList(disk.pending.queue, memory.pending.queue, baseline.pending.queue, heartbeatKeyOf, PENDING_QUEUE_LIMIT),
-      failed: mergeList(disk.pending.failed, memory.pending.failed, baseline.pending.failed, (item) => item.id, FAILED_TASK_LIMIT),
-      report: mergeList(disk.pending.report, memory.pending.report, baseline.pending.report, (item) => item.id, REPORT_LOG_LIMIT),
+      queue: mergeList(disk.pending.queue, memory.pending.queue, baseline.pending.queue, heartbeatKeyOf, {
+        limit: PENDING_QUEUE_LIMIT,
+        compress: (items) => compressPendingQueue(items, PENDING_QUEUE_LIMIT).queue,
+        onDrop: queueDrop,
+      }),
+      failed: mergeList(disk.pending.failed, memory.pending.failed, baseline.pending.failed, (item) => item.id, {
+        limit: FAILED_TASK_LIMIT,
+        onDrop: failedDrop,
+      }),
+      report: mergeList(disk.pending.report, memory.pending.report, baseline.pending.report, (item) => item.id, {
+        limit: REPORT_LOG_LIMIT,
+        onDrop: reportDrop,
+      }),
     },
   }
 }

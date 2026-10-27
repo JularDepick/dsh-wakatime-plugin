@@ -13,7 +13,7 @@
  * 删除本目录并去掉那处调用即可彻底放弃旧数据兼容(旧文件会被当作未配置/空数据).
  */
 
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   CONFIG_FILE_VERSION,
@@ -28,8 +28,10 @@ import type { StoredConfig, StoredSettings } from '../config-manager/types'
 import { detectCredentialType } from '../credential-format'
 import type { FailedPushTask, PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
-import { emptyStore, heartbeatKeyOf, normalizeCloud } from '../local-store/normalize'
+import { emptyStore, normalizeCloud } from '../local-store/normalize'
+import { heartbeatKeyOf } from '../heartbeat/identity'
 import type { StoreFile } from '../local-store/types'
+import { archiveFile } from '../storage'
 import { emptyTotals, normalizeTotals } from '../stats'
 import type { StatsTotals } from '../stats'
 
@@ -190,4 +192,19 @@ export async function loadLegacySnapshots(dir: string): Promise<StoreFile | null
   if (!hasStats && !hasPending) return null
   store = { ...emptyStore(), stats, pending, updatedAt: Date.now() }
   return store
+}
+
+/* 更早版本的独立快照并入成功后归档(重命名为 <文件名>.legacy.<时间戳>.bak):
+   归档后原路径不再存在, 下次启动不会重复并入同一份旧数据 */
+export async function archiveLegacySnapshots(dir: string): Promise<boolean> {
+  let archived = false
+  for (const name of [LEGACY_STATS_FILE_NAME, LEGACY_HEARTBEAT_FILE_NAME]) {
+    try {
+      await access(join(dir, name))
+    } catch {
+      continue
+    }
+    if (await archiveFile(join(dir, name), 'legacy')) archived = true
+  }
+  return archived
 }

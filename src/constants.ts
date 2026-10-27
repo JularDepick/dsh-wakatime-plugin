@@ -141,3 +141,8 @@ export const ENV_DSH_HOME = 'DSH_HOME'
 /* 凭证被拒(401/403)时上报记录的节流间隔(毫秒): 凭证持续失效期间每轮推送都会命中,
    不节流会把上报记录上限挤满 */
 export const CREDENTIAL_REJECT_LOG_INTERVAL_MS = 300_000
+/* 等待在途推送结算的最大轮数:持续有在途推送时不再无限等待,避免手动重试接口被挂住 */
+export const IDLE_WAIT_MAX_ROUNDS = 3
+/* 手动同步(强制刷新)的自定请求头:强制刷新会驱动 host 向 WakaTime 外呼,
+   无 Origin 的子资源请求(如 <img>)带不上自定头,故用它拦住跨站触发 */
+export const SYNC_FORCE_HEADER = 'x-dsh-wakatime-force'

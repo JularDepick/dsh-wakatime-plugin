@@ -172,11 +172,12 @@ export function apply(ctx: Context, config: ConfigType) {
     }
   })
 
-  /* 卸载: 先把实时数据与待发送状态写回存储, 再写盘(顺序有依赖, 放在同一个 effect 内) */
-  ctx.effect(() => () => {
+  /* 卸载: 先把实时数据与待发送状态写回存储, 再写盘(顺序有依赖, 放在同一个 effect 内);
+     清理函数返回 Promise, 由框架 await 后再结束卸载, 避免落盘进行中进程已退出 */
+  ctx.effect(() => async () => {
     store.setStats(stats.drain())
     store.setPending(heartbeat.pendingState())
-    void store.flush()
+    await store.flush()
   })
 
   /* Web UI 路由(小后端; web profile 提供 webserver 服务时挂载) */

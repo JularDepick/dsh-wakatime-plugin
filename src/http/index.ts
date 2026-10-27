@@ -43,7 +43,7 @@ export class FetchHttpClient implements HttpClient {
     const init: RequestInit = { method, headers }
     if (options.body !== undefined) init.body = JSON.stringify(options.body)
 
-    const maxRetries = options.noRetry ? 0 : RETRY_MAX_RETRIES
+    const maxRetries = options.noRetry ? 0 : (options.maxRetries ?? RETRY_MAX_RETRIES)
     let attempt = 0
     for (;;) {
       attempt++
