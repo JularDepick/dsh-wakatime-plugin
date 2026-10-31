@@ -29,8 +29,10 @@ export const BUCKET_LOCK_FILE_NAME = 'buckets.lock'
 export const CONFIG_LOCK_FILE_NAME = 'config.lock'
 /* 锁文件超过该时长视为陈旧锁(持有进程异常退出) */
 export const STORAGE_LOCK_TTL_MS = 10_000
-/* 抢锁重试次数与退避基数(按次数线性递增) */
-export const STORAGE_LOCK_RETRIES = 3
+/* 抢锁重试次数与退避基数(按次数线性递增).
+   持锁方要读整份数据文件、合并再整份写回, 队列满时可达数 MB,
+   重试预算太短会让另一进程的落盘直接失败(只留一条告警), 故留出秒级余量 */
+export const STORAGE_LOCK_RETRIES = 10
 export const STORAGE_LOCK_BACKOFF_MS = 50
 /* 持锁期间的续期间隔(毫秒): 刷新锁文件时间戳,避免长事务被其它进程判为陈旧锁 */
 export const STORAGE_LOCK_RENEW_MS = 2_000
@@ -86,6 +88,9 @@ export const SYNC_CACHE_TTL_MS = 5 * 60 * 1000
 /* 定时上报 */
 /* 上报周期默认值(秒):启动加载时上报一次,之后按此间隔循环批量上报 */
 export const DEFAULT_REPORT_INTERVAL_SECONDS = 60
+/* 上报周期上限(秒):setInterval 的毫秒延时超过 2^31-1 会被 Node 当成 1ms,
+   届时上报轮会变成每毫秒一次, 因此写入通道必须卡住上限(1 小时) */
+export const REPORT_INTERVAL_MAX_SECONDS = 3600
 /* 批量上报单次上限(与 WakaTime bulk 接口约束对齐) */
 export const BULK_HEARTBEAT_LIMIT = 25
 export const RETRY_MAX_RETRIES = 5

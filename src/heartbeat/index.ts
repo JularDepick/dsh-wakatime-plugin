@@ -265,7 +265,12 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       failedAt: Date.now(),
     }
     this.failed.push(task)
-    if (this.failed.length > FAILED_TASK_LIMIT) this.failed.splice(0, this.failed.length - FAILED_TASK_LIMIT)
+    if (this.failed.length > FAILED_TASK_LIMIT) {
+      const dropped = this.failed.length - FAILED_TASK_LIMIT
+      this.failed.splice(0, dropped)
+      /* 失败列表截断会连可重试的入口一起丢掉, 必须留痕 */
+      this.log('warn', `[wakatime] failed task list over limit, dropped ${dropped} oldest entries`)
+    }
     this.appendReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id, ...detailOf([entry]) })
   }
 
@@ -356,10 +361,16 @@ function detailOf(entries: readonly PendingHeartbeatEntry[]): { detail?: string 
   return detail === '' ? {} : { detail }
 }
 
-/* 凭证被拒判定:401/403 表示当前凭证不可用(过期、撤销、权限不足),
-   心跳应留在队列等待凭证恢复, 而不是按终态失败处理 */
+/* 凭证被拒判定: 401 一定是凭证不可用(过期/撤销);
+   403 要看错误体 —— 官方在权限或 scope 不足时回 403 并带 requires scopes 之类文案,
+   而账号被禁用、实体被拒等 403 与凭证无关, 若一并按凭证问题永久轮转,
+   队列永不收敛且界面上看不到任何可处理项; 这类 403 按可重试失败累计次数, 3 次后进失败列表 */
 function isCredentialRejected(error: unknown): boolean {
-  return error instanceof WakaTimeError && (error.status === 401 || error.status === 403)
+  if (!(error instanceof WakaTimeError)) return false
+  if (error.status === 401) return true
+  if (error.status !== 403) return false
+  const text = `${error.message} ${error.code ?? ''}`.toLowerCase()
+  return /scope|permission|forbidden|unauthor|credential|api key|token/.test(text)
 }
 
 /* 终态失败判定:载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */

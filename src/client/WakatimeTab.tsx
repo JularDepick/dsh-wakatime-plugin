@@ -245,7 +245,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         setTick((value) => value + 1)
       })
-      .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
+      .catch((error: unknown) => {
+        /* 网络层失败只有技术原文, 这里补本地化前缀, 细节留在冒号后便于排查 */
+        setNotice({ kind: 'error', text: `${t('logs.retryFailed')}: ${(error as Error).message}` })
+      })
       .finally(() => { setRetryingId(undefined) })
   }
 
@@ -294,6 +297,12 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .then((next) => {
         if (seq !== reloadSeq.current) return
+        /* 形状校验: 中间层(缓存/代理)回 200 但结构不对时按加载失败处理, 避免渲染层抛错白屏 */
+        if (typeof next !== 'object' || next === null
+          || typeof next.config !== 'object' || next.config === null
+          || typeof next.stats !== 'object' || next.stats === null) {
+          throw new Error('unexpected status payload')
+        }
         setData(next)
         /* 有未落定的配置提交时保留草稿, 服务端值在提交成功后随下一次刷新落地 */
         if (pendingPatch.current.size === 0) setDraft(fromConfig(next.config))
@@ -340,7 +349,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   const patch = (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]): void => {
     /* 与"服务端已生效的值"比较: 数字字段先在草稿改值再提交, 拿草稿比较会把提交全部短路掉 */
-    if (data !== null && (data.config as ConfigDraft)[key] === value) return
+    /* 该键有未落定的提交时不走短路: 否则开关快速连点会被旧的服务端值挡回, 表现为点了没反应 */
+    if (!pendingPatch.current.has(key) && data !== null && (data.config as ConfigDraft)[key] === value) return
     pendingPatch.current.add(key)
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
     setNotice(undefined)
@@ -398,7 +408,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
-        setNotice({ kind: 'error', text: (error as Error).message })
+        /* 前端校验与服务端错误码都已本地化, 这里只剩网络层失败, 补一条本地化前缀 */
+        setNotice({ kind: 'error', text: `${t('credential.saveFailed')}: ${(error as Error).message}` })
       })
       .finally(() => { setKeySaving(false) })
   }

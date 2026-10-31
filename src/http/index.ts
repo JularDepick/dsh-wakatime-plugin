@@ -68,14 +68,15 @@ export class FetchHttpClient implements HttpClient {
         continue
       }
 
-      /* 2xx:解析 JSON 返回 */
+      /* 2xx:解析 JSON 返回. 2xx 却不是 JSON 时按错误处理:
+         登录页、门户/代理拦截页、HTML 错误页都可能回 200, 当成成功会让整批心跳被静默丢弃 */
       if (response.status >= 200 && response.status < 300) {
         const text = await response.text()
         if (!text) return undefined as T
         try {
           return JSON.parse(text) as T
         } catch {
-          return text as T
+          throw new WakaTimeError(response.status, 'WakaTime API returned a non-JSON response')
         }
       }
 

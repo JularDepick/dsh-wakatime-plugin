@@ -187,7 +187,13 @@ export async function loadLegacySnapshots(dir: string): Promise<StoreFile | null
     }
   }
   const stats = normalizeTotals(await readJson(LEGACY_STATS_FILE_NAME))
-  const pending = normalizePendingState(await readJson(LEGACY_HEARTBEAT_FILE_NAME))
+  const normalized = normalizePendingState(await readJson(LEGACY_HEARTBEAT_FILE_NAME))
+  /* 与 v2 数据桶一致: 旧失败列表不继承, 只保留批次级上报记录(任务记录已无对应任务) */
+  const pending = {
+    queue: normalized.queue,
+    failed: [],
+    report: normalized.report.filter((entry) => entry.kind === 'batch'),
+  }
   const hasStats = TOTAL_KEYS.some((key) => stats[key] > 0)
   const hasPending = pending.queue.length + pending.failed.length + pending.report.length > 0
   if (!hasStats && !hasPending) return null

@@ -4,7 +4,8 @@
  *
  * 合并模型:以磁盘内容为基底, 叠加本进程相对"上次落盘基线"的增量.
  * - 累计量: 磁盘值 + max(0, 内存值 - 基线值), 两侧增量都不丢;
- * - 队列/失败/记录: 按标识合并, 只并入本进程新增(基线里没有)的条目, 已落盘条目由磁盘版本胜出;
+ * - 队列/失败/记录: 按标识合并, 本进程新增的追加, 本进程删除的(基线有而内存没有)移除,
+ *   同键条目以内存侧为准(尝试次数与记录状态只在本进程内存里推进);
  * - 云端快照: 取 syncedAt 较新者, 但本进程主动清空(基线有值而内存为空)时以清空为准,
  *   否则换账号后的作废动作会被磁盘上的旧快照复活;
  * - 更新时间: 取最大值.
@@ -31,7 +32,10 @@ interface MergeListOptions<T> {
   onDrop?: (count: number) => void
 }
 
-/* 按标识合并列表: 磁盘条目在前, 仅追加本进程新增的条目;
+/* 按标识合并列表: 以磁盘为基底, 叠加本进程相对基线的改动(新增 / 删除 / 同键更新);
+   删除由"基线里有、内存里已没有"表达 —— 推送成功出队与手动重试移出失败列表都走这条,
+   缺了它已上报的心跳会在落盘时被磁盘版本复活, 重启后重复上报;
+   同键条目以内存侧为准(尝试次数递增、上报记录由失败翻成已重试都只发生在内存);
    超出上限时若提供压缩手段则先压缩(待发送队列靠它保留最旧的未上报心跳),
    否则才截断尾部, 并把丢弃条数通知出去 */
 function mergeList<T>(
@@ -42,14 +46,22 @@ function mergeList<T>(
   options: MergeListOptions<T> = {},
 ): T[] {
   const { limit, compress, onDrop } = options
+  const liveByKey = new Map(memory.map((item) => [keyOf(item), item]))
   const baseKeys = new Set(baseline.map(keyOf))
-  const seen = new Set(disk.map(keyOf))
-  let result = [...disk]
+  const removed = new Set([...baseKeys].filter((key) => !liveByKey.has(key)))
+  const known = new Set<string>()
+  let result: T[] = []
+  for (const item of disk) {
+    const key = keyOf(item)
+    if (removed.has(key)) continue
+    result.push(liveByKey.get(key) ?? item)
+    known.add(key)
+  }
   for (const item of memory) {
     const key = keyOf(item)
-    if (seen.has(key) || baseKeys.has(key)) continue
+    if (known.has(key) || baseKeys.has(key)) continue
     result.push(item)
-    seen.add(key)
+    known.add(key)
   }
   if (limit === undefined || result.length <= limit) return result
   /* 有压缩手段时先压缩: 压缩把相邻两条并成一条, 不丢最旧的待发心跳 */

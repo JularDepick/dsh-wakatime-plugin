@@ -78,6 +78,8 @@ export type WakatimeKey =
   | 'logs.errNetwork'
   | 'logs.retryUnavailable'
   | 'logs.retryBusy'
+  | 'logs.retryFailed'
+  | 'credential.saveFailed'
   | 'logs.legacyHint'
   | 'logs.legacyMigrating'
   | 'logs.legacyDone'
@@ -121,12 +123,12 @@ export const zh: WakatimeDict = {
   'credential.add': '保存或更换凭证',
   'credential.save': '保存',
   'credential.placeholder': '粘贴 OAuth 访问令牌…',
-  'credential.hintOauth': 'OAuth 令牌: 登录后访问 wakatime.com/oauth 获取, 自用无需创建应用。',
-  'credential.hintOauthScopes': '需要自定义 scope 或供他人使用时, 在 wakatime.com/apps 创建应用, 授权时用 scope 参数申请 write_heartbeats、read_summaries、email。',
+  'credential.hintOauth': 'OAuth 令牌: 登录后访问 wakatime.com/oauth 获取, 自用无需创建应用',
+  'credential.hintOauthScopes': '需要自定义 scope 或供他人使用时, 在 wakatime.com/apps 创建应用, 授权时用 scope 参数申请 write_heartbeats, read_summaries, email',
   'credential.accountUnknown': '未知',
-  'credential.overwrite': '只保存 OAuth 访问令牌, 仅覆盖不可查看; 更换凭证后本地战绩保留。',
+  'credential.overwrite': '只保存 OAuth 访问令牌, 仅覆盖不可查看; 更换凭证后本地战绩保留',
   'credential.updatedAt': '凭证更新时间',
-  'credential.replaced': '凭证已保存',
+  'credential.replaced': '已更换凭证',
   'credential.clear': '清除凭证',
   'credential.clearConfirm': '确认清除?',
   'credential.clearFailed': '清除凭证失败, 请稍后重试',
@@ -182,6 +184,8 @@ export const zh: WakatimeDict = {
   'logs.errNetwork': '网络或服务端异常',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
+  'logs.retryFailed': '重试失败',
+  'credential.saveFailed': '保存凭证失败',
   'logs.legacyHint': '存在旧版数据, 点击迁移',
   'logs.legacyMigrating': '迁移中…',
   'logs.legacyDone': '旧版数据已迁移',
@@ -228,7 +232,7 @@ export const en: WakatimeDict = {
   'credential.accountUnknown': 'Unknown',
   'credential.overwrite': 'OAuth access token only, overwrite-only and never shown; local stats are kept after replacing it.',
   'credential.updatedAt': 'Credential updated at',
-  'credential.replaced': 'Credential saved',
+  'credential.replaced': 'Credential replaced',
   'credential.clear': 'Clear credential',
   'credential.clearConfirm': 'Confirm clear?',
   'credential.clearFailed': 'Failed to clear the credential, please retry',
@@ -284,6 +288,8 @@ export const en: WakatimeDict = {
   'logs.errNetwork': 'network or upstream error',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
+  'logs.retryFailed': 'Retry failed',
+  'credential.saveFailed': 'Failed to save the credential',
   'logs.legacyHint': 'Legacy data found, click to migrate',
   'logs.legacyMigrating': 'Migrating…',
   'logs.legacyDone': 'Legacy data migrated',

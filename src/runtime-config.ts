@@ -9,13 +9,14 @@
 
 import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
-import { CONFIG_FILE_VERSION } from './constants'
+import { CONFIG_FILE_VERSION, REPORT_INTERVAL_MAX_SECONDS } from './constants'
 
 /* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
 /* 配置值范围校验:返回不合法的键名, 合法时返回 null(Web 与工具两条写入通道共用) */
 export function validateConfigPatch(patch: WebConfigPatch): string | null {
   const interval = patch.reportInterval
-  if (interval !== undefined && (!Number.isInteger(interval) || interval < 1)) return 'reportInterval'
+  /* 秒级整数, 且不许超过上限: 超过 setInterval 可表示的毫秒上限会被当成 1ms, 退化成每毫秒推一轮 */
+  if (interval !== undefined && (!Number.isInteger(interval) || interval < 1 || interval > REPORT_INTERVAL_MAX_SECONDS)) return 'reportInterval'
   return null
 }
 

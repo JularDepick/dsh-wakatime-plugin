@@ -76,7 +76,8 @@ export class ConfigManagerImpl implements ConfigManager {
         /* 持锁后重读:其它进程可能刚写入过凭证或改过设置;
            旧结构或损坏文件在锁内归档(重命名)后再按迁移结果合并 */
         const file = await readJsonFileState(path)
-        if (file.state === 'unreadable') return config
+        /* 读不出旧内容就不能写: 直接返回会让调用方(凭证保存/配置写入)把没落盘当成已保存 */
+        if (file.state === 'unreadable') throw new Error('config file is not readable')
         let disk = normalizeStoredConfig(file.value)
         if (disk === null) {
           const migrated = migrateStoredConfig(file.value)
@@ -99,11 +100,11 @@ export class ConfigManagerImpl implements ConfigManager {
       return merged
     })
     this.writeQueue = task.catch(() => {})
-    /* 写失败时退回本次期望值:内存态继续可用, 下次写入再合并;
-       失败必须可见(归档失败导致的拒写更要可见), 否则调用方会把没落盘当成已保存 */
+    /* 写失败必须让调用方知道: 先记一条告警再抛给上层, 由凭证保存/配置写入回失败;
+       静默吞掉并返回期望值会让"界面显示已保存、重启后丢失"变成无痕故障 */
     return task.catch((error: unknown) => {
       this.onError?.('[wakatime] failed to persist config file: ' + String(error))
-      return config
+      throw error
     })
   }
 

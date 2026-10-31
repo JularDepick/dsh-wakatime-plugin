@@ -9,6 +9,7 @@
  * 3. 合并前重读: 调用方持锁期间重新读盘, 以磁盘为基底叠加本进程增量.
  */
 
+import { randomUUID } from 'node:crypto'
 import { open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 
 export interface LockOptions {
@@ -37,7 +38,10 @@ async function lockAge(lockPath: string): Promise<number | null> {
   }
 }
 
-/* 持锁执行:抢不到锁时按退避重试, 清理陈旧锁 */
+/* 持锁执行:抢不到锁时按退避重试, 清理陈旧锁.
+   锁文件内容是 "<pid> <时间戳> <随机令牌>": 续期与释放前都要确认内容仍是自己的令牌,
+   否则进程被长时间阻塞(事件循环卡住超过 TTL)时会把别人刚建的锁当成自己的续期或删除,
+   造成两个进程同时持锁、增量合并的互斥前提失效 */
 export async function withFileLock<T>(lockPath: string, options: LockOptions, run: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt <= options.retries; attempt++) {
     let handle
@@ -55,35 +59,40 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
       await sleep(options.backoffMs * (attempt + 1))
       continue
     }
+    const token = `${process.pid} ${Date.now()} ${randomUUID()}`
     try {
-      await handle.writeFile(`${process.pid} ${Date.now()}`)
+      await handle.writeFile(token)
     } finally {
       await handle.close().catch(() => {})
     }
     /* 持锁期间定时续期:只写一次时间戳时,长事务会被其它进程当成陈旧锁清掉,
-       两个进程同时持锁会让增量合并的互斥前提失效 */
+       两个进程同时持锁会让增量合并的互斥前提失效; 续期前先确认锁仍是自己的 */
     const renew = setInterval(() => {
-      void writeFile(lockPath, `${process.pid} ${Date.now()}`).catch(() => {})
+      void readFile(lockPath, 'utf-8').then((current) => {
+        if (current !== token) return
+        return writeFile(lockPath, token)
+      }).catch(() => {})
     }, options.renewMs)
     renew.unref?.()
     try {
       return await run()
     } finally {
       clearInterval(renew)
-      await unlink(lockPath).catch(() => {})
+      const current = await readFile(lockPath, 'utf-8').catch(() => null)
+      if (current === token) await unlink(lockPath).catch(() => {})
     }
   }
   throw new Error('storage lock timeout')
 }
 
-/* 原子写入:临时文件 + rename(同目录保证同一文件系统) */
+/* 原子写入:临时文件 + rename(同目录保证同一文件系统).
+   写临时文件与改名任一步失败都要清掉临时文件: 磁盘满时否则每次写入都会在数据目录留一个 .tmp */
 export async function writeFileAtomic(path: string, text: string, mode = 0o600): Promise<void> {
-  const temp = `${path}.${process.pid}.${Date.now()}.tmp`
-  await writeFile(temp, text, { mode })
+  const temp = `${path}.${process.pid}.${Date.now()}.${randomUUID().slice(0, 8)}.tmp`
   try {
+    await writeFile(temp, text, { mode })
     await rename(temp, path)
   } catch (error) {
-    /* rename 失败时清掉临时文件:否则每次写入都会在数据目录里留一个 .tmp */
     await unlink(temp).catch(() => {})
     throw error
   }
@@ -124,15 +133,22 @@ export async function readJsonFileState(path: string): Promise<JsonFileState> {
   }
 }
 
-/* 归档一个文件: 重命名为 <路径>.<标签>.<时间戳>.bak.
+/* 归档一个文件: 重命名为 <路径>.<标签>.<时间戳>.bak, 返回归档后的路径(失败返回 null).
    用重命名而不是复制, 归档后原路径不再存在, 后续写入可以正常建立新文件;
-   时间戳后缀保证反复归档不会覆盖上一次的痕迹. 失败(含文件不存在)返回 false */
-export async function archiveFile(path: string, tag: string): Promise<boolean> {
+   时间戳后缀保证反复归档不会覆盖上一次的痕迹;
+   返回路径让调用方能在后续写盘失败时把原文件改回去, 避免"归档成功、写入失败"留下空洞 */
+export async function archiveFileWithPath(path: string, tag: string): Promise<string | null> {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const archived = `${path}.${tag}.${stamp}.bak`
   try {
-    await rename(path, `${path}.${tag}.${stamp}.bak`)
-    return true
+    await rename(path, archived)
+    return archived
   } catch {
-    return false
+    return null
   }
+}
+
+/* 归档并只关心成败(其余调用点沿用) */
+export async function archiveFile(path: string, tag: string): Promise<boolean> {
+  return (await archiveFileWithPath(path, tag)) !== null
 }

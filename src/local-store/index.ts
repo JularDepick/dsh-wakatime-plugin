@@ -13,7 +13,7 @@
  * 旧结构(0.3.0 的分凭证数据桶与更早的独立快照)在 migrate 模块一次性转换.
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   BUCKET_FILE_NAME,
@@ -28,7 +28,7 @@ import {
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import type { PendingHeartbeatState } from '../heartbeat'
 import { archiveLegacySnapshots, loadLegacySnapshots, migrateStoreFile } from '../migrate'
-import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFile, archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
 import { isMergeSane, mergeStore } from './merge'
@@ -41,6 +41,15 @@ const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES
 /* 深拷贝:基线必须与内存态完全隔离,否则累加会污染基线导致增量恒为 0 */
 function cloneStore(file: StoreFile): StoreFile {
   return JSON.parse(JSON.stringify(file)) as StoreFile
+}
+
+/* 数据文件的结构版本是否高于本插件支持的版本(降级并存或未来版本):
+   这类文件不认识而非损坏, 读、写、重载三条路径都要拦住, 否则归档重建会直接抹掉旧数据 */
+function isFutureVersion(value: unknown): boolean {
+  const version = typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>).version
+    : undefined
+  return typeof version === 'number' && Number.isFinite(version) && version > STORE_FILE_VERSION
 }
 
 export interface LocalStoreOptions {
@@ -65,6 +74,8 @@ export class LocalStore {
   private writeBlocked = false
   /* 检测到旧版数据(0.3.0 的分凭证数据桶或更早的独立快照): 不自动转换, 等界面确认后迁移 */
   private legacy: LegacySource | null = null
+  /* 在途迁移: 同一进程内并发点击复用同一次, 避免第二次把已转换的文件再归档一遍 */
+  private migrating: Promise<StoreFile | null> | undefined
 
   constructor(options: LocalStoreOptions = {}) {
     this.options = options
@@ -81,14 +92,11 @@ export class LocalStore {
     let needsRewrite = false
     /* 数据文件版本高于本插件支持的版本(降级并存或未来版本):不认识而非损坏,
        一律只读运行并禁止写盘, 绝不归档重建, 否则旧数据会被直接抹掉 */
-    const rawVersion = typeof file.value === 'object' && file.value !== null
-      ? (file.value as Record<string, unknown>).version
-      : undefined
-    const futureVersion = typeof rawVersion === 'number' && Number.isFinite(rawVersion) && rawVersion > STORE_FILE_VERSION
+    const futureVersion = isFutureVersion(file.value)
     if (data === null && futureVersion) {
       this.writeBlocked = true
       this.options.logger?.warn?.(
-        `[wakatime] data file version ${rawVersion} is newer than supported ${STORE_FILE_VERSION}, persistence disabled this run`,
+        `[wakatime] data file version is newer than supported ${STORE_FILE_VERSION}, persistence disabled this run`,
       )
     }
     if (data === null && !futureVersion) {
@@ -131,6 +139,12 @@ export class LocalStore {
     const file = await readJsonFileState(path)
     this.mtime = mtime
     if (file.state === 'unreadable') return false
+    /* 运行期出现更高版本的文件(其它进程降级写入): 不认识, 只读并停止写盘, 绝不归档 */
+    if (isFutureVersion(file.value)) {
+      if (!this.writeBlocked) this.options.logger?.warn?.('[wakatime] data file is newer than supported, persistence disabled')
+      this.writeBlocked = true
+      return false
+    }
     const disk = normalizeStore(file.value)
     if (disk === null) {
       /* 其它进程写回了旧结构(0.3.0 共存): 不自动转换, 转为待迁移状态并停止写盘 */
@@ -191,9 +205,24 @@ export class LocalStore {
 
   /* 执行旧版数据迁移(界面确认后调用): 持锁把旧结构转换为当前结构, 并入本进程运行期增量后写盘,
      原文件按来源归档为 *.v2.*.bak / *.legacy.*.bak;
-     成功返回旧数据的战绩与待发送状态(供调用方回灌 StatsTracker 与推送引擎), 失败或无事可做返回 null */
+     成功返回旧数据的战绩与待发送状态(供调用方回灌 StatsTracker 与推送引擎), 失败或无事可做返回 null.
+     并发与失败处理: 同一进程内复用同一次迁移; 已落到当前结构就不再归档(否则会把正常数据改名);
+     归档后写盘失败时把原文件改回去, 不留"原路径消失"的空洞 */
   async migrateLegacy(): Promise<StoreFile | null> {
     if (this.legacy === null) return null
+    /* 同一进程内并发调用(两个标签各点一次)复用同一次迁移 */
+    if (this.migrating !== undefined) return this.migrating
+    const task = this.runMigration()
+    this.migrating = task
+    try {
+      return await task
+    } finally {
+      this.migrating = undefined
+    }
+  }
+
+  /* migrateLegacy 的实际执行体(持锁读-改-写) */
+  private async runMigration(): Promise<StoreFile | null> {
     const dir = resolveConfigDir()
     const path = this.path()
     try {
@@ -204,11 +233,11 @@ export class LocalStore {
           this.options.logger?.warn?.('[wakatime] data file is not readable, migration aborted')
           return null
         }
-        /* 磁盘已是当前结构(其它进程先迁移过): 直接并入内存, 不再转换 */
+        /* 磁盘已是当前结构(其它进程先迁移过): 直接并入内存, 不再转换、也不再归档 */
         const current = normalizeStore(file.value)
-        const converted = current ?? migrateStoreFile(file.value)
-        const fromSnapshots = converted === null
-        const legacy = converted ?? await loadLegacySnapshots(dir)
+        const converted = current === null ? migrateStoreFile(file.value) : null
+        const fromSnapshots = current === null && converted === null
+        const legacy = current ?? converted ?? await loadLegacySnapshots(dir)
         if (legacy === null) {
           this.options.logger?.warn?.('[wakatime] no legacy data found, nothing to migrate')
           return null
@@ -219,15 +248,22 @@ export class LocalStore {
           this.options.logger?.warn?.('[wakatime] merged data looks smaller than legacy, migration aborted')
           return null
         }
-        /* 先归档(重命名)再写新结构: 归档失败就放弃, 避免旧数据被直接覆盖 */
-        if (!fromSnapshots) {
-          const archived = await archiveFile(path, 'v2')
-          if (!archived) {
+        /* 只有磁盘确实还是旧结构时才归档: 已归档表示旧文件被挪走, 调用方据此回滚 */
+        let archivedPath: string | null = null
+        if (current === null && !fromSnapshots) {
+          archivedPath = await archiveFileWithPath(path, 'v2')
+          if (archivedPath === null) {
             this.options.logger?.warn?.('[wakatime] failed to archive legacy data file, migration aborted')
             return null
           }
         }
-        await writeFileAtomic(path, JSON.stringify(merged, null, 2))
+        try {
+          await writeFileAtomic(path, JSON.stringify(merged, null, 2))
+        } catch (error) {
+          /* 写盘失败时把归档的旧文件改回去: 否则原路径不存在, 下次启动按空数据起步, 迁移入口也不再出现 */
+          if (archivedPath !== null) await rename(archivedPath, path).catch(() => {})
+          throw error
+        }
         if (fromSnapshots) await archiveLegacySnapshots(dir)
         this.data = merged
         this.baseline = cloneStore(merged)
@@ -263,6 +299,12 @@ export class LocalStore {
         if (file.state === 'unreadable') {
           /* 读不出就不能写: 否则 rename 会把读不出的内容覆盖成空 */
           this.options.logger?.warn?.('[wakatime] data file is not readable, skip writing')
+          return false
+        }
+        if (isFutureVersion(file.value)) {
+          /* 更高版本的文件不能被当成"结构未知"归档重建 */
+          this.writeBlocked = true
+          this.options.logger?.warn?.('[wakatime] data file is newer than supported, skip writing')
           return false
         }
         let disk = normalizeStore(file.value)
