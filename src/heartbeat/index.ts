@@ -10,11 +10,12 @@
  * - 成功:整批出队并记一条 batch 上报记录;
  * - 可重试失败(429/5xx/网络):整批回队尾,逐条累加尝试次数,达到 PUSH_TASK_MAX_ATTEMPTS
  *   的进入失败列表并各记一条 task 失败记录;
- * - 终态失败(401/403/400/404/422):不重试,直接进失败列表并记录;
- * - 未配置 API Key:不算失败、不计尝试次数,整批放回队首并结束本轮(换 Key 后自然续推)。
+ * - 载荷类终态失败(400/404/422):不重试,直接进失败列表并记录;凭证被拒(401/403)
+ *   视同未配置凭证,整批放回队首且不计尝试次数;
+ * - 未配置凭证:不算失败、不计尝试次数,整批放回队首并结束本轮(配置凭证后自然续推)。
  * 未达到队列上限时不做任何压缩,心跳数量与时间戳保持原样。
  * 队列、失败列表与上报记录经 onPendingChange 通知调用方落盘(防抖),
- * 启动与切换数据桶时经 restorePending 载入。
+ * 启动时经 restorePending 载入并按心跳身份去重。
  */
 
 import { randomUUID } from 'node:crypto'
@@ -23,6 +24,7 @@ import {
   FAILED_TASK_LIMIT,
   HEARTBEATS_BULK_PATH,
   HEARTBEATS_PATH,
+  HEARTBEAT_MAX_RETRIES,
   PENDING_QUEUE_LIMIT,
   PUSH_BATCH_DIVISOR,
   PUSH_BATCH_THRESHOLD,
@@ -106,12 +108,13 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.notifyPending()
   }
 
-  /* 推送一轮:取队首一批发送并结算结果 */
-  async push(): Promise<void> {
-    if (!this.options.enabled) return
-    if (this.pushing) return
+  /* 推送一轮:取队首一批发送并结算结果;
+     返回是否真的发起了一轮:重入保护、开关关闭与空队列都算没发起,调用方据此区分"已投递"与"没动" */
+  async push(): Promise<boolean> {
+    if (!this.options.enabled) return false
+    if (this.pushing) return false
     const size = this.batchSize()
-    if (size === 0) return
+    if (size === 0) return false
     this.pushing = true
     const task = this.deliverBatch(size)
     this.inFlight = task
@@ -121,15 +124,17 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.pushing = false
       this.inFlight = undefined
     }
+    return true
   }
 
   /* 等待在途推送结束:手动重试在推送进行中时先等这一轮结算, 再发起下一轮;
-     上限轮次保证连续推送时不会把请求无限期挂住 */
-  async whenIdle(): Promise<void> {
+     上限轮次保证连续推送时不会把请求无限期挂住;返回结算后是否真的空闲 */
+  async whenIdle(): Promise<boolean> {
     for (let round = 0; round < IDLE_WAIT_MAX_ROUNDS; round += 1) {
-      if (this.inFlight === undefined) return
+      if (this.inFlight === undefined) return true
       await this.inFlight.catch(() => {})
     }
+    return this.inFlight === undefined
   }
 
   /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
@@ -268,6 +273,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         method: 'POST',
         body: heartbeats[0],
         auth,
+        maxRetries: HEARTBEAT_MAX_RETRIES,
       })
       return
     }
@@ -277,6 +283,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         method: 'POST',
         body: chunk,
         auth,
+        maxRetries: HEARTBEAT_MAX_RETRIES,
       })
     }
   }

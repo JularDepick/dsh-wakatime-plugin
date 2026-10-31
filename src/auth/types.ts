@@ -56,5 +56,5 @@ export interface AuthManager {
   onChange(listener: () => void): () => void
   getStatus(): Promise<AuthStatus>
   /* 用认证头拉取账号资料, 顺带验证凭证有效性 */
-  fetchUserProfile(header: AuthHeader): Promise<UserProfile>
+  fetchUserProfile(header: AuthHeader, signal?: AbortSignal): Promise<UserProfile>
 }

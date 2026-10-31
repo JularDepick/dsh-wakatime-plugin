@@ -38,7 +38,7 @@ export { Config }
 /* 导出模块类: 便于复用与测试 */
 export { AuthManagerImpl, pickUsername } from './auth'
 export { LocalStore, emptyStore, normalizeStore } from './local-store'
-export type { StoreFile } from './local-store'
+export type { LegacySource, StoreFile } from './local-store'
 export { resolveStatsView } from './local-store/resolve'
 export type { StatsView } from './local-store/resolve'
 export { SessionEventCollector } from './collector'
@@ -61,7 +61,8 @@ export function apply(ctx: Context, config: ConfigType) {
   const logger = ctx.logger as { info?: (m: string) => void; warn?: (m: string) => void; error?: (m: string) => void } | undefined
 
   /* 装配模块 */
-  const configManager = new ConfigManagerImpl()
+  /* 凭证与配置文件写入失败必须可见:归档失败会中止写入,若再静默就会变成"保存成功但重启丢失" */
+  const configManager = new ConfigManagerImpl((message) => { pluginLogger?.warn?.(message) })
   const http = new FetchHttpClient()
   const runtimeConfig = new RuntimeConfig(config, configManager)
   /* 调试开关(配置项或环境变量): info 级插件日志受它控制, warn/error 始终转发, 开关改动即时生效 */
@@ -181,7 +182,20 @@ export function apply(ctx: Context, config: ConfigType) {
   })
 
   /* Web UI 路由(小后端; web profile 提供 webserver 服务时挂载) */
-  attachWebUi(ctx, { runtimeConfig, auth, heartbeat, sync: cloudSync, store })
+  /* 迁移旧版数据: 写盘由 LocalStore 完成, 这里把旧战绩与旧待发队列回灌运行时,
+     本进程启动后采集的实时数据保持不变(两者相加才是合并后的总量) */
+  const migrateLegacy = async (): Promise<boolean> => {
+    const legacy = await store.migrateLegacy()
+    if (legacy === null) return false
+    stats.seed(legacy.stats)
+    heartbeat.restorePending(legacy.pending)
+    store.setStats(stats.totals())
+    store.setPending(heartbeat.pendingState())
+    store.save()
+    return true
+  }
+
+  attachWebUi(ctx, { runtimeConfig, auth, heartbeat, sync: cloudSync, store, migrate: migrateLegacy })
 
   if (isDebug()) {
     logger?.info?.('[wakatime] plugin active')

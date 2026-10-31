@@ -36,6 +36,8 @@ export interface RequestOptions {
   noRetry?: boolean
   /* 重试次数上限:用于交互式校验等需要快速失败的路径,缺省用全局默认 */
   maxRetries?: number
+  /* 调用方可控的取消信号:与每次尝试自带的超时信号合并,取消后不再重试 */
+  signal?: AbortSignal
 }
 
 /* HTTP 客户端对外能力 */

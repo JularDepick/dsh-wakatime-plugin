@@ -53,15 +53,13 @@ export function pickUsername(user: ProfileFields): string | undefined {
   return undefined
 }
 
-/* 给异步操作加超时:超时按失败处理,避免状态查询被网络请求拖住 */
-function withTimeout<T>(task: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    task,
-    new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => { reject(new Error('timeout')) }, ms)
-      timer.unref?.()
-    }),
-  ])
+/* 给异步操作加超时:超时按失败处理,避免状态查询被网络请求拖住;
+   超时时经信号一并中止底层请求, 不让已无用的请求继续占用连接 */
+function withTimeout<T>(task: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, ms)
+  timer.unref?.()
+  return task(controller.signal).finally(() => { clearTimeout(timer) })
 }
 
 /* 默认 settings(与 Config 默认值对齐) */
@@ -200,10 +198,10 @@ export class AuthManagerImpl implements AuthManager {
 
   /* 用认证头拉取账号资料并验证有效性:HTTP 非 2xx(如 401)或网络异常
      视为凭证无效,抛出 WakaTimeError;成功时账号名经 pickUsername 解析 */
-  async fetchUserProfile(header: AuthHeader): Promise<UserProfile> {
+  async fetchUserProfile(header: AuthHeader, signal?: AbortSignal): Promise<UserProfile> {
     const data = await this.http.request<{ data?: ProfileFields }>(
       USER_INFO_PATH,
-      { method: 'GET', auth: header, maxRetries: 1 },
+      { method: 'GET', auth: header, maxRetries: 1, signal },
     )
     /* 校验必须看到身份字段: 网关返回 HTML 或重定向页时 HTTP 仍是 2xx,
        不能把这种响应当成"凭证有效" */
@@ -262,7 +260,7 @@ export class AuthManagerImpl implements AuthManager {
       const secret = stored.credential?.secret
       if (secret === undefined) return undefined
       const profile = await withTimeout(
-        this.fetchUserProfile(new OauthCredential(secret).authHeader()),
+        (signal) => this.fetchUserProfile(new OauthCredential(secret).authHeader(), signal),
         USER_PROFILE_STATUS_TIMEOUT_MS,
       )
       if (profile.username !== undefined && profile.username !== cached) {

@@ -4,7 +4,7 @@
  *
  * Web 设置页经 /api/wakatime/config 写入的配置项以内存为准即时生效,
  * 同时持久化到本地配置文件的 settings 块;插件启动时异步合并恢复,
- * 不阻塞激活。API Key 属凭证,不经此通道(见 auth 模块)。
+ * 不阻塞激活。凭证不经此通道(见 auth 模块)。
  */
 
 import type { Config } from './config'

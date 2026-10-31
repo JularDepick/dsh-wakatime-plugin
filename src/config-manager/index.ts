@@ -14,14 +14,14 @@
 import { chmod, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
 import { migrateStoredConfig } from '../migrate'
 import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
 
 /* 锁参数:同一目录下的多进程共用同一套等待策略 */
-const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES, backoffMs: STORAGE_LOCK_BACKOFF_MS }
+const LOCK_OPTIONS = { ttlMs: STORAGE_LOCK_TTL_MS, retries: STORAGE_LOCK_RETRIES, backoffMs: STORAGE_LOCK_BACKOFF_MS, renewMs: STORAGE_LOCK_RENEW_MS }
 
 /* dsh home:DSH_HOME 优先,回退用户主目录(主目录不可用时回退进程工作目录) */
 function dshHome(): string {
@@ -43,9 +43,15 @@ function configPath(): string {
 export class ConfigManagerImpl implements ConfigManager {
   /* 串行化本进程内的写操作 */
   private writeQueue: Promise<unknown> = Promise.resolve()
+  /* 告警出口:由装配处注入宿主 logger,让归档失败与写失败不再静默 */
+  constructor(onError?: (message: string) => void) {
+    this.onError = onError
+  }
   /* 上次读到的文件内容与其 mtime:作为合并基线并用于检测外部改动 */
   private lastKnown: StoredConfig | null = null
   private mtime: number | null = null
+  /* 写入失败告警出口(可选):不注入时静默,注入后由宿主日志可见 */
+  private onError?: (message: string) => void
 
   async load(): Promise<StoredConfig | null> {
     const path = configPath()
@@ -93,8 +99,12 @@ export class ConfigManagerImpl implements ConfigManager {
       return merged
     })
     this.writeQueue = task.catch(() => {})
-    /* 写失败时退回本次期望值:内存态继续可用, 下次写入再合并 */
-    return task.catch(() => config)
+    /* 写失败时退回本次期望值:内存态继续可用, 下次写入再合并;
+       失败必须可见(归档失败导致的拒写更要可见), 否则调用方会把没落盘当成已保存 */
+    return task.catch((error: unknown) => {
+      this.onError?.('[wakatime] failed to persist config file: ' + String(error))
+      return config
+    })
   }
 
   async refresh(): Promise<StoredConfig | null> {

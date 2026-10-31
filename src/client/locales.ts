@@ -77,6 +77,11 @@ export type WakatimeKey =
   | 'logs.errCredential'
   | 'logs.errNetwork'
   | 'logs.retryUnavailable'
+  | 'logs.retryBusy'
+  | 'logs.legacyHint'
+  | 'logs.legacyMigrating'
+  | 'logs.legacyDone'
+  | 'logs.legacyFailed'
   | 'logs.action'
   | 'config.title'
   | 'config.open'
@@ -176,6 +181,11 @@ export const zh: WakatimeDict = {
   'logs.errCredential': '凭证失效或权限不足',
   'logs.errNetwork': '网络或服务端异常',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
+  'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
+  'logs.legacyHint': '存在旧版数据, 点击迁移',
+  'logs.legacyMigrating': '迁移中…',
+  'logs.legacyDone': '旧版数据已迁移',
+  'logs.legacyFailed': '迁移失败, 请稍后重试',
   'logs.action': '操作',
   'config.title': '配置',
   'config.open': '配置',
@@ -273,6 +283,11 @@ export const en: WakatimeDict = {
   'logs.errCredential': 'credential rejected or lacking permission',
   'logs.errNetwork': 'network or upstream error',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
+  'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
+  'logs.legacyHint': 'Legacy data found, click to migrate',
+  'logs.legacyMigrating': 'Migrating…',
+  'logs.legacyDone': 'Legacy data migrated',
+  'logs.legacyFailed': 'Migration failed, please retry later',
   'logs.action': 'Action',
   'config.title': 'Configuration',
   'config.open': 'Settings',

@@ -7,6 +7,7 @@
  */
 
 import type { StatsView } from '../local-store/resolve'
+import type { LegacySource } from '../local-store'
 import type { DigitGrouping } from '../config'
 
 /* 状态接口响应:认证状态 + 生效配置 + 解析好的战绩视图 */
@@ -33,6 +34,8 @@ export interface WebStatusResponse {
   }
   /* 战绩视图(本地与云端已取最大值合并;渲染无需再合并) */
   stats: StatsView
+  /* 检测到待迁移的旧版数据来源(界面据此显示红字提示); 无旧数据时不带该字段 */
+  legacy?: LegacySource
 }
 
 /* 凭证保存请求:只提交原文, 类型固定为 OAuth 令牌(仅覆盖写入, 不提供查看) */
@@ -102,5 +105,13 @@ export interface WebRetryPayload {
 
 export interface WebRetryResponse {
   ok: boolean
+  /* 稳定错误码: task not found(不在待重试列表) / push busy(已回队但本轮没能立刻投递) */
+  error?: string
+}
+
+/* 旧版数据迁移响应:成功时带回迁移后的战绩视图,失败仅给原因 */
+export interface WebMigrateResponse {
+  ok: boolean
+  data?: StatsView
   error?: string
 }

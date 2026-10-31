@@ -3,7 +3,7 @@
  * 作者: JularDepick
  *
  * 在会话区域的视图标签栏(对话/轨迹所在)注册 wakatime 标签页:
- * Agent 协作战绩、API Key 覆盖管理(小后端代理)与配置区。
+ * Agent 协作战绩、单凭证管理与配置区(读写均经小后端代理)。
  * 语言跟随 dsh web UI 语言切换(zh/en 字典)。
  * 注册模式与官方 ui-trajectory 相同。
  * (0.1.5 起 dsh-client-runtime 拆分,client 上下文即 cordis Context,

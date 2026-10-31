@@ -612,6 +612,38 @@
   min-width: 0;
 }
 
+/* 旧版数据迁移入口: 与上报记录表格等宽的一行红字按钮, 迁移成功前常驻 */
+.legacyRow {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 6px;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxs-12);
+  text-align: left;
+  cursor: pointer;
+  transition: opacity 100ms ease;
+}
+
+.legacyRow:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.legacyRow:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.legacyRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-xs);
+}
+
 /* ---------- 提示(照抄官方 Toast:顶部居中、深色面、160/3000/1000ms) ---------- */
 
 .toast {
@@ -639,6 +671,27 @@
 
 .toastText {
   min-width: 0;
+}
+
+/* 提示按语义着色: 成功 / 失败 / 中性提示共用同一形态, 只换圆点颜色 */
+.toastDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.toast[data-kind='ok'] .toastDot {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.toast[data-kind='error'] .toastDot {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.toast[data-kind='info'] .toastDot {
+  background: var(--dsw-alias-state-business-primary);
 }
 
 @keyframes dsh-toast-in {

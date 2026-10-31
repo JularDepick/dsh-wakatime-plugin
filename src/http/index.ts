@@ -28,6 +28,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/* 本次尝试的取消信号:单次请求超时与调用方取消合二为一,任一触发即中止 fetch */
+function signalOf(caller?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  return caller === undefined ? timeout : AbortSignal.any([timeout, caller])
+}
+
 export class FetchHttpClient implements HttpClient {
   async request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
     const url = path.startsWith('http') ? path : `${WAKATIME_API_BASE}${path}`
@@ -49,9 +55,12 @@ export class FetchHttpClient implements HttpClient {
       attempt++
       let response: Response
       try {
-        /* 每次尝试独立计时:超时按网络失败处理,避免请求挂起阻塞上报循环 */
-        response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+        /* 每次尝试独立计时:超时按网络失败处理,避免请求挂起阻塞上报循环;
+           调用方的取消信号与超时信号合并, 取消时底层 fetch 一并中止 */
+        response = await fetch(url, { ...init, signal: signalOf(options.signal) })
       } catch (error) {
+        /* 调用方取消:不再重试,直接上抛 */
+        if (options.signal?.aborted) throw new WakaTimeError(0, 'request aborted')
         /* 网络层失败:按服务器错误对待,进入重试 */
         const last = attempt > maxRetries
         if (last) throw new WakaTimeError(0, `Network request failed: ${(error as Error).message}`)

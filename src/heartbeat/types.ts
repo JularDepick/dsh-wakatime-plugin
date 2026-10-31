@@ -85,12 +85,14 @@ export interface PendingHeartbeatState {
 export interface HeartbeatEngine {
   /* 入队一条心跳(追加到待发送队列尾部,不立即发送) */
   enqueue(heartbeat: Heartbeat): void
-  /* 推送一轮:取队首一批发送,成功出队、可重试失败回队尾、失败耗尽进失败列表 */
-  push(): Promise<void>
+  /* 推送一轮:取队首一批发送,成功出队、可重试失败回队尾、失败耗尽进失败列表;
+     返回是否真的发起了一轮(重入保护或队列为空时返回 false, 供调用方区分"已投递"与"没动") */
+  push(): Promise<boolean>
   /* 手动重试一条失败任务:移回队列尾并重置尝试次数;返回是否找到该任务 */
   retryFailedTask(id: string): boolean
-  /* 等待在途推送结束(无在途时立即返回): 手动重试要确保真的推进了一轮 */
-  whenIdle(): Promise<void>
+  /* 等待在途推送结束(无在途时立即返回): 手动重试要确保真的推进了一轮;
+     返回结算后是否真的空闲(达到轮次上限仍有在途时为 false) */
+  whenIdle(): Promise<boolean>
   /* 载入待发送状态并与当前队列合并(启动时用;不丢弃启动瞬间已入队的心跳) */
   restorePending(state: PendingHeartbeatState): void
   /* 当前待发送状态快照(供落盘) */

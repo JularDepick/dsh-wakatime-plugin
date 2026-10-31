@@ -11,6 +11,7 @@
  * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识;含其它进程写入的记录)
  * - POST /api/wakatime/retry    手动重试一条失败推送任务
  * - GET  /api/wakatime/sync     云端 AI 聚合(写入本地数据,带缓存,强制刷新请求头跳过缓存)
+ * - POST /api/wakatime/migrate  迁移检测到的 0.3.0 旧版数据(界面上的红字提示触发)
  * 战绩合并(本地与云端取最大)统一在本端完成, 前端只渲染结果。
  * 密钥安全边界: 明文凭证只在本端内部使用,任何响应都不回显, 只下发打码值。
  * 服务缺失(CLI profile)时自动跳过,不阻塞插件;服务出现/销毁经
@@ -20,7 +21,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
-import { REPORT_LOG_LIMIT, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { REPORT_LOG_LIMIT, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import { CredentialInputError } from '../errors'
 import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
 import type { LocalStore } from '../local-store'
@@ -28,7 +29,7 @@ import { resolveStatsView } from '../local-store'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import { validateConfigPatch } from '../runtime-config'
 import type { CloudSync } from '../sync'
-import type { WebConfigResponse, WebCredentialClearResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
+import type { WebConfigResponse, WebCredentialClearResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebMigrateResponse, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
@@ -36,6 +37,8 @@ export interface WebUiDeps {
   heartbeat: HeartbeatEngine
   sync: CloudSync
   store: LocalStore
+  /* 迁移旧版数据并回灌战绩与待发送队列(由插件入口注入: 只有它同时持有 StatsTracker 与推送引擎) */
+  migrate: () => Promise<boolean>
 }
 
 /* webserver 服务最小面(避免引入 host 包类型依赖) */
@@ -88,6 +91,7 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
       webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }),
       webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: safe((req, res) => handleSync(req, res, deps)) }),
+      webServer.register({ kind: 'exact', path: WEB_MIGRATE_PATH, handler: safe((req, res) => handleMigrate(req, res, deps)) }),
     ]
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
@@ -113,6 +117,8 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
   await deps.store.reloadIfChanged()
   const status = await deps.auth.getStatus()
   const config = deps.runtimeConfig.get()
+  /* 检测到旧版数据时带上来源, 界面据此显示迁移提示 */
+  const legacy = deps.store.legacyStatus()
   const body: WebStatusResponse = {
     configured: status.configured,
     fromEnv: status.fromEnv,
@@ -130,6 +136,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
       digitGrouping: config.digitGrouping,
     },
     stats: resolveStatsView(deps.store.snapshot()),
+    ...(legacy === null ? {} : { legacy }),
   }
   writeJson(res, 200, body)
 }
@@ -278,9 +285,15 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
     writeJson(res, 404, body)
     return
   }
-  /* 在途推送先结算, 再发起一轮:避免 push() 因重入保护直接返回造成"假成功" */
-  await deps.heartbeat.whenIdle()
-  await deps.heartbeat.push()
+  /* 在途推送先结算, 再发起一轮:避免 push() 因重入保护直接返回造成"假成功";
+     两者任一没真正推进都不算已重试, 由前端按 busy 提示而不是显示成功 */
+  const idle = await deps.heartbeat.whenIdle()
+  const pushed = idle ? await deps.heartbeat.push() : false
+  if (!pushed) {
+    /* 任务已移回队尾, 会在下一个补推轮送出, 本次只是没能立刻投递 */
+    writeJson(res, 503, { ok: false, error: 'push busy' } satisfies WebRetryResponse)
+    return
+  }
   const body: WebRetryResponse = { ok: true }
   writeJson(res, 200, body)
 }
@@ -309,6 +322,23 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
     ok: false,
     error: status.configured ? 'sync failed (network or upstream error)' : 'credential not configured',
   } satisfies WebSyncResponse)
+}
+
+/* 迁移检测到的旧版数据: 由界面上的红字提示触发; 成功后返回迁移后的战绩视图 */
+async function handleMigrate(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405)
+    res.end()
+    return
+  }
+  if (!guardRequest(req, res)) return
+  const migrated = await deps.migrate()
+  if (!migrated) {
+    writeJson(res, 500, { ok: false, error: 'migration failed' } satisfies WebMigrateResponse)
+    return
+  }
+  const body: WebMigrateResponse = { ok: true, data: resolveStatsView(deps.store.snapshot()) }
+  writeJson(res, 200, body)
 }
 
 /* 写操作来源校验: 要求 application/json(浏览器的跨站简单请求带不了该类型),

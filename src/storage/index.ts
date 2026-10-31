@@ -18,6 +18,8 @@ export interface LockOptions {
   retries: number
   /* 退避基数(按尝试次数线性递增) */
   backoffMs: number
+  /* 持锁期间的续期间隔(刷新锁文件时间戳,避免长事务被判为陈旧锁) */
+  renewMs: number
 }
 
 /* 等待若干毫秒 */
@@ -58,9 +60,16 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
     } finally {
       await handle.close().catch(() => {})
     }
+    /* 持锁期间定时续期:只写一次时间戳时,长事务会被其它进程当成陈旧锁清掉,
+       两个进程同时持锁会让增量合并的互斥前提失效 */
+    const renew = setInterval(() => {
+      void writeFile(lockPath, `${process.pid} ${Date.now()}`).catch(() => {})
+    }, options.renewMs)
+    renew.unref?.()
     try {
       return await run()
     } finally {
+      clearInterval(renew)
       await unlink(lockPath).catch(() => {})
     }
   }
@@ -71,7 +80,13 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
 export async function writeFileAtomic(path: string, text: string, mode = 0o600): Promise<void> {
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`
   await writeFile(temp, text, { mode })
-  await rename(temp, path)
+  try {
+    await rename(temp, path)
+  } catch (error) {
+    /* rename 失败时清掉临时文件:否则每次写入都会在数据目录里留一个 .tmp */
+    await unlink(temp).catch(() => {})
+    throw error
+  }
 }
 
 /* 文件 mtime;不存在或失败返回 null(用于检测其它进程的写入) */

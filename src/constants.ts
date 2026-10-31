@@ -32,6 +32,8 @@ export const STORAGE_LOCK_TTL_MS = 10_000
 /* 抢锁重试次数与退避基数(按次数线性递增) */
 export const STORAGE_LOCK_RETRIES = 3
 export const STORAGE_LOCK_BACKOFF_MS = 50
+/* 持锁期间的续期间隔(毫秒): 刷新锁文件时间戳,避免长事务被其它进程判为陈旧锁 */
+export const STORAGE_LOCK_RENEW_MS = 2_000
 /* 展示用模糊凭证:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
 export const KEY_MASK_EDGE_CHARS = 8
 /* 打码中间段固定星号个数(不按实际隐藏位数展开, 避免长度泄露与视觉噪音) */
@@ -75,10 +77,10 @@ export const CREDENTIAL_PREFIX_OAUTH = 'waka_tok_'
 export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
 /* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
 export const CREDENTIAL_MIN_LENGTH = 20
-/* 云端同步:已配置 API Key 时拉取 summaries 的 AI 聚合(最近 7 天) */
+/* 云端同步:已配置凭证时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
 /* 云端同步结果缓存时长(毫秒):窗口内重复请求(切换标签页、刷新页面)直接复用,
-   不重复请求 WakaTime;缓存按 API Key 归属,换 Key 自动失效 */
+   不重复请求 WakaTime;缓存按凭证归属,换凭证自动失效 */
 export const SYNC_CACHE_TTL_MS = 5 * 60 * 1000
 
 /* 定时上报 */
@@ -92,6 +94,12 @@ export const RETRY_MAX_DELAY_MS = 30000
 export const RETRY_BACKOFF_MULTIPLIER = 2
 /* 单次请求超时(毫秒;超时按网络失败进入重试,避免挂起阻塞上报循环) */
 export const REQUEST_TIMEOUT_MS = 30000
+/* 云端同步的重试次数:同步是交互路径(界面按钮与凭证变更后的自动重同步),
+   服务端持续 5xx 时不该把界面挂到数分钟, 失败交给缓存与手动刷新兜底 */
+export const SYNC_MAX_RETRIES = 1
+/* 心跳上报的重试次数:整批心跳在单次请求内重发会放大重复上报(服务端可能已收到),
+   推送失败时整批回队尾由下一轮重新推送, 故单次请求内只补一次即可 */
+export const HEARTBEAT_MAX_RETRIES = 1
 /* 账号名解析失败的负缓存时长(毫秒):避免每次状态查询都外呼注定失败的资料接口 */
 export const USER_PROFILE_FAILURE_TTL_MS = 3_600_000
 /* 状态查询里账号名解析的超时(毫秒):离线时不能把界面卡在 30 秒的请求超时上 */
@@ -121,13 +129,15 @@ export const STEP_TIMING_LIMIT = 512
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'
 export const WEB_CONFIG_PATH = '/api/wakatime/config'
-/* 凭证: 添加(自动识别类型) / 切换 / 移除 / 清除, 以及缓存清单 */
+/* 凭证: 保存(覆盖) 与 清除, 以及失败任务重试 */
 export const WEB_CREDENTIAL_PATH = '/api/wakatime/credential'
 export const WEB_LOGS_PATH = '/api/wakatime/logs'
 export const WEB_SYNC_PATH = '/api/wakatime/sync'
 export const WEB_CREDENTIAL_CLEAR_PATH = '/api/wakatime/credential/clear'
 /* 手动重试一条失败推送任务 */
 export const WEB_RETRY_PATH = '/api/wakatime/retry'
+/* 手动迁移旧版(0.3.0)数据: 界面上的红字提示点击后触发 */
+export const WEB_MIGRATE_PATH = '/api/wakatime/migrate'
 
 /* 环境变量 */
 /* OAuth 访问令牌环境变量(优先于配置文件) */

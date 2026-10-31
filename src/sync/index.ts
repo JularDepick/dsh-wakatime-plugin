@@ -4,13 +4,13 @@
  *
  * 已配置凭证时(读取面首选 OAuth 令牌),拉取 WakaTime summaries 的 AI 聚合字段
  * (最近 CLOUD_SUMMARY_RANGE),供前端战绩区同步展示云端最新数据;
- * 未配置 Key、网络异常或云端返回异常时静默返回 null,不阻塞插件。
+ * 未配置凭证、网络异常或云端返回异常时静默返回 null,不阻塞插件。
  * 仅做读取式同步,不修改云端数据。
  * 结果在进程内缓存 SYNC_CACHE_TTL_MS:窗口内复用(切换标签页、刷新页面不重复请求云端),
  * 缓存与凭证绑定(换凭证或清除凭证后自动失效),force 选项用于手动刷新。
  */
 
-import { CLOUD_SUMMARY_RANGE, SUMMARIES_PATH, SYNC_CACHE_TTL_MS } from '../constants'
+import { CLOUD_SUMMARY_RANGE, SUMMARIES_PATH, SYNC_CACHE_TTL_MS, SYNC_MAX_RETRIES } from '../constants'
 import type { AuthManager } from '../auth'
 import type { AuthHeader, HttpClient } from '../http'
 
@@ -90,7 +90,9 @@ export class CloudSync {
     try {
       const data = await this.http.request<SummariesResponse>(
         `${SUMMARIES_PATH}?range=${CLOUD_SUMMARY_RANGE}`,
-        { method: 'GET', auth: header },
+        /* 同步是交互路径(界面按钮与凭证变更后的自动重同步): 重试次数压到 1 次,
+           避免服务端持续 5xx 时把请求挂到数分钟 */
+        { method: 'GET', auth: header, maxRetries: SYNC_MAX_RETRIES },
       )
       /* 只有"对象 + data 是数组"才算有效响应: 网关登录页或代理错误页可能返回 200 HTML,
          当成空数组会构造出全零成功快照并把已有云端聚合覆盖掉 */

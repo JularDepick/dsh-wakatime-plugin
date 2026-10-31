@@ -26,6 +26,7 @@ import {
   WEB_CREDENTIAL_CLEAR_PATH,
   WEB_CREDENTIAL_PATH,
   WEB_LOGS_PATH,
+  WEB_MIGRATE_PATH,
   WEB_RETRY_PATH,
   WEB_STATUS_PATH,
   WEB_SYNC_PATH,
@@ -33,7 +34,7 @@ import {
 } from '../constants'
 import type { DigitGrouping } from '../config'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration, groupDigits } from '../metrics'
-import type { WebCredentialClearResponse, WebCredentialResponse, WebLogEntry, WebStatusResponse, WebSyncResponse } from '../webui/types'
+import type { WebCredentialClearResponse, WebCredentialResponse, WebLogEntry, WebMigrateResponse, WebStatusResponse, WebSyncResponse } from '../webui/types'
 import css from './WakatimeTab.module.css'
 
 /** 注册点推导的组件 props(conversation.view 会话座位不消费 + locale 座位) */
@@ -54,9 +55,9 @@ interface ConfigDraft {
   digitGrouping: DigitGrouping
 }
 
-/** 保存结果提示 */
+/** 保存结果提示(info 为中性提示:操作已受理但本轮未完成) */
 interface Notice {
-  kind: 'ok' | 'error'
+  kind: 'ok' | 'error' | 'info'
   text: string
 }
 
@@ -68,6 +69,7 @@ const CREDENTIAL_CLEAR_PATH = WEB_CREDENTIAL_CLEAR_PATH
 const LOGS_PATH = WEB_LOGS_PATH
 const SYNC_PATH = WEB_SYNC_PATH
 const RETRY_PATH = WEB_RETRY_PATH
+const MIGRATE_PATH = WEB_MIGRATE_PATH
 
 /** 清除确认与提示停留时长:与官方 Toast 默认一致(1000ms 淡出另计) */
 const CONFIRM_MS = 3000
@@ -78,7 +80,7 @@ const NOTICE_MS = 3000
 const CLOUD_CACHE_MS = 5 * 60 * 1000
 
 /* 模块级同步时间戳:同一页面会话内切换标签页不重复向小后端发起同步请求;
-   云端数据本身已由服务端写入对应 Key 的数据桶,并另有服务端缓存 SYNC_CACHE_TTL_MS */
+   云端数据本身已由服务端写入本地数据的云端快照,并另有服务端缓存 SYNC_CACHE_TTL_MS */
 let lastSyncAt = 0
 
 function syncedRecently(): boolean {
@@ -102,7 +104,7 @@ const CONFIG_PANEL_ID = 'wakatime-config-panel'
 /**
  * 渲染 wakatime 标签页。
  * @param props - 框架座位:t 为 locale 座位,会话座位不消费。
- * @returns 战绩表、API Key 覆盖区、上报日志区与配置视图。
+ * @returns 战绩表、单凭证管理区、上报日志区与配置视图。
  */
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
@@ -120,13 +122,15 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 正在提交的配置键: 提交未落定前不用服务端值覆盖草稿, 否则正在编辑的数字会被重置.
      用集合记录: 多个键同时提交时互不清除对方的保护 */
   const pendingPatch = useRef<Set<keyof ConfigDraft>>(new Set())
-  /* 云端同步状态(战绩数值与云端快照由服务端按数据桶解析后下发) */
+  /* 云端同步状态(战绩数值与云端快照由服务端解析后下发) */
   const [cloudState, setCloudState] = useState<'idle' | 'syncing' | 'error'>('idle')
   /* 同步失败原因(区分未配置凭证与网络失败),失败时展示在战绩标题行 */
   const [syncError, setSyncError] = useState<string | undefined>(undefined)
   /* 正在重试的失败任务标识:在途期间禁用其它重试按钮,避免重复提交 */
   const [retryingId, setRetryingId] = useState<string | undefined>(undefined)
-  /* 清除 API Key 二次确认(3 秒内点击确认,超时回归) */
+  /* 旧版数据迁移在途:期间禁用迁移入口 */
+  const [migrating, setMigrating] = useState(false)
+  /* 清除凭证二次确认(3 秒内点击确认,超时回归) */
   const [clearConfirm, setClearConfirm] = useState(false)
   /* 配置视图开关(右上角按钮切换 tab 内容,ESC 切回主视图) */
   const [configOpen, setConfigOpen] = useState(false)
@@ -191,7 +195,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   }
 
   /* 云端同步:向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
-     服务端把结果写入当前 Key 的数据桶并返回解析好的战绩视图,前端直接替换展示数据 */
+     服务端把结果写入本地数据的云端快照并返回解析好的战绩视图,前端直接替换展示数据 */
   const syncCloud = (force = false): void => {
     setCloudState('syncing')
     /* 强制刷新走自定义请求头而非查询参数: 查询参数会触发跨源请求,
@@ -227,9 +231,15 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id }),
     })
-      .then((response) => {
+      .then(async (response) => {
         if (response.status === 404) {
           setNotice({ kind: 'error', text: t('logs.retryUnavailable') })
+          return
+        }
+        if (response.status === 503) {
+          /* 已放回队列但本轮没投递成功: 提示待自动重试, 不当作失败也不当作已重试 */
+          setNotice({ kind: 'info', text: t('logs.retryBusy') })
+          setTick((value) => value + 1)
           return
         }
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -237,6 +247,28 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .catch((error: unknown) => { setNotice({ kind: 'error', text: (error as Error).message }) })
       .finally(() => { setRetryingId(undefined) })
+  }
+
+  /* 迁移检测到的旧版数据(界面上点击红字提示触发): 成功后刷新战绩与上报记录, 红字随之消失 */
+  const migrateLegacy = (): void => {
+    if (migrating) return
+    setMigrating(true)
+    fetch(MIGRATE_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({})) as WebMigrateResponse
+        if (!response.ok || body.ok === false) throw new Error(body.error ?? `HTTP ${response.status}`)
+        /* 迁移后战绩与旧队列都已并入, 云端缓存不再代表本地累计量 */
+        clearSynced()
+        setCloudState('idle')
+        setNotice({ kind: 'ok', text: t('logs.legacyDone') })
+        setTick((value) => value + 1)
+      })
+      .catch(() => { setNotice({ kind: 'error', text: t('logs.legacyFailed') }) })
+      .finally(() => { setMigrating(false) })
   }
 
   /* 凭证操作错误码直接映射为字典文案 */
@@ -393,6 +425,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               cloudState={cloudState}
               syncError={syncError}
               retryingId={retryingId}
+              migrating={migrating}
               credentialInput={credentialInput}
               keySaving={keySaving}
               clearConfirm={clearConfirm}
@@ -404,6 +437,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               onRefresh={() => { setTick((value) => value + 1) }}
               onSync={() => { syncCloud(true) }}
               onRetry={retryLog}
+              onMigrate={migrateLegacy}
               onClearCredentials={clearCredentials}
               onCredentialInput={setCredentialInput}
               onSaveCredential={saveCredential}
@@ -415,7 +449,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       </div>
 
       {notice ? (
-        <div className={css.toast} role="status">
+        <div className={css.toast} role="status" data-kind={notice.kind}>
+          <span className={css.toastDot} aria-hidden="true" />
           <span className={css.toastText}>{notice.text}</span>
         </div>
       ) : null}
@@ -433,6 +468,8 @@ interface PanelsProps {
   cloudState: 'idle' | 'syncing' | 'error'
   syncError?: string
   retryingId?: string
+  /* 旧版数据迁移进行中(迁移按钮在此期间禁用) */
+  migrating: boolean
   credentialInput: string
   keySaving: boolean
   clearConfirm: boolean
@@ -444,6 +481,7 @@ interface PanelsProps {
   onRefresh: () => void
   onSync: () => void
   onRetry: (id: string) => void
+  onMigrate: () => void
   onClearCredentials: () => void
   onCredentialInput: (value: string) => void
   onSaveCredential: () => void
@@ -452,7 +490,7 @@ interface PanelsProps {
 }
 
 /**
- * 渲染主视图(只读账号状态 + 战绩 → 上报记录)或配置视图(API Key 变更 → 上报参数)。
+ * 渲染主视图(只读账号状态 + 战绩 → 上报记录)或配置视图(凭证管理 → 上报参数)。
  * 战绩为独立表格;分区之间用分隔线区分,不自建卡片;
  * 右上角按钮在两个视图之间切换 tab 内容(ESC 切回主视图)。
  * @param props - 数据、草稿与回调集合。
@@ -462,7 +500,7 @@ function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloudState, syncError } = props
   const { credentialInput: credentialValue, keySaving, clearConfirm } = props
   const { configOpen, configToggleRef } = props
-  const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onClearCredentials, onToggleConfig } = props
+  const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onMigrate, onClearCredentials, onToggleConfig } = props
   const { onCredentialInput, onSaveCredential, onPatch, onDraft } = props
   /* 战绩视图由服务端解析:本地累计量已与云端快照逐项取最大 */
   const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
@@ -508,7 +546,7 @@ function WakatimePanels(props: PanelsProps) {
     </button>
   )
 
-  /* 只读账号状态:主视图复制一份展示(与配置视图的 API Key 区同源,不含任何写操作入口) */
+  /* 只读账号状态:主视图复制一份展示(与配置视图的凭证区同源,不含任何写操作入口) */
   const accountStatus = (
     <span className={css.statusLine}>
       <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
@@ -736,6 +774,17 @@ function WakatimePanels(props: PanelsProps) {
             <Chevron className={css.chevron} />
             <span className={css.disclosureTitle}>{t('logs.title')}</span>
           </button>
+          {/* 检测到 0.3.0 旧版数据时,在上报记录内容前给一行红字入口:点击即迁移,迁移成功后该行消失 */}
+          {data.legacy === undefined ? null : (
+            <button
+              type="button"
+              className={css.legacyRow}
+              disabled={props.migrating}
+              onClick={onMigrate}
+            >
+              {props.migrating ? t('logs.legacyMigrating') : t('logs.legacyHint')}
+            </button>
+          )}
           {logsOpen ? (
             <div className={css.disclosureBody}>
               {logs.length === 0
@@ -871,11 +920,13 @@ function NumberField({ label, value, onChange, onCommit }: {
      空值或非法值只影响草稿, 失焦/回车时回滚到服务端已生效的值 */
   const [raw, setRaw] = useState(String(value))
   const [editing, setEditing] = useState(false)
-  /* 编辑中不跟随服务端值刷新, 否则正在输入的内容会被覆盖 */
+  const [focused, setFocused] = useState(false)
+  /* 编辑中且仍持有焦点时不跟随服务端值刷新, 否则正在输入的内容会被覆盖;
+     焦点离开后(或从未编辑时)一律对齐服务端已生效的值 */
   useEffect(() => {
-    if (editing) return
+    if (editing && focused) return
     setRaw(Number.isFinite(value) ? String(value) : '')
-  }, [value, editing])
+  }, [value, editing, focused])
 
   const commit = (next: string): void => {
     setEditing(false)
@@ -907,9 +958,21 @@ function NumberField({ label, value, onChange, onCommit }: {
             if (next === '' || !Number.isFinite(parsed) || parsed < 1) return
             onChange(parsed)
           }}
-          onFocus={() => { setEditing(true) }}
-          onBlur={(event) => { commit(event.target.value) }}
+          onFocus={() => {
+            setEditing(true)
+            setFocused(true)
+          }}
+          onBlur={(event) => {
+            setFocused(false)
+            commit(event.target.value)
+          }}
           onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              /* 放弃草稿回到服务端已生效的值 */
+              setEditing(false)
+              setRaw(Number.isFinite(value) ? String(value) : '')
+              return
+            }
             if (event.key !== 'Enter') return
             commit(event.currentTarget.value)
           }}

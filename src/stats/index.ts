@@ -168,7 +168,7 @@ export class StatsTracker {
     return stats
   }
 
-  /* 取走当前全部累计量并清空实时会话(切换数据桶前把数据归入旧桶) */
+  /* 取走当前全部累计量并清空实时会话(卸载时把实时会话归入本地累计量) */
   drain(): StatsTotals {
     const totals = this.totals()
     this.sessions.clear()
