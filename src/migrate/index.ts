@@ -17,7 +17,6 @@ import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   CONFIG_FILE_VERSION,
-  FAILED_TASK_LIMIT,
   LEGACY_HEARTBEAT_FILE_NAME,
   LEGACY_STATS_FILE_NAME,
   PENDING_QUEUE_LIMIT,
@@ -26,7 +25,7 @@ import {
 } from '../constants'
 import type { StoredConfig, StoredSettings } from '../config-manager/types'
 import { detectCredentialType } from '../credential-format'
-import type { FailedPushTask, PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
+import type { PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
 import { emptyStore, normalizeCloud } from '../local-store/normalize'
 import { heartbeatKeyOf } from '../heartbeat/identity'
@@ -143,7 +142,6 @@ export function migrateStoreFile(raw: unknown): StoreFile | null {
     : {}
   const stats = emptyTotals()
   const queue: PendingHeartbeatEntry[] = []
-  const failed: FailedPushTask[] = []
   const report: ReportEntry[] = []
   let cloud: StoreFile['cloud'] = null
   let updatedAt = 0
@@ -159,8 +157,10 @@ export function migrateStoreFile(raw: unknown): StoreFile | null {
     if (bucketCloud !== null && (cloud === null || bucketCloud.syncedAt > cloud.syncedAt)) cloud = bucketCloud
     const pending = normalizePendingState(item.pending)
     queue.push(...pending.queue)
-    failed.push(...pending.failed)
-    report.push(...pending.report)
+    /* 旧版本的失败列表不继承: 0.3.0 把凭证被拒(401/403)也当成终态失败,
+       迁移过来的任务与当前账号状态无关, 继承只会让升级后满屏都是别人的红色失败行,
+       且这些心跳已不在队列, 重试也推不回原本的时间线; 只保留批次级上报记录 */
+    report.push(...pending.report.filter((entry) => entry.kind === 'batch'))
   }
   return {
     version: STORE_FILE_VERSION,
@@ -169,8 +169,9 @@ export function migrateStoreFile(raw: unknown): StoreFile | null {
     cloud,
     pending: {
       queue: dedupeBy(queue, heartbeatKeyOf, PENDING_QUEUE_LIMIT),
-      failed: dedupeBy(failed, (item) => item.id, FAILED_TASK_LIMIT),
-      report: dedupeBy(report, (item) => item.id, REPORT_LOG_LIMIT),
+      /* 失败列表不从旧版本继承, 迁移后为空 */
+      failed: [],
+      report: dedupeBy(report, (entry) => entry.id, REPORT_LOG_LIMIT),
     },
   }
 }

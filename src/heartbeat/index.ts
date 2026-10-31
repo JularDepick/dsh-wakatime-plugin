@@ -11,8 +11,9 @@
  * - 可重试失败(429/5xx/网络):整批回队尾,逐条累加尝试次数,达到 PUSH_TASK_MAX_ATTEMPTS
  *   的进入失败列表并各记一条 task 失败记录;
  * - 载荷类终态失败(400/404/422):不重试,直接进失败列表并记录;凭证被拒(401/403)
- *   视同未配置凭证,整批放回队首且不计尝试次数;
- * - 未配置凭证:不算失败、不计尝试次数,整批放回队首并结束本轮(配置凭证后自然续推)。
+ *   视同未配置凭证,整批移到队尾轮转且不计尝试次数;
+ * - 未配置凭证:不算失败、不计尝试次数,整批移到队尾轮转并结束本轮(配置凭证后自然续推);
+ *   轮转而非放回队首, 是为了让整条队列都能轮到, 避免队尾新心跳永久饥饿。
  * 未达到队列上限时不做任何压缩,心跳数量与时间戳保持原样。
  * 队列、失败列表与上报记录经 onPendingChange 通知调用方落盘(防抖),
  * 启动时经 restorePending 载入并按心跳身份去重。
@@ -147,17 +148,20 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
-      /* 未配置凭证:不丢失、不计尝试次数,整批放回队首保持顺序 */
+      /* 未配置凭证:不丢失、不计尝试次数,整批移到队尾轮转.
+         放回队首会让同一批最旧的心跳被反复取走, 队尾新心跳永远轮不到(长期未配置凭证时等于停摆);
+         移到队尾后每轮从不同位置取批, 整条队列都能轮到. 心跳自带时间戳, 发送顺序不影响上报结果 */
       if (error instanceof NotAuthenticatedError) {
-        this.queue.unshift(...batch)
-        this.log('info', '[wakatime] no credential configured, heartbeat kept in queue')
+        this.queue.push(...batch)
+        this.log('info', '[wakatime] no credential configured, heartbeat rotated to queue tail')
         return
       }
       const message = (error as Error).message
       /* 凭证不可用(令牌过期/被撤销/权限不足):与未配置凭证同等待遇,
-         整批放回队首、不计尝试次数, 避免把积压烧进失败列表后按上限丢弃 */
+         整批移到队尾轮转、不计尝试次数, 避免把积压烧进失败列表后按上限丢弃,
+         同时避免队首那一批被反复重取导致队尾新心跳永久饥饿 */
       if (isCredentialRejected(error)) {
-        this.queue.unshift(...batch)
+        this.queue.push(...batch)
         /* 凭证持续失效时每轮推送都会命中, 按间隔只记一条, 避免把上报记录挤满 */
         const now = Date.now()
         if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
