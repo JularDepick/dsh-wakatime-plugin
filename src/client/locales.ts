@@ -76,6 +76,7 @@ export type WakatimeKey =
   | 'logs.attempts'
   | 'logs.errCredential'
   | 'logs.errNetwork'
+  | 'logs.errPayload'
   | 'logs.retryUnavailable'
   | 'logs.retryBusy'
   | 'logs.retryFailed'
@@ -182,6 +183,7 @@ export const zh: WakatimeDict = {
   'logs.attempts': '已尝试 {n} 次',
   'logs.errCredential': '凭证失效或权限不足',
   'logs.errNetwork': '网络或服务端异常',
+  'logs.errPayload': '上报被服务端拒绝(载荷或端点不被接受)',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
   'logs.retryFailed': '重试失败',
@@ -194,7 +196,7 @@ export const zh: WakatimeDict = {
   'config.title': '配置',
   'config.open': '配置',
   'config.collapse': '收起配置',
-  'config.enabled': '启用上报',
+  'config.enabled': '启用上报(关闭后新心跳直接丢弃)',
   'config.reportInterval': '上报间隔(秒)',
   'config.reportEnabled': '开启定时上报',
   'config.includeTokens': '上报 Token 用量',
@@ -286,6 +288,7 @@ export const en: WakatimeDict = {
   'logs.attempts': 'tried {n} times',
   'logs.errCredential': 'credential rejected or lacking permission',
   'logs.errNetwork': 'network or upstream error',
+  'logs.errPayload': 'Rejected by the server (payload or endpoint not accepted)',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
   'logs.retryFailed': 'Retry failed',
@@ -298,7 +301,7 @@ export const en: WakatimeDict = {
   'config.title': 'Configuration',
   'config.open': 'Settings',
   'config.collapse': 'Hide settings',
-  'config.enabled': 'Enable reporting',
+  'config.enabled': 'Enable reporting (new heartbeats are dropped when off)',
   'config.reportInterval': 'Report interval (seconds)',
   'config.reportEnabled': 'Enable scheduled reporting',
   'config.includeTokens': 'Report token usage',

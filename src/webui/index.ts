@@ -39,6 +39,8 @@ export interface WebUiDeps {
   store: LocalStore
   /* 迁移旧版数据并回灌战绩与待发送队列(由插件入口注入: 只有它同时持有 StatsTracker 与推送引擎) */
   migrate: () => Promise<boolean>
+  /* 告警日志(凭证落盘失败等内部异常在此留痕, 不回给浏览器) */
+  logger?: { warn?: (message: string) => void }
 }
 
 /* webserver 服务最小面(避免引入 host 包类型依赖) */
@@ -198,9 +200,14 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
     }
     writeJson(res, 200, body)
   } catch (error) {
-    /* 格式不合法给稳定错误码(前端按码翻译),其余为验证失败原因 */
-    const reason = error instanceof CredentialInputError ? error.code : (error as Error).message
-    writeJson(res, 400, { ok: false, error: reason })
+    /* 格式不合法给稳定错误码(前端按码翻译);其余一律折叠成固定错误码,
+       不把落盘失败或内部异常原文回给浏览器 */
+    if (error instanceof CredentialInputError) {
+      writeJson(res, 400, { ok: false, error: error.code })
+      return
+    }
+    deps.logger?.warn?.('[wakatime] failed to save credential: ' + String(error))
+    writeJson(res, 500, { ok: false, error: 'invalid' })
   }
 }
 
@@ -334,6 +341,11 @@ async function handleMigrate(req: IncomingMessage, res: ServerResponse, deps: We
   if (!guardRequest(req, res)) return
   const migrated = await deps.migrate()
   if (!migrated) {
+    /* 幂等: 另一个进程已经迁移过时无事可做, 不算失败 */
+    if (deps.store.legacyStatus() === null) {
+      writeJson(res, 200, { ok: true, data: resolveStatsView(deps.store.snapshot()) } satisfies WebMigrateResponse)
+      return
+    }
     writeJson(res, 500, { ok: false, error: 'migration failed' } satisfies WebMigrateResponse)
     return
   }

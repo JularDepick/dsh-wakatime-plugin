@@ -50,9 +50,12 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const age = await lockAge(lockPath)
-      /* 陈旧锁:持有进程可能已异常退出, 清除后立刻重试 */
+      /* 陈旧锁:持有进程可能已异常退出, 清除后立刻重试.
+         stat 到 unlink 之间别的进程可能已清掉旧锁并建了新锁, 删前重新取一次年龄并确认还能读到内容 */
       if (age !== null && age > options.ttlMs) {
-        await unlink(lockPath).catch(() => {})
+        const recheck = await lockAge(lockPath)
+        const content = await readFile(lockPath, 'utf-8').catch(() => null)
+        if (recheck !== null && recheck > options.ttlMs && content !== null) await unlink(lockPath).catch(() => {})
         continue
       }
       if (attempt === options.retries) throw new Error('storage lock timeout')
@@ -62,15 +65,23 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
     const token = `${process.pid} ${Date.now()} ${randomUUID()}`
     try {
       await handle.writeFile(token)
-    } finally {
+    } catch (error) {
+      /* 令牌没写成就不能留下空锁文件: 它会变成毒锁, 同目录所有写入都要等到 TTL 过期才能进 */
       await handle.close().catch(() => {})
+      await unlink(lockPath).catch(() => {})
+      throw error
     }
+    await handle.close().catch(() => {})
     /* 持锁期间定时续期:只写一次时间戳时,长事务会被其它进程当成陈旧锁清掉,
        两个进程同时持锁会让增量合并的互斥前提失效; 续期前先确认锁仍是自己的 */
+    let released = false
+    let renewal: Promise<void> = Promise.resolve()
     const renew = setInterval(() => {
-      void readFile(lockPath, 'utf-8').then((current) => {
+      renewal = renewal.then(async () => {
+        if (released) return
+        const current = await readFile(lockPath, 'utf-8').catch(() => null)
         if (current !== token) return
-        return writeFile(lockPath, token)
+        await writeFile(lockPath, token)
       }).catch(() => {})
     }, options.renewMs)
     renew.unref?.()
@@ -78,6 +89,9 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
       return await run()
     } finally {
       clearInterval(renew)
+      /* 等在途的那次续期落定再释放: 否则它可能落在 unlink 之后, 把旧令牌的锁重新写出来 */
+      released = true
+      await renewal.catch(() => {})
       const current = await readFile(lockPath, 'utf-8').catch(() => null)
       if (current === token) await unlink(lockPath).catch(() => {})
     }

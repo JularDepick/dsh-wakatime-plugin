@@ -44,8 +44,10 @@ export class RuntimeConfig {
 
   /* 应用 Web 写入:更新内存、持久化 settings 块并通知订阅者 */
   async update(patch: WebConfigPatch): Promise<Config> {
-    this.current = { ...this.current, ...patch }
-    await this.persist()
+    const next = { ...this.current, ...patch }
+    /* 先落盘再改内存: 落盘失败时内存配置与订阅者仍与磁盘一致, 不会出现"界面显示已改、重启回退" */
+    await this.persist(next)
+    this.current = next
     this.notify()
     return this.current
   }
@@ -58,6 +60,9 @@ export class RuntimeConfig {
       const value = settings[key]
       if (value !== undefined) patch[key] = value as never
     }
+    /* 从磁盘恢复的 settings 也要过一遍范围校验: 手工改文件写进越界值时不能直接生效 */
+    const invalid = validateConfigPatch(patch)
+    if (invalid !== null) delete patch[invalid as keyof WebConfigPatch]
     if (Object.keys(patch).length === 0) return
     this.current = { ...this.current, ...patch }
     this.notify()
@@ -69,20 +74,20 @@ export class RuntimeConfig {
     return () => { this.listeners.delete(listener) }
   }
 
-  private async persist(): Promise<void> {
+  private async persist(config: Config): Promise<void> {
     const stored = await this.configManager.load()
     const settings: StoredSettings = {
       ...(stored?.settings ?? {}),
-      enabled: this.current.enabled,
-      reportInterval: this.current.reportInterval,
-      reportEnabled: this.current.reportEnabled,
-      includeTokens: this.current.includeTokens,
-      includePrompts: this.current.includePrompts,
-      debug: this.current.debug,
-      tableBorders: this.current.tableBorders,
-      digitGrouping: this.current.digitGrouping,
+      enabled: config.enabled,
+      reportInterval: config.reportInterval,
+      reportEnabled: config.reportEnabled,
+      includeTokens: config.includeTokens,
+      includePrompts: config.includePrompts,
+      debug: config.debug,
+      tableBorders: config.tableBorders,
+      digitGrouping: config.digitGrouping,
       /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
-      locale: this.current.locale,
+      locale: config.locale,
     }
     await this.configManager.save({
       ...(stored ?? { version: CONFIG_FILE_VERSION, settings }),

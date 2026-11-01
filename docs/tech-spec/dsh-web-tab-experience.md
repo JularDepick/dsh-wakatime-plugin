@@ -113,7 +113,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 ### 宿主容器给与不给的东西
 
 | 项 | 事实 | 结论 |
-|:---:|:---|:---|
+|:---:|:---:|:---:|
 | 槽包装器 | `div[data-slot="conversation.view"][style="display:contents"]`,不产生盒子 | tab 根元素直接是 viewArea 的 flex 子项 |
 | viewArea | `display:flex;flex-direction:column;flex:1;min-height:0`,无内边距,无最大宽度,无背景,无 overflow | **内边距,内容列宽,背景,滚动全由 tab 自备** |
 | 滚动 | 宿主 `.scrollBody{overflow-y:auto}` 同时包住 viewArea 与 composer 座位 | 非 overlay 路线随页面滚,不要再套一层 `overflow:auto` 制造双滚动条 |
@@ -131,7 +131,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 平台模块表内的 `@deepseek-ai/dsh-client-ui-primitives` 虽是官方组件库,但官方插件开发守则**明文禁止外部插件 require 任何 Harness Client 包**(否则宿主实现变更即失效,且抛错组件会黑掉整个槽条目).正确做法是**复制其标记,样式与行为到插件内**,只保留 `--dsw-alias-*` token 依赖,并改名到自己的类名前缀下:
 
 | 控件/范式 | 照抄要点 |
-|:---:|:---|
+|:---:|:---:|
 | Button | 基类 `inline-flex` + `gap:4px` + `radius-md`;`md` H36/padding 0 14px/14px 字号,`sm` H28/padding 0 10px/12px 字号 + `radius-sm`;`primary` = `button-primary-fill` + `label-primary-foreground`;`outline` = `0.5px border-l3`;禁用 `opacity:.4` |
 | Switch | `36x20`,`padding:2px`,`radius:999px` + `corner-shape:round`(胶囊必须显式关闭全局 superellipse),开态 `aria-checked='true'` 驱动背景 `brand-primary`,关态轨道 `border-l3`,滑块 `switch-thumb`,滑块 `translateX(16px)` + `120ms` 过渡 |
 | Input | 高 32px,`padding:0 8px`,`border:.5px border-l4`,`radius-md`,`background:bg-layer-1`,焦点只改 `border-color`,`::placeholder` 用 `label-dimmed` |

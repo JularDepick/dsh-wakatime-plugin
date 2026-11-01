@@ -13,7 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AuthManager } from '../auth'
 import type { StatsView } from '../local-store/resolve'
-import { CredentialInputError, NotAuthenticatedError } from '../errors'
+import { CredentialInputError } from '../errors'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
 import type { RuntimeConfig } from '../runtime-config'
 import { validateConfigPatch } from '../runtime-config'
@@ -51,6 +51,7 @@ const KEY_TYPES: Record<(typeof CONFIG_KEYS)[number], 'boolean' | 'string' | 'nu
 /* 枚举型配置键的合法取值 */
 const KEY_VALUES: Partial<Record<(typeof CONFIG_KEYS)[number], readonly string[]>> = {
   digitGrouping: ['thousand', 'myriad'],
+  locale: ['zh-CN', 'en-US'],
 }
 
 export class WakatimeTools {
@@ -132,12 +133,8 @@ export class WakatimeTools {
       },
       execute: async () => {
         await this.options.refresh?.()
-        try {
-          if ((await this.options.auth.getSecret()) === null) return translate('status.notConfigured')
-        } catch (error) {
-          if (error instanceof NotAuthenticatedError) return translate('status.notConfigured')
-          throw error
-        }
+        /* 战绩是本地累计量, 与凭证无关: 未配置凭证时同样输出九行(与 Web 战绩表一致),
+           凭证只影响云端合并与上报, 不影响本地统计的可读性 */
         const view = this.options.resolveStats()
         const stats = { ...view.aggregate, sessionId: '(local)', lastPromptLength: 0 }
         /* 与 Web 战绩表同名称同口径: 时长 hh:MM:ss, 平均输出速度为单位 token/s 的整数 */
@@ -172,7 +169,7 @@ export class WakatimeTools {
     const config = this.options.runtimeConfig.get()
     const status = await this.options.auth.getStatus()
     const credential = status.configured
-      ? ((status.fromEnv ? 'env ' : '') + (status.maskedSecret ?? '')).trim()
+      ? ((status.fromEnv ? translate('credential.fromEnv') + ' ' : '') + (status.maskedSecret ?? '')).trim()
       : translate('status.notConfigured')
     const lines = [
       'enabled=' + config.enabled,

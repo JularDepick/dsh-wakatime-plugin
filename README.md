@@ -100,7 +100,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.0.tgz
 - id: wakatime
   name: dsh-wakatime-plugin
   config:
-    enabled: true          # 是否启用数据上报
+    enabled: true          # 总开关: 关闭后新心跳直接丢弃, 队列里的旧心跳保留
     locale: zh-CN          # 界面语言(host 工具文案;Web UI 语言跟随 dsh web)
     reportInterval: 60     # 定时上报间隔(秒),启动时上报一次后循环
     reportEnabled: true    # 是否开启定时上报

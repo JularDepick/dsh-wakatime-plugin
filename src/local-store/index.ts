@@ -76,6 +76,12 @@ export class LocalStore {
   private legacy: LegacySource | null = null
   /* 在途迁移: 同一进程内并发点击复用同一次, 避免第二次把已转换的文件再归档一遍 */
   private migrating: Promise<StoreFile | null> | undefined
+  /* 最近一次看到的磁盘内容: 只供读取侧合并展示, 不参与本进程的增量计算 */
+  private diskView: StoreFile = emptyStore()
+  /* 本进程主动作废云端快照(换凭证): 落盘必须写空, 否则会被其它进程的旧快照顶回来 */
+  private cloudCleared = false
+  /* 进程内串行化: 落盘与重载都要读写"内存态 + 基线", 并发执行会让旧盘内容覆盖新基线 */
+  private ioChain: Promise<unknown> = Promise.resolve()
 
   constructor(options: LocalStoreOptions = {}) {
     this.options = options
@@ -121,6 +127,7 @@ export class LocalStore {
     if (data === null) data = emptyStore()
     this.data = data
     this.baseline = cloneStore(data)
+    this.diskView = cloneStore(data)
     this.mtime = await fileMtime(path)
     this.ready = true
     /* 无法识别的文件立即归档重建(不等防抖窗口);其余按防抖写回 */
@@ -131,8 +138,13 @@ export class LocalStore {
     this.scheduleSave()
   }
 
-  /* 检测其它进程是否写入过数据:有变化时并入内存,返回是否变更 */
+  /* 检测其它进程是否写入过数据:有变化时更新读取侧视图,返回是否变更 */
   async reloadIfChanged(): Promise<boolean> {
+    return this.serialize(() => this.reloadOnce())
+  }
+
+  /* reloadIfChanged 的执行体 */
+  private async reloadOnce(): Promise<boolean> {
     const path = this.path()
     const mtime = await fileMtime(path)
     if (mtime === null || mtime === this.mtime) return false
@@ -154,25 +166,32 @@ export class LocalStore {
       }
       return false
     }
-    this.data = mergeStore(disk, this.data, this.baseline)
-    /* 基线对齐到磁盘:保留"本进程未落盘增量"作为下次合并的差额 */
-    this.baseline = disk
+    /* 只更新读取侧视图, 不动内存态与基线: 若把合并结果写回内存, 其它进程的累计量会被当成
+       本进程的增量再累加一次; 若把基线抬到磁盘内容, 本进程自己的增量会在下次合并时被裁成 0 */
+    this.diskView = disk
     return true
   }
 
-  /* 当前数据快照(只读) */
+  /* 当前数据快照(只读):磁盘内容 + 本进程未落盘增量, 供界面与工具展示 */
   snapshot(): StoreFile {
-    return this.data
+    return this.view()
   }
 
   /* 本地战绩累计量 */
   stats(): StatsTotals {
-    return this.data.stats
+    return this.view().stats
   }
 
   /* 待发送状态 */
   pending(): PendingHeartbeatState {
-    return this.data.pending
+    return this.view().pending
+  }
+
+  /* 读取侧合并视图: 合并结果不写回内存, 每次读取现算 */
+  private view(): StoreFile {
+    const merged = mergeStore(this.diskView, this.data, this.baseline)
+    if (this.cloudCleared) merged.cloud = null
+    return merged
   }
 
   /* 写入本地战绩累计量(绝对累计值,合并时与本进程基线做差得到增量) */
@@ -184,6 +203,8 @@ export class LocalStore {
   /* 写入云端快照 */
   setCloud(cloud: CloudSummary | null): void {
     this.data.cloud = cloud
+    /* 主动清空必须记成"作废": 只让本进程没有快照的话, 合并时会从磁盘把旧账号的快照读回来 */
+    this.cloudCleared = cloud === null
     this.touch()
   }
 
@@ -266,7 +287,8 @@ export class LocalStore {
         }
         if (fromSnapshots) await archiveLegacySnapshots(dir)
         this.data = merged
-        this.baseline = cloneStore(merged)
+        this.baseline = cloneStore(this.data)
+        this.diskView = merged
         this.mtime = await fileMtime(path)
         this.legacy = null
         this.writeBlocked = false
@@ -289,6 +311,11 @@ export class LocalStore {
       clearTimeout(this.timer)
       this.timer = undefined
     }
+    return this.serialize(() => this.flushOnce())
+  }
+
+  /* flush 的执行体(持锁读-改-写) */
+  private async flushOnce(): Promise<boolean> {
     if (!this.ready || this.writeBlocked) return false
     const dir = resolveConfigDir()
     const path = this.path()
@@ -329,14 +356,19 @@ export class LocalStore {
         const merged = mergeStore(disk, this.data, this.baseline, (scope, count) => {
           this.options.logger?.warn?.(`[wakatime] data file ${scope} overflow, ${count} entries dropped`)
         })
+        /* 本进程主动作废了云端快照: 落盘写空, 不能让磁盘上另一进程的旧账号快照留下来 */
+        if (this.cloudCleared) merged.cloud = null
         /* 自检:合并不得让累计量变小,异常时放弃本次写入 */
         if (!isMergeSane(disk, merged)) {
           this.options.logger?.warn?.('[wakatime] merged data looks smaller than disk, skip writing')
           return false
         }
         await writeFileAtomic(path, JSON.stringify(merged, null, 2))
-        this.data = merged
-        this.baseline = cloneStore(merged)
+        /* 基线只吸收本进程自己的视图: 若抬到合并结果, 其它进程的累计量会被算进基线,
+           本进程(内存里没有那部分)的增量立刻变成负数被裁成 0, 并发 profile 下战绩会持续丢失 */
+        this.baseline = cloneStore(this.data)
+        this.diskView = merged
+        this.cloudCleared = false
         this.mtime = await fileMtime(path)
         return true
       })
@@ -348,6 +380,13 @@ export class LocalStore {
       this.options.logger?.warn?.(`[wakatime] failed to persist data file: ${reason}`)
       return false
     }
+  }
+
+  /* 进程内串行化: 落盘与重载都会读写内存态与基线, 交叉执行会让旧盘内容覆盖新基线 */
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.ioChain.then(task, task)
+    this.ioChain = run.catch(() => {})
+    return run
   }
 
   /* 刷新最后更新时刻并排一次落盘 */

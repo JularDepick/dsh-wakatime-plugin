@@ -100,7 +100,7 @@ Plugin configuration is provided through the DSH `cordis.yml`:
 - id: wakatime
   name: dsh-wakatime-plugin
   config:
-    enabled: true          # Whether to enable data reporting
+    enabled: true          # master switch: when off, new heartbeats are dropped while queued ones are kept
     locale: zh-CN          # Host tool copy language (Web UI follows the dsh web language)
     reportInterval: 60     # Scheduled report interval (seconds); reports once at startup, then loops
     reportEnabled: true    # Whether to enable scheduled reporting

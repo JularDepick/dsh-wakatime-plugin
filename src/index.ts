@@ -15,7 +15,7 @@ import { SessionEventCollector } from './collector'
 import { Config } from './config'
 import type { Config as ConfigType } from './config'
 import { ConfigManagerImpl } from './config-manager'
-import { DEFAULT_LANGUAGE, ENV_DEBUG, OFFLINE_FLUSH_INTERVAL_MS } from './constants'
+import { DEFAULT_LANGUAGE, ENV_DEBUG, OFFLINE_FLUSH_INTERVAL_MS, REPORT_INTERVAL_MAX_SECONDS } from './constants'
 import { HeartbeatEngineImpl } from './heartbeat'
 import { FetchHttpClient } from './http'
 import { LocalStore } from './local-store'
@@ -125,7 +125,9 @@ export function apply(ctx: Context, config: ConfigType) {
   let reportTimer: ReturnType<typeof setInterval> | undefined
   const scheduleReport = (): void => {
     if (reportTimer !== undefined) clearInterval(reportTimer)
-    const intervalMs = Math.max(1, runtimeConfig.get().reportInterval) * 1000
+    /* 上下界都在消费点兜一次: 手工改 config.json 或 cordis 配置可能绕过写入通道的校验,
+       超过 setInterval 可表示的毫秒上限会被 Node 当成 1ms, 退化成每毫秒推一轮 */
+    const intervalMs = Math.min(REPORT_INTERVAL_MAX_SECONDS, Math.max(1, runtimeConfig.get().reportInterval)) * 1000
     reportTimer = setInterval(() => { void pushOnce() }, intervalMs)
   }
 
@@ -195,7 +197,7 @@ export function apply(ctx: Context, config: ConfigType) {
     return true
   }
 
-  attachWebUi(ctx, { runtimeConfig, auth, heartbeat, sync: cloudSync, store, migrate: migrateLegacy })
+  attachWebUi(ctx, { runtimeConfig, auth, heartbeat, sync: cloudSync, store, migrate: migrateLegacy, logger: pluginLogger })
 
   if (isDebug()) {
     logger?.info?.('[wakatime] plugin active')

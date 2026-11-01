@@ -9,7 +9,7 @@
  * 归一化只接受当前结构版本, 旧结构交给 migrate 模块处理.
  */
 
-import { CONFIG_FILE_VERSION, DEFAULT_REPORT_INTERVAL_SECONDS } from '../constants'
+import { CONFIG_FILE_VERSION, DEFAULT_REPORT_INTERVAL_SECONDS, REPORT_INTERVAL_MAX_SECONDS } from '../constants'
 import type { StoredConfig, StoredCredential, StoredSettings } from './types'
 
 /* 数值字段尽力归一: 非有限或负数按缺省处理 */
@@ -37,7 +37,8 @@ function normalizeSettings(value: unknown): StoredSettings | undefined {
   if (typeof raw.includePrompts === 'boolean') settings.includePrompts = raw.includePrompts
   if (typeof raw.debug === 'boolean') settings.debug = raw.debug
   if (typeof raw.tableBorders === 'boolean') settings.tableBorders = raw.tableBorders
-  if (typeof raw.reportInterval === 'number' && Number.isFinite(raw.reportInterval) && raw.reportInterval >= 1) {
+  if (typeof raw.reportInterval === 'number' && Number.isFinite(raw.reportInterval)
+    && raw.reportInterval >= 1 && raw.reportInterval <= REPORT_INTERVAL_MAX_SECONDS) {
     settings.reportInterval = raw.reportInterval
   }
   if (raw.digitGrouping === 'thousand' || raw.digitGrouping === 'myriad') settings.digitGrouping = raw.digitGrouping

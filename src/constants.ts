@@ -158,6 +158,8 @@ export const ENV_DSH_HOME = 'DSH_HOME'
 export const CREDENTIAL_REJECT_LOG_INTERVAL_MS = 300_000
 /* 等待在途推送结算的最大轮数:持续有在途推送时不再无限等待,避免手动重试接口被挂住 */
 export const IDLE_WAIT_MAX_ROUNDS = 3
+/* 等待在途推送结算的总时长上限(毫秒): 只限轮次时, 连续推送期间手动重试请求要挂到数分钟 */
+export const IDLE_WAIT_TIMEOUT_MS = 5_000
 /* 手动同步(强制刷新)的自定请求头:强制刷新会驱动 host 向 WakaTime 外呼,
    无 Origin 的子资源请求(如 <img>)带不上自定头,故用它拦住跨站触发 */
 export const SYNC_FORCE_HEADER = 'x-dsh-wakatime-force'

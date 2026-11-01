@@ -33,6 +33,7 @@ import {
   PUSH_TASK_MAX_ATTEMPTS,
   REPORT_LOG_LIMIT,
   IDLE_WAIT_MAX_ROUNDS,
+  IDLE_WAIT_TIMEOUT_MS,
 } from '../constants'
 import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
@@ -87,6 +88,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private pushing = false
   /* 在途推送的完成信号(手动重试前等待它结算) */
   private inFlight: Promise<void> | undefined
+  /* 在途批次: 仍算"未送达". 落盘时若当成已出队, 卸载落盘或进程被杀就会把没确认送达的心跳一起抹掉 */
+  private inFlightBatch: PendingHeartbeatEntry[] = []
   /* 上次"凭证被拒"记录时刻:凭证持续失效时按间隔节流, 避免刷满上报记录 */
   private lastRejectLoggedAt = 0
 
@@ -131,9 +134,13 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   /* 等待在途推送结束:手动重试在推送进行中时先等这一轮结算, 再发起下一轮;
      上限轮次保证连续推送时不会把请求无限期挂住;返回结算后是否真的空闲 */
   async whenIdle(): Promise<boolean> {
+    const deadline = Date.now() + IDLE_WAIT_TIMEOUT_MS
     for (let round = 0; round < IDLE_WAIT_MAX_ROUNDS; round += 1) {
-      if (this.inFlight === undefined) return true
-      await this.inFlight.catch(() => {})
+      const task = this.inFlight
+      if (task === undefined) return true
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) break
+      await Promise.race([task.catch(() => {}), delay(remaining)])
     }
     return this.inFlight === undefined
   }
@@ -141,6 +148,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   /* 结算一批推送:成功整批出队,失败按终态/可重试分类 */
   private async deliverBatch(size: number): Promise<void> {
     const batch = this.queue.splice(0, size)
+    this.inFlightBatch = batch
     try {
       await this.deliver(batch.map((entry) => entry.heartbeat))
       /* 推送成功即视为凭证可用, 下一次被拒重新记一条 */
@@ -183,6 +191,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
       this.log('warn', `[wakatime] push failed (${terminal ? 'terminal' : 'retryable'}): ${message}`)
     } finally {
+      /* 批次已结算: 成功则条目确实不再需要, 失败则已按分类回队或进失败列表 */
+      this.inFlightBatch = []
       this.compressIfNeeded()
       this.notifyPending()
     }
@@ -221,8 +231,10 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
 
   /* 当前待发送状态快照(供落盘;返回副本) */
   pendingState(): PendingHeartbeatState {
+    /* 在途批次仍算"未送达": 落盘时若把它当成已出队, 卸载落盘或进程被杀就会把没确认送达的心跳一起抹掉 */
+    const queue = this.inFlightBatch.length === 0 ? this.queue : [...this.inFlightBatch, ...this.queue]
     return {
-      queue: this.queue.map((entry) => ({ ...entry })),
+      queue: queue.map((entry) => ({ ...entry })),
       failed: this.failed.map((task) => ({ ...task })),
       report: this.report.map((entry) => ({ ...entry })),
     }
@@ -338,6 +350,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
 
 /* 上报记录详情:心跳类别计数与项目/分支(失败行的原因另记 error,由界面并列展示)。
    内容只由心跳字段拼成,不含自然语言,故不随界面语言变化 */
+/* 定时等待: 用于给"等在途推送结算"加上时长上限 */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
+}
+
 function describeHeartbeats(entries: readonly PendingHeartbeatEntry[]): string {
   const counts = new Map<string, number>()
   const projects = new Set<string>()

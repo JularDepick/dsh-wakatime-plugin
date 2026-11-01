@@ -7,7 +7,7 @@
  */
 
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_REPORT_INTERVAL_SECONDS } from './constants'
+import { DEFAULT_REPORT_INTERVAL_SECONDS, REPORT_INTERVAL_MAX_SECONDS } from './constants'
 
 /* 数位分隔符:千位(每 3 位一组)/ 万位(每 4 位一组),两者都用英文逗号分隔 */
 export type DigitGrouping = 'thousand' | 'myriad'
@@ -16,8 +16,9 @@ export type DigitGrouping = 'thousand' | 'myriad'
 export interface Config {
   /* 是否启用数据上报:关闭时心跳直接丢弃(总开关) */
   enabled: boolean
-  /* 界面语言,取值如 zh-CN / en-US(host 工具文案;Web UI 语言跟随 dsh web) */
-  locale: string
+  /* 界面语言:只接受 zh-CN / en-US(host 工具文案;Web UI 语言跟随 dsh web);
+     写成别的值会让翻译加载失败并静默回退中文, 故在 schema 里就限定取值 */
+  locale: 'zh-CN' | 'en-US'
   /* 定时上报间隔(秒):启动加载时上报一次,之后按此间隔循环 */
   reportInterval: number
   /* 是否开启定时上报:仅控制自动推送轮(启动/定时/补推),
@@ -38,8 +39,8 @@ export interface Config {
 /* Schemastery 校验器:默认值写入 schema,无效配置在加载期响亮失败 */
 export const Config: Schema<Config> = Schema.object({
   enabled: Schema.boolean().default(true),
-  locale: Schema.string().default('zh-CN'),
-  reportInterval: Schema.number().default(DEFAULT_REPORT_INTERVAL_SECONDS),
+  locale: Schema.union([Schema.const('zh-CN'), Schema.const('en-US')]).default('zh-CN'),
+  reportInterval: Schema.number().min(1).max(REPORT_INTERVAL_MAX_SECONDS).default(DEFAULT_REPORT_INTERVAL_SECONDS),
   reportEnabled: Schema.boolean().default(true),
   includeTokens: Schema.boolean().default(true),
   includePrompts: Schema.boolean().default(true),

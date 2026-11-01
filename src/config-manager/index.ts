@@ -11,12 +11,12 @@
  * - 读取时若当前结构归一化失败, 交给 migrate 模块做一次性迁移并立即落盘.
  */
 
-import { chmod, mkdir } from 'node:fs/promises'
+import { chmod, mkdir, rename } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
 import { migrateStoredConfig } from '../migrate'
-import { archiveFile, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
 
@@ -79,19 +79,29 @@ export class ConfigManagerImpl implements ConfigManager {
         /* 读不出旧内容就不能写: 直接返回会让调用方(凭证保存/配置写入)把没落盘当成已保存 */
         if (file.state === 'unreadable') throw new Error('config file is not readable')
         let disk = normalizeStoredConfig(file.value)
+        let archivedPath: string | null = null
         if (disk === null) {
           const migrated = migrateStoredConfig(file.value)
           if (migrated !== null) {
             /* 归档失败就不写: 否则旧凭证备份会被覆盖成新结构, 失去回滚余地 */
-            if (!(await archiveFile(path, 'v2'))) throw new Error('failed to archive legacy config file')
+            archivedPath = await archiveFileWithPath(path, 'v2')
+            if (archivedPath === null) throw new Error('failed to archive legacy config file')
             disk = migrated
           } else if (file.state !== 'missing') {
-            if (!(await archiveFile(path, 'corrupt'))) throw new Error('failed to archive unreadable config file')
+            archivedPath = await archiveFileWithPath(path, 'corrupt')
+            if (archivedPath === null) throw new Error('failed to archive unreadable config file')
             disk = null
           }
         }
         const result = mergeConfig(disk ?? this.lastKnown, config)
-        await writeFileAtomic(path, JSON.stringify(result, null, 2))
+        try {
+          await writeFileAtomic(path, JSON.stringify(result, null, 2))
+        } catch (error) {
+          /* 归档成功但写盘失败: 把归档文件改回原路径, 否则下次启动读不到凭证
+             (数据侧的迁移路径同样做回滚, 两处口径保持一致) */
+          if (archivedPath !== null) await rename(archivedPath, path).catch(() => {})
+          throw error
+        }
         this.lastKnown = result
         this.mtime = await fileMtime(path)
         return result
@@ -118,7 +128,7 @@ export class ConfigManagerImpl implements ConfigManager {
     this.mtime = mtime
     if (!disk) {
       /* 损坏或结构未知: 归档留痕, 本次按无配置处理 */
-      if (file.state !== 'missing') await archiveFile(path, 'corrupt')
+      if (file.state !== 'missing') await archiveFileWithPath(path, 'corrupt')
       return null
     }
     /* 按变更时刻合并:外部新增的凭证与本次内存变化都要保留 */

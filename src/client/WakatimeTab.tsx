@@ -233,7 +233,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     })
       .then(async (response) => {
         if (response.status === 404) {
-          setNotice({ kind: 'error', text: t('logs.retryUnavailable') })
+          /* 任务已不在列表属中性状态而非失败: 用 info, 免得用户以为出错 */
+          setNotice({ kind: 'info', text: t('logs.retryUnavailable') })
           return
         }
         if (response.status === 503) {
@@ -335,8 +336,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const describeLogError = (error: string | undefined): string => {
     if (error === undefined || error === '') return ''
     if (/credential|401|403|Unauthorized|Forbidden/i.test(error)) return t('logs.errCredential')
-    if (/network|timeout|ENOTFOUND|ECONN|fetch failed|5\d\d/i.test(error)) return t('logs.errNetwork')
-    if (/^HTTP \d{3}$/.test(error)) return t('logs.errNetwork')
+    /* 服务端对载荷类错误的原文形如 "WakaTime API responded with status 422"; 不映射会把英文直出到中文界面 */
+    if (/non-JSON/i.test(error) || /status (400|404|422|429)/i.test(error)) return t('logs.errPayload')
+    if (/network|timeout|ENOTFOUND|ECONN|fetch failed|5\d\d|^HTTP \d{3}$/i.test(error)) return t('logs.errNetwork')
     return error
   }
 
@@ -387,6 +389,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (!detectCredentialType(value).ok) return
     setKeySaving(true)
     setNotice(undefined)
+    /* 服务端错误码已映射成整句本地化文案, 只有网络层失败才需要再加前缀 */
+    let localized = false
     fetch(CREDENTIAL_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -395,7 +399,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       .then(async (response) => {
         const result = await response.json() as WebCredentialResponse
         if (!response.ok || !result.ok) {
-          throw new Error(credentialErrorText(result.error) || `HTTP ${response.status}`)
+          localized = true
+          throw new Error(credentialErrorText(result.error))
         }
         return result
       })
@@ -408,8 +413,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
-        /* 前端校验与服务端错误码都已本地化, 这里只剩网络层失败, 补一条本地化前缀 */
-        setNotice({ kind: 'error', text: `${t('credential.saveFailed')}: ${(error as Error).message}` })
+        const message = (error as Error).message
+        setNotice({ kind: 'error', text: localized ? message : `${t('credential.saveFailed')}: ${message}` })
       })
       .finally(() => { setKeySaving(false) })
   }

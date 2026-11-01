@@ -57,9 +57,12 @@ function mergeList<T>(
     result.push(liveByKey.get(key) ?? item)
     known.add(key)
   }
+  /* 追加本进程新增的条目: 只以"磁盘上有没有"为判据.
+     若再要求"不在基线里", 磁盘侧压缩(相邻两条合并会把后一条的键吃掉)或超限截断
+     就会让本进程仍在内存里的条目永远写不回去 */
   for (const item of memory) {
     const key = keyOf(item)
-    if (known.has(key) || baseKeys.has(key)) continue
+    if (known.has(key)) continue
     result.push(item)
     known.add(key)
   }
