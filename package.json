@@ -18,11 +18,29 @@
     "cordis.patch.yml",
     "README.md",
     "README_en-US.md",
-    "COPYRIGHT"
+    "COPYRIGHT",
+    "scripts"
   ],
   "license": "Apache-2.0",
   "author": "JularDepick",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JularDepick/dsh-wakatime-plugin.git"
+  },
+  "homepage": "https://github.com/JularDepick/dsh-wakatime-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/JularDepick/dsh-wakatime-plugin/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "wakatime",
+    "heartbeat",
+    "time-tracking",
+    "ai-coding"
+  ],
   "engines": {
+    "node": ">=22",
     "dsh": ">=0.2.1-rc.1 <=0.2.1-rc.5"
   },
   "scripts": {
@@ -30,6 +48,7 @@
     "typecheck": "tsc --noEmit",
     "pack": "node scripts/pack.mjs",
     "postpack": "node scripts/pack.mjs --move-only",
+    "prepublishOnly": "pnpm typecheck",
     "prepare": "pnpm build"
   },
   "devDependencies": {

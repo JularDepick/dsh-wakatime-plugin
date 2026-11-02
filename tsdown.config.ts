@@ -11,7 +11,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath } from 'node:path'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
@@ -55,11 +55,13 @@ function cssModulesPlugin(pluginId: string) {
     resolveId(source: string, importer: string | undefined) {
       if (!source.endsWith('.module.css')) return null
       const abs = importer !== undefined ? resolvePath(dirname(importer), source) : source
-      return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      /* 虚拟 id 用相对仓库根的路径: 绝对路径会被 tsdown 写进产物的 //#region 注释,
+         把构建机的用户目录带进发布产物 */
+      return CSS_VIRTUAL_PREFIX + relative(process.cwd(), abs) + CSS_VIRTUAL_SUFFIX
     },
     async load(this: { addWatchFile: (id: string) => void }, virtualId: string) {
       if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-      const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+      const fileId = resolvePath(process.cwd(), virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length))
       this.addWatchFile(fileId)
       const source = await readFile(fileId)
       const { code, exports: cssExports } = transform({
@@ -109,7 +111,8 @@ export default defineConfig([
     format: 'cjs',
     platform: 'browser',
     dts: false,
-    sourcemap: true,
+    /* 不发布 source map: 它内联 6 个源文件的全文, 与 client 产物只对外暴露构建结果的口径不符 */
+    sourcemap: false,
     clean: false,
     external: [...CLIENT_EXTERNALS],
     define: {

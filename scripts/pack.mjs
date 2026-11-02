@@ -13,13 +13,31 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const cwd = process.cwd()
 const destDir = resolve(cwd, process.env.WAKATIME_PACK_DEST ?? 'release')
 /* 只迁移本包产物,避免误动同目录下的其它 tarball */
 const TARBALL_PATTERN = /^dsh-wakatime-plugin-\d+\.\d+\.\d+.*\.tgz$/
+/* 对外别名: 始终指向最新一版产物, 每次收拢后按当前版本刷新 */
+const LATEST_NAME = 'dsh-wakatime-plugin-latest.tgz'
+
+/* 用当前版本的 tarball 覆盖 latest 别名; 本版本产物还没生成时不动它 */
+function refreshLatest() {
+  let version = ''
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+    version = typeof pkg.version === 'string' ? pkg.version : ''
+  } catch {
+    return
+  }
+  if (version === '') return
+  const from = join(destDir, `dsh-wakatime-plugin-${version}.tgz`)
+  if (!existsSync(from)) return
+  copyFileSync(from, join(destDir, LATEST_NAME))
+  console.log(`[pack] 已刷新对外别名 ${join(destDir, LATEST_NAME)}`)
+}
 
 /* 把工作区根目录下的本包 tarball 迁入产物目录(同名覆盖) */
 function migrate() {
@@ -43,6 +61,7 @@ function migrate() {
     renameSync(from, to)
     console.log(`[pack] 产物已收拢到 ${to}`)
   }
+  refreshLatest()
 }
 
 if (process.argv.includes('--move-only')) {
