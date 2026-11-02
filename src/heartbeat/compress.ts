@@ -17,8 +17,12 @@ function addCounter(left: number | undefined, right: number | undefined): number
   return (left ?? 0) + (right ?? 0)
 }
 
-/* 合并相邻两条:身份与时间取较早那条,AI 计数相加 */
-export function mergeAdjacentEntries(earlier: PendingHeartbeatEntry, later: PendingHeartbeatEntry): PendingHeartbeatEntry {
+/* 合并两条的公共实现: 身份与时间取较早那条, AI 计数相加, 尝试次数由调用方给出口径 */
+function mergeEntries(
+  earlier: PendingHeartbeatEntry,
+  later: PendingHeartbeatEntry,
+  combineAttempts: (left: number, right: number) => number,
+): PendingHeartbeatEntry {
   const base = earlier.heartbeat
   const merged: Heartbeat = { ...base }
   const inputTokens = addCounter(base.ai_input_tokens, later.heartbeat.ai_input_tokens)
@@ -34,8 +38,21 @@ export function mergeAdjacentEntries(earlier: PendingHeartbeatEntry, later: Pend
   return {
     heartbeat: merged,
     enqueuedAt: Math.min(earlier.enqueuedAt, later.enqueuedAt),
-    attempts: Math.max(earlier.attempts, later.attempts),
+    attempts: combineAttempts(earlier.attempts, later.attempts),
   }
+}
+
+/* 合并相邻两条: 身份与时间取较早那条, AI 计数相加.
+   供队列超限压缩使用: 两条可能是不同时间的心跳, 尝试次数取较大者(这一批确实已被尝试过) */
+export function mergeAdjacentEntries(earlier: PendingHeartbeatEntry, later: PendingHeartbeatEntry): PendingHeartbeatEntry {
+  return mergeEntries(earlier, later, Math.max)
+}
+
+/* 合并同身份的两条(入队去重, 载入与落盘归并): 计数相加, 身份取较早那条.
+   尝试次数取较小值: 新条目没有被尝试过, 让它继承旧条目的次数会让合并后的心跳提前耗尽重试 */
+export function mergeSameIdentity(left: PendingHeartbeatEntry, right: PendingHeartbeatEntry): PendingHeartbeatEntry {
+  const [earlier, later] = left.enqueuedAt <= right.enqueuedAt ? [left, right] : [right, left]
+  return mergeEntries(earlier, later, Math.min)
 }
 
 /* 压缩结果:压缩后的队列与发生的合并次数 */

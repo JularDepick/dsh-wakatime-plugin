@@ -38,8 +38,8 @@ import {
 import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
-import { compressPendingQueue, mergeAdjacentEntries } from './compress'
-import { heartbeatKeyOf } from './identity'
+import { compressPendingQueue, mergeSameIdentity } from './compress'
+import { heartbeatKeyOf, heartbeatMergeKeyOf } from './identity'
 import type {
   FailedPushTask,
   Heartbeat,
@@ -104,20 +104,37 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.options = { ...this.options, ...patch }
   }
 
-  /* 入队一条心跳: 与队尾同身分的条目合并计数, 否则追加到队尾并按上限压缩(仅在超限时) */
+  /* 入队一条心跳: 与队内同毫秒同身份的条目合并计数, 否则追加到队尾并按上限压缩(仅在超限时) */
   enqueue(heartbeat: Heartbeat): void {
     if (!this.options.enabled) return
-    const entry: PendingHeartbeatEntry = { heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 }
-    /* 并行事件常共享同一毫秒时间戳, 逐字节相同的心跳会被服务端记为重复上报;
-       与队尾同身分时合并而非追加, 与超限压缩共用同一套相邻合并语义 */
-    const tail = this.queue[this.queue.length - 1]
-    if (tail !== undefined && heartbeatKeyOf(tail) === heartbeatKeyOf(entry)) {
-      this.queue[this.queue.length - 1] = mergeAdjacentEntries(tail, entry)
+    this.appendEntry({ heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 })
+  }
+
+  /* 统一入队入口: 并行事件常共享同一毫秒时间戳, 逐字节相同的心跳会被服务端记为重复上报,
+     故先把同毫秒同身份的已有条目找出来合并计数再决定是否追加; 手动重试也走这里, 避免绕过该不变量 */
+  private appendEntry(entry: PendingHeartbeatEntry): void {
+    const index = this.findSameIdentity(entry)
+    const existing = index >= 0 ? this.queue[index] : undefined
+    if (existing !== undefined) {
+      this.queue[index] = mergeSameIdentity(existing, entry)
     } else {
       this.queue.push(entry)
     }
     this.compressIfNeeded()
     this.notifyPending()
+  }
+
+  /* 从队尾向前找同身份的条目: 遇到时间戳不同的条目立即停止.
+     队列基本按时间追加, 同一毫秒的条目必然连续落在队尾附近, 回扫成本与同毫秒条目数同阶 */
+  private findSameIdentity(entry: PendingHeartbeatEntry): number {
+    const key = heartbeatMergeKeyOf(entry)
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const candidate = this.queue[index]
+      if (candidate === undefined) continue
+      if (candidate.heartbeat.time !== entry.heartbeat.time) break
+      if (heartbeatMergeKeyOf(candidate) === key) return index
+    }
+    return -1
   }
 
   /* 推送一轮:取队首一批发送并结算结果;
@@ -212,7 +229,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     if (index < 0) return false
     const [task] = this.failed.splice(index, 1)
     if (!task) return false
-    this.queue.push({ heartbeat: task.heartbeat, enqueuedAt: Date.now(), attempts: 0 })
+    this.appendEntry({ heartbeat: task.heartbeat, enqueuedAt: Date.now(), attempts: 0 })
     for (const entry of this.report) {
       if (entry.taskId === id && entry.state === 'failed') entry.state = 'retried'
     }
@@ -222,15 +239,36 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   }
 
   /* 载入待发送状态并与当前队列合并:启动时用,启动瞬间已入队的心跳不会被覆盖;
-     载入的条目与内存里已有的同标识条目只保留内存侧(避免启动竞态造成重复上报) */
+     磁盘条目先按身份归并(旧版本写下的同毫秒重复心跳各带自己的计数, 单纯按集合过滤会把其中一条整条丢掉),
+     与内存里已有条目同身份时合并计数而不是丢弃, 避免丢掉磁盘侧的 Token 计数与已耗费次数 */
   restorePending(state: PendingHeartbeatState): void {
-    const queued = new Set(this.queue.map(heartbeatKeyOf))
-    const restored = state.queue.filter((entry) => !queued.has(heartbeatKeyOf(entry)))
+    const restoredByKey = new Map<string, PendingHeartbeatEntry>()
+    for (const entry of state.queue) {
+      const key = heartbeatKeyOf(entry)
+      const existing = restoredByKey.get(key)
+      restoredByKey.set(key, existing === undefined ? { ...entry } : mergeSameIdentity(existing, entry))
+    }
+    /* 内存侧同身份只取第一条: 本进程队列不应出现同身份重复, 出现时以靠前者为合并基底 */
+    const memoryIndex = new Map<string, number>()
+    this.queue.forEach((entry, index) => {
+      const key = heartbeatKeyOf(entry)
+      if (!memoryIndex.has(key)) memoryIndex.set(key, index)
+    })
+    const appended: PendingHeartbeatEntry[] = []
+    for (const [key, entry] of restoredByKey) {
+      const index = memoryIndex.get(key)
+      const target = index === undefined ? undefined : this.queue[index]
+      if (index !== undefined && target !== undefined) {
+        this.queue[index] = mergeSameIdentity(target, entry)
+      } else {
+        appended.push(entry)
+      }
+    }
     const failedIds = new Set(this.failed.map((task) => task.id))
     const restoredFailed = state.failed.filter((task) => !failedIds.has(task.id))
     const reportIds = new Set(this.report.map((entry) => entry.id))
     const restoredReport = state.report.filter((entry) => !reportIds.has(entry.id))
-    this.queue = [...restored.map((entry) => ({ ...entry })), ...this.queue]
+    this.queue = [...appended, ...this.queue]
     this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed]
     this.report = [...restoredReport.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
     this.compressIfNeeded()
@@ -454,18 +492,25 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
   /* buffer 为旧版字段(单缓冲模型),按队列条目迁移 */
   const legacyBuffer = Array.isArray(raw.buffer) ? raw.buffer : []
   const queueRaw = [...legacyBuffer, ...(Array.isArray(raw.queue) ? raw.queue : [])].slice(-PENDING_QUEUE_LIMIT)
+  /* 同身份条目归并计数: 旧版本写下的同毫秒重复心跳各带自己的 Token 计数,
+     按集合去重会整条丢一条, 按身份合并才不丢量 */
+  const queueByKey = new Map<string, PendingHeartbeatEntry>()
   for (const item of queueRaw) {
     if (typeof item !== 'object' || item === null) continue
     /* 旧版条目是裸心跳,新版是 { heartbeat, enqueuedAt, attempts } */
     const candidate = 'heartbeat' in item ? (item as { heartbeat?: unknown, enqueuedAt?: unknown, attempts?: unknown }) : undefined
     const heartbeat = normalizeHeartbeat(candidate ? candidate.heartbeat : item)
     if (!heartbeat) continue
-    state.queue.push({
+    const entry: PendingHeartbeatEntry = {
       heartbeat,
       enqueuedAt: nonNegative(candidate?.enqueuedAt, 0),
       attempts: nonNegative(candidate?.attempts, 0),
-    })
+    }
+    const key = heartbeatKeyOf(entry)
+    const existing = queueByKey.get(key)
+    queueByKey.set(key, existing === undefined ? entry : mergeSameIdentity(existing, entry))
   }
+  state.queue = [...queueByKey.values()]
   if (Array.isArray(raw.failed)) {
     for (const item of raw.failed.slice(-FAILED_TASK_LIMIT)) {
       if (typeof item !== 'object' || item === null) continue
