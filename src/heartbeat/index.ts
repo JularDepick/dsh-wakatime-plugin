@@ -38,7 +38,7 @@ import {
 import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
-import { compressPendingQueue } from './compress'
+import { compressPendingQueue, mergeAdjacentEntries } from './compress'
 import { heartbeatKeyOf } from './identity'
 import type {
   FailedPushTask,
@@ -104,10 +104,18 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.options = { ...this.options, ...patch }
   }
 
-  /* 入队一条心跳:追加到队尾并按上限压缩(仅在超限时) */
+  /* 入队一条心跳: 与队尾同身分的条目合并计数, 否则追加到队尾并按上限压缩(仅在超限时) */
   enqueue(heartbeat: Heartbeat): void {
     if (!this.options.enabled) return
-    this.queue.push({ heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 })
+    const entry: PendingHeartbeatEntry = { heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 }
+    /* 并行事件常共享同一毫秒时间戳, 逐字节相同的心跳会被服务端记为重复上报;
+       与队尾同身分时合并而非追加, 与超限压缩共用同一套相邻合并语义 */
+    const tail = this.queue[this.queue.length - 1]
+    if (tail !== undefined && heartbeatKeyOf(tail) === heartbeatKeyOf(entry)) {
+      this.queue[this.queue.length - 1] = mergeAdjacentEntries(tail, entry)
+    } else {
+      this.queue.push(entry)
+    }
     this.compressIfNeeded()
     this.notifyPending()
   }
