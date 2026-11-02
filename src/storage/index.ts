@@ -10,7 +10,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { readdir, stat, unlink } from 'node:fs/promises'
+import { open, readFile, rename, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
+import { STALE_TEMP_MAX_AGE_MS } from '../constants'
 
 export interface LockOptions {
   /* 锁文件最长存活时长, 超过视为陈旧锁 */
@@ -51,11 +54,24 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       const age = await lockAge(lockPath)
       /* 陈旧锁:持有进程可能已异常退出, 清除后立刻重试.
-         stat 到 unlink 之间别的进程可能已清掉旧锁并建了新锁, 删前重新取一次年龄并确认还能读到内容 */
+         stat 与 unlink 之间别的进程可能已清掉旧锁并建了新锁, 因此先把锁改名"认领"下来(rename 原子),
+         再核对认领到的内容是否就是判陈旧时读到的那一把; 内容不符说明抢到的是别人刚建的新锁, 原样放回 */
       if (age !== null && age > options.ttlMs) {
-        const recheck = await lockAge(lockPath)
         const content = await readFile(lockPath, 'utf-8').catch(() => null)
-        if (recheck !== null && recheck > options.ttlMs && content !== null) await unlink(lockPath).catch(() => {})
+        if (content !== null) {
+          const claimPath = `${lockPath}.stale.${process.pid}.${randomUUID().slice(0, 8)}`
+          const claimed = await rename(lockPath, claimPath).then(() => true, () => false)
+          if (claimed) {
+            const claimedContent = await readFile(claimPath, 'utf-8').catch(() => null)
+            if (claimedContent === content) {
+              await unlink(claimPath).catch(() => {})
+            } else {
+              const restored = await rename(claimPath, lockPath).then(() => true, () => false)
+              /* 放不回去说明原路径已被新锁占住, 认领到的这份是过期副本, 直接删掉 */
+              if (!restored) await unlink(claimPath).catch(() => {})
+            }
+          }
+        }
         continue
       }
       if (attempt === options.retries) throw new Error('storage lock timeout')
@@ -110,6 +126,33 @@ export async function writeFileAtomic(path: string, text: string, mode = 0o600):
     await unlink(temp).catch(() => {})
     throw error
   }
+}
+
+/* 清理原子写残留: 进程被杀会在数据目录留下 "<文件名>.<pid>.<时间戳>.<随机>.tmp",
+   启动时只删除超过 STALE_TEMP_MAX_AGE_MS 的, 避免误删其它进程正在写的临时文件 */
+export async function cleanupStaleTempFiles(path: string): Promise<number> {
+  const dir = dirname(path)
+  const prefix = basename(path) + '.'
+  let names: string[]
+  try {
+    names = await readdir(dir)
+  } catch {
+    return 0
+  }
+  let removed = 0
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
+    const temp = join(dir, name)
+    try {
+      const info = await stat(temp)
+      if (Date.now() - info.mtimeMs < STALE_TEMP_MAX_AGE_MS) continue
+      await unlink(temp)
+      removed += 1
+    } catch {
+      /* 已被别的进程清理或无权访问: 跳过 */
+    }
+  }
+  return removed
 }
 
 /* 文件 mtime;不存在或失败返回 null(用于检测其它进程的写入) */

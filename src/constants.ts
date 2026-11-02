@@ -9,6 +9,9 @@
 /* 翻译文件相关 */
 export const DEFAULT_LANGUAGE = 'zh-CN'
 export const FALLBACK_LANGUAGE = 'zh-CN'
+/* 支持的界面语言(host 工具文案): 与 src/translation 下的 xx-YY.ini 一一对应,
+   同时作为 cordis schema 与持久化设置的取值白名单 */
+export const SUPPORTED_LANGUAGES = ['zh-CN', 'en-US'] as const
 
 /* 凭证与配置存放位置(dsh home 的 plugins 下) */
 export const CONFIG_DIR_NAME = 'wakatime'
@@ -24,6 +27,10 @@ export const STORE_FILE_VERSION = 3
 export const CONFIG_FILE_VERSION = 3
 /* 统计变更触发落盘的防抖窗口(毫秒):避免高频统计变更频繁写盘 */
 export const BUCKET_SAVE_DEBOUNCE_MS = 2000
+/* 落盘失败后的重排间隔(毫秒):首次失败后按此值起跳, 每次失败翻倍至上限, 成功落盘即复位.
+   不加这一层时, 安静期只有下一次数据变更才会重试, 期间进程被杀就丢掉内存里的增量 */
+export const PERSIST_RETRY_BASE_MS = 5_000
+export const PERSIST_RETRY_MAX_MS = 60_000
 /* 跨进程互斥:锁文件名与等待参数(同一数据目录可能被多个 dsh profile 进程同时写入) */
 export const BUCKET_LOCK_FILE_NAME = 'buckets.lock'
 export const CONFIG_LOCK_FILE_NAME = 'config.lock'
@@ -36,6 +43,9 @@ export const STORAGE_LOCK_RETRIES = 10
 export const STORAGE_LOCK_BACKOFF_MS = 50
 /* 持锁期间的续期间隔(毫秒): 刷新锁文件时间戳,避免长事务被其它进程判为陈旧锁 */
 export const STORAGE_LOCK_RENEW_MS = 2_000
+/* 原子写残留的临时文件多久后视为可清理(进程被杀会留下 <文件名>.<pid>.<时间戳>.<随机>.tmp,
+   启动时按龄清理; 时限要远大于一次写入耗时, 避免误删其它进程正在写的临时文件) */
+export const STALE_TEMP_MAX_AGE_MS = 6 * 60 * 60 * 1000
 /* 展示用模糊凭证:保留首尾各该字符数,其余以 * 代替(明文绝不出后端) */
 export const KEY_MASK_EDGE_CHARS = 8
 /* 打码中间段固定星号个数(不按实际隐藏位数展开, 避免长度泄露与视觉噪音) */
@@ -57,6 +67,9 @@ export const LEGACY_HEARTBEAT_FILE_NAME = 'heartbeats.json'
 export const GIT_DIR_NAME = '.git'
 export const GIT_ROOT_MAX_DEPTH = 64
 export const BRANCH_CACHE_TTL_MS = 5000
+/* 未命中仓库的负缓存时长(毫秒): 命中仓库可永久缓存, 未命中必须是短缓存,
+   否则会话目录之后 git init 也会被一直当成非仓库(项目名退化为目录名) */
+export const PROJECT_MISS_CACHE_TTL_MS = 60_000
 
 /* WakaTime REST API */
 export const WAKATIME_API_BASE = 'https://wakatime.com/api/v1'
@@ -128,8 +141,10 @@ export const AI_SESSION_GLOBAL_ID = 'dsh_waka_time_plugin'
 /* 提示词 Token 估算系数:字符数 ÷ 系数 ≈ Token 数(无官方 tokenizer 时的近似口径) */
 export const PROMPT_TOKEN_ESTIMATE_DIVISOR = 1.5
 
-/* 会话采集:进行中的步骤计时缓存上限(被中断的步骤不会继续累积,超限淘汰最旧的计时) */
+/* 会话采集:进行中的步骤计时缓存上限与被中断步骤的保留时长.
+   超限先按龄淘汰(超过保留时长仍无结算的步骤视为已中断), 再按上限淘汰最旧的 */
 export const STEP_TIMING_LIMIT = 512
+export const STEP_TIMING_MAX_AGE_MS = 30 * 60 * 1000
 
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'

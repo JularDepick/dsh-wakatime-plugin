@@ -19,6 +19,8 @@ import {
   BUCKET_FILE_NAME,
   BUCKET_LOCK_FILE_NAME,
   BUCKET_SAVE_DEBOUNCE_MS,
+  PERSIST_RETRY_BASE_MS,
+  PERSIST_RETRY_MAX_MS,
   STORAGE_LOCK_BACKOFF_MS,
   STORAGE_LOCK_RENEW_MS,
   STORAGE_LOCK_RETRIES,
@@ -28,10 +30,10 @@ import {
 import { hardenPathPermissions, resolveConfigDir } from '../config-manager'
 import type { PendingHeartbeatState } from '../heartbeat'
 import { archiveLegacySnapshots, loadLegacySnapshots, migrateStoreFile } from '../migrate'
-import { archiveFile, archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFileWithPath, cleanupStaleTempFiles, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import type { StatsTotals } from '../stats'
 import type { CloudSummary } from '../sync'
-import { isMergeSane, mergeStore } from './merge'
+import { mergeStore } from './merge'
 import { emptyStore, normalizeStore } from './normalize'
 import type { StoreFile } from './types'
 
@@ -82,6 +84,8 @@ export class LocalStore {
   private cloudCleared = false
   /* 进程内串行化: 落盘与重载都要读写"内存态 + 基线", 并发执行会让旧盘内容覆盖新基线 */
   private ioChain: Promise<unknown> = Promise.resolve()
+  /* 落盘失败后的重排间隔: 首次失败按基数起跳, 每次失败翻倍至上限, 成功落盘即复位 */
+  private persistRetryDelay = 0
 
   constructor(options: LocalStoreOptions = {}) {
     this.options = options
@@ -94,6 +98,11 @@ export class LocalStore {
   async load(): Promise<void> {
     const path = this.path()
     const file = await readJsonFileState(path)
+    /* 清掉被杀的进程留下的原子写临时文件(只删超过时限的, 不碰其它进程正在写的) */
+    const removedTemps = await cleanupStaleTempFiles(path)
+    if (removedTemps > 0) {
+      this.options.logger?.warn?.(`[wakatime] removed ${removedTemps} stale temp files from data directory`)
+    }
     let data = normalizeStore(file.value)
     let needsRewrite = false
     /* 数据文件版本高于本插件支持的版本(降级并存或未来版本):不认识而非损坏,
@@ -265,10 +274,6 @@ export class LocalStore {
         }
         /* 旧数据为基底, 叠加本进程运行期的增量(迁移前采集的心跳不丢) */
         const merged = mergeStore(legacy, this.data, this.baseline)
-        if (!isMergeSane(legacy, merged)) {
-          this.options.logger?.warn?.('[wakatime] merged data looks smaller than legacy, migration aborted')
-          return null
-        }
         /* 只有磁盘确实还是旧结构时才归档: 已归档表示旧文件被挪走, 调用方据此回滚 */
         let archivedPath: string | null = null
         if (current === null && !fromSnapshots) {
@@ -335,6 +340,7 @@ export class LocalStore {
           return false
         }
         let disk = normalizeStore(file.value)
+        let archivedPath: string | null = null
         if (disk === null) {
           if (migrateStoreFile(file.value) !== null) {
             /* 旧结构一直存在: 未经界面确认不转换也不覆盖, 交由用户点击迁移 */
@@ -345,30 +351,44 @@ export class LocalStore {
           }
           if (file.state === 'missing') disk = emptyStore()
           else {
-            /* 损坏或结构未知: 先归档(重命名)再重建, 归档后原路径已不存在, 本次可正常写入 */
+            /* 损坏或结构未知: 先归档(重命名)再重建. 归档失败不写;
+               归档成功但随后写盘失败时要把原文件改回去, 否则原路径留下空洞 */
             const tag = file.state === 'corrupt' ? 'corrupt' : 'unknown'
-            const archived = await archiveFile(path, tag)
+            archivedPath = await archiveFileWithPath(path, tag)
+            if (archivedPath === null) {
+              this.options.logger?.warn?.(`[wakatime] failed to archive unrecognized data file as *.${tag}.*.bak, skip writing`)
+              return false
+            }
             this.options.logger?.warn?.(`[wakatime] data file archived as *.${tag}.*.bak, recreating`)
-            if (!archived) return false
             disk = emptyStore()
           }
         }
-        const merged = mergeStore(disk, this.data, this.baseline, (scope, count) => {
+        /* 写盘期间采集面仍会改写内存态: 先拍一份快照, 合并结果与基线都用它.
+           若改为 await 之后再拍基线, 窗口内到达的增量只被基线吸收而从未写盘,
+           下次差值为 0, 这部分数据永久丢失 */
+        const snapshot = cloneStore(this.data)
+        const merged = mergeStore(disk, snapshot, this.baseline, (scope, count) => {
           this.options.logger?.warn?.(`[wakatime] data file ${scope} overflow, ${count} entries dropped`)
         })
         /* 本进程主动作废了云端快照: 落盘写空, 不能让磁盘上另一进程的旧账号快照留下来 */
         if (this.cloudCleared) merged.cloud = null
-        /* 自检:合并不得让累计量变小,异常时放弃本次写入 */
-        if (!isMergeSane(disk, merged)) {
-          this.options.logger?.warn?.('[wakatime] merged data looks smaller than disk, skip writing')
-          return false
+        try {
+          await writeFileAtomic(path, JSON.stringify(merged, null, 2))
+        } catch (error) {
+          if (archivedPath !== null) {
+            const restored = await rename(archivedPath, path).then(() => true, () => false)
+            if (!restored) {
+              this.options.logger?.warn?.('[wakatime] failed to restore archived data file, original bytes remain in the .bak file')
+            }
+          }
+          throw error
         }
-        await writeFileAtomic(path, JSON.stringify(merged, null, 2))
-        /* 基线只吸收本进程自己的视图: 若抬到合并结果, 其它进程的累计量会被算进基线,
+        /* 基线只吸收本进程写出去的那份视图: 若抬到合并结果, 其它进程的累计量会被算进基线,
            本进程(内存里没有那部分)的增量立刻变成负数被裁成 0, 并发 profile 下战绩会持续丢失 */
-        this.baseline = cloneStore(this.data)
+        this.baseline = snapshot
         this.diskView = merged
         this.cloudCleared = false
+        this.persistRetryDelay = 0
         this.mtime = await fileMtime(path)
         return true
       })
@@ -378,8 +398,21 @@ export class LocalStore {
       /* 落盘失败(锁超时/只读目录/磁盘满)时明确告警: 静默会让"数据没保存"变成无痕故障 */
       const reason = error instanceof Error ? error.message : String(error)
       this.options.logger?.warn?.(`[wakatime] failed to persist data file: ${reason}`)
+      this.schedulePersistRetry()
       return false
     }
+  }
+
+  /* 落盘失败后的重排: 间隔按失败次数翻倍至上限, 一次成功落盘即复位.
+     不加这一层时, 安静期只有下一次数据变更才会再落盘, 期间进程被杀就丢掉内存里的增量 */
+  private schedulePersistRetry(): void {
+    this.persistRetryDelay = this.persistRetryDelay === 0
+      ? PERSIST_RETRY_BASE_MS
+      : Math.min(this.persistRetryDelay * 2, PERSIST_RETRY_MAX_MS)
+    if (this.timer !== undefined) return
+    if (this.legacy !== null || this.writeBlocked) return
+    this.timer = setTimeout(() => { void this.flush() }, this.persistRetryDelay)
+    this.timer.unref?.()
   }
 
   /* 进程内串行化: 落盘与重载都会读写内存态与基线, 交叉执行会让旧盘内容覆盖新基线 */

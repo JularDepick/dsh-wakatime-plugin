@@ -146,12 +146,4 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
   }
 }
 
-/* 自检: 合并结果不得让累计量变小(防合并逻辑错误写坏数据) */
-export function isMergeSane(disk: StoreFile, merged: StoreFile): boolean {
-  for (const metric of TOTAL_KEYS) {
-    if (merged.stats[metric] < disk.stats[metric]) return false
-  }
-  return true
-}
-
 export type { PendingHeartbeatEntry }
