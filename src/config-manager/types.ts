@@ -18,14 +18,16 @@ export interface StoredCredential {
   updatedAt: number
 }
 
-/* settings 块: 与 Config 字段一致的持久化形态(可缺省) */
+/* settings 块: 只记录用户在界面上显式改过的键(可缺省).
+   缺省的键回落到 cordis.yml 的配置, 因此这里不能写入默认值, 否则界面上任意一次写入
+   都会把全部配置项钉死, 之后修改 cordis.yml 静默失效 */
 export interface StoredSettings {
-  enabled: boolean
-  reportInterval: number
-  reportEnabled: boolean
-  includeTokens: boolean
-  includePrompts: boolean
-  debug: boolean
+  enabled?: boolean
+  reportInterval?: number
+  reportEnabled?: boolean
+  includeTokens?: boolean
+  includePrompts?: boolean
+  debug?: boolean
   /* 战绩表边框开关(纯展示项) */
   tableBorders?: boolean
   /* 数位分隔符(纯展示项) */

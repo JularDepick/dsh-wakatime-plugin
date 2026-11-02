@@ -12,7 +12,6 @@ import {
   ANONYMOUS_DISPLAY_NAME,
   CLOUD_SUMMARY_RANGE,
   CONFIG_FILE_VERSION,
-  DEFAULT_REPORT_INTERVAL_SECONDS,
   ENV_OAUTH_TOKEN,
   SUMMARIES_PATH,
   USER_INFO_PATH,
@@ -62,20 +61,11 @@ function withTimeout<T>(task: (signal: AbortSignal) => Promise<T>, ms: number): 
   return task(controller.signal).finally(() => { clearTimeout(timer) })
 }
 
-/* 默认 settings(与 Config 默认值对齐) */
-function defaultSettings(): StoredConfig['settings'] {
-  return {
-    enabled: true,
-    reportInterval: DEFAULT_REPORT_INTERVAL_SECONDS,
-    reportEnabled: true,
-    includeTokens: true,
-    includePrompts: true,
-    debug: false,
-  }
-}
-
+/* 首次落盘的配置骨架: settings 留空.
+   若在这里写入默认值, 用户仅仅保存一次凭证就会把 6 个上报相关配置项钉死,
+   之后修改 cordis.yml 的同名项静默失效(包括上报总开关与 Token 与提示词开关) */
 function emptyConfig(): StoredConfig {
-  return { version: CONFIG_FILE_VERSION, settings: defaultSettings() }
+  return { version: CONFIG_FILE_VERSION, settings: {} }
 }
 
 export class AuthManagerImpl implements AuthManager {

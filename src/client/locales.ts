@@ -77,6 +77,7 @@ export type WakatimeKey =
   | 'logs.errCredential'
   | 'logs.errNetwork'
   | 'logs.errPayload'
+  | 'logs.errRateLimit'
   | 'logs.retryUnavailable'
   | 'logs.retryBusy'
   | 'logs.retryFailed'
@@ -184,6 +185,7 @@ export const zh: WakatimeDict = {
   'logs.errCredential': '凭证失效或权限不足',
   'logs.errNetwork': '网络或服务端异常',
   'logs.errPayload': '上报被服务端拒绝(载荷或端点不被接受)',
+  'logs.errRateLimit': '被 WakaTime 限流, 稍后会自动重试',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
   'logs.retryFailed': '重试失败',
@@ -289,6 +291,7 @@ export const en: WakatimeDict = {
   'logs.errCredential': 'credential rejected or lacking permission',
   'logs.errNetwork': 'network or upstream error',
   'logs.errPayload': 'Rejected by the server (payload or endpoint not accepted)',
+  'logs.errRateLimit': 'Rate limited by WakaTime; it will retry automatically',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
   'logs.retryFailed': 'Retry failed',

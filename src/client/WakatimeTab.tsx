@@ -337,7 +337,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (error === undefined || error === '') return ''
     if (/credential|401|403|Unauthorized|Forbidden/i.test(error)) return t('logs.errCredential')
     /* 服务端对载荷类错误的原文形如 "WakaTime API responded with status 422"; 不映射会把英文直出到中文界面 */
-    if (/non-JSON/i.test(error) || /status (400|404|422|429)/i.test(error)) return t('logs.errPayload')
+    /* 429 是限流而不是载荷问题: 单列一条文案, 否则持续限流耗尽重试后会误导成端点不被接受 */
+    if (/status 429|rate limit/i.test(error)) return t('logs.errRateLimit')
+    if (/non-JSON/i.test(error) || /status (400|404|422)/i.test(error)) return t('logs.errPayload')
     if (/network|timeout|ENOTFOUND|ECONN|fetch failed|5\d\d|^HTTP \d{3}$/i.test(error)) return t('logs.errNetwork')
     return error
   }

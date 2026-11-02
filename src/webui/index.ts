@@ -77,9 +77,16 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
     /* 统一兜底:处理器异常(如落盘失败)时回 500,避免请求悬挂与未处理的 Promise 拒绝 */
     const safe = (handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>) =>
       (req: IncomingMessage, res: ServerResponse): void => {
-        void handler(req, res).catch(() => {
+        void handler(req, res).catch((error: unknown) => {
+          /* 处理器异常一律留痕: 只回 500 不记日志会让落盘失败与鉴权失败无法排查 */
+          const reason = error instanceof Error ? error.message : String(error)
+          deps.logger?.warn?.('[wakatime] web request failed: ' + reason)
           if (res.headersSent) {
             if (!res.writableEnded) res.end()
+            return
+          }
+          if (error instanceof PayloadTooLargeError) {
+            writeJson(res, 413, { ok: false, error: 'payload too large' })
             return
           }
           writeJson(res, 500, { ok: false, error: 'internal error' })
@@ -111,8 +118,7 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
 
 async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   /* 其它 profile 进程可能刚写过数据:先按 mtime 并入, 界面立即看到对方增量 */
@@ -145,8 +151,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
 
 async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   if (!guardRequest(req, res)) return
@@ -175,8 +180,7 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
 /* 保存或更换凭证:服务端验证通过后覆盖保存;更换后本地数据保留 */
 async function handleCredential(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   if (!guardRequest(req, res)) return
@@ -214,8 +218,7 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
 /* 清除已保存凭证(本地数据保留) */
 async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   if (!guardRequest(req, res)) return
@@ -234,8 +237,7 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
 /* 上报记录:失败任务附带心跳对象与尝试次数,供前端渲染重试入口 */
 async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   /* 其它 profile 进程的上报记录也并进来:先按 mtime 同步磁盘, 再与进程内记录按 id 合并 */
@@ -271,8 +273,7 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
 /* 手动重试一条失败任务:移回推送队列并立即尝试一轮 */
 async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   if (!guardRequest(req, res)) return
@@ -295,12 +296,13 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
   /* 在途推送先结算, 再发起一轮:避免 push() 因重入保护直接返回造成"假成功";
      两者任一没真正推进都不算已重试, 由前端按 busy 提示而不是显示成功 */
   const idle = await deps.heartbeat.whenIdle()
-  const pushed = idle ? await deps.heartbeat.push() : false
-  if (!pushed) {
-    /* 任务已移回队尾, 会在下一个补推轮送出, 本次只是没能立刻投递 */
+  if (!idle) {
+    /* 本轮推送一直没结算: 任务已移回队尾, 会在下一轮送出 */
     writeJson(res, 503, { ok: false, error: 'push busy' } satisfies WebRetryResponse)
     return
   }
+  /* 已空闲却没能发起推送, 说明上报总开关关闭或队列为空: 任务已入队, 不算失败 */
+  await deps.heartbeat.push()
   const body: WebRetryResponse = { ok: true }
   writeJson(res, 200, body)
 }
@@ -309,8 +311,7 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
    请求头带强制刷新标记时跳过缓存;未配置凭证或失败均返回可读原因 */
 async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'GET') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   /* 同步会写云端快照, 属有副作用操作: 带 Origin 时要求同源 */
@@ -334,8 +335,7 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
 /* 迁移检测到的旧版数据: 由界面上的红字提示触发; 成功后返回迁移后的战绩视图 */
 async function handleMigrate(req: IncomingMessage, res: ServerResponse, deps: WebUiDeps): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405)
-    res.end()
+    methodNotAllowed(res)
     return
   }
   if (!guardRequest(req, res)) return
@@ -419,6 +419,9 @@ function sanitizePatch(value: unknown): WebConfigPatch | undefined {
   return patch
 }
 
+/* 请求体超限: 由 safe() 映射为 413, 与其它错误区分开 */
+class PayloadTooLargeError extends Error {}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = ''
@@ -426,12 +429,17 @@ function readBody(req: IncomingMessage): Promise<string> {
       data += chunk.toString('utf8')
       if (data.length > BODY_LIMIT) {
         req.destroy()
-        reject(new Error('request body too large'))
+        reject(new PayloadTooLargeError('request body too large'))
       }
     })
     req.on('end', () => resolve(data))
     req.on('error', reject)
   })
+}
+
+/* 方法不允许: 与其它失败一样回 JSON 体, 避免前端与脚本拿到空响应 */
+function methodNotAllowed(res: ServerResponse): void {
+  writeJson(res, 405, { ok: false, error: 'method not allowed' })
 }
 
 function writeJson(res: ServerResponse, code: number, body: unknown): void {

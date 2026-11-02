@@ -9,7 +9,7 @@
 
 import type { Config } from './config'
 import type { ConfigManager, StoredConfig } from './config-manager'
-import { CONFIG_FILE_VERSION, REPORT_INTERVAL_MAX_SECONDS } from './constants'
+import { CONFIG_FILE_VERSION, REPORT_INTERVAL_MAX_SECONDS, SUPPORTED_LANGUAGES } from './constants'
 
 /* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
 /* 配置值范围校验:返回不合法的键名, 合法时返回 null(Web 与工具两条写入通道共用) */
@@ -46,7 +46,7 @@ export class RuntimeConfig {
   async update(patch: WebConfigPatch): Promise<Config> {
     const next = { ...this.current, ...patch }
     /* 先落盘再改内存: 落盘失败时内存配置与订阅者仍与磁盘一致, 不会出现"界面显示已改、重启回退" */
-    await this.persist(next)
+    await this.persist(patch)
     this.current = next
     this.notify()
     return this.current
@@ -63,6 +63,12 @@ export class RuntimeConfig {
     /* 从磁盘恢复的 settings 也要过一遍范围校验: 手工改文件写进越界值时不能直接生效 */
     const invalid = validateConfigPatch(patch)
     if (invalid !== null) delete patch[invalid as keyof WebConfigPatch]
+    /* 语言只接受白名单值: 持久化文件里的非法值不能生效, 否则翻译加载失败并静默回退中文 */
+    const stored = patch as { locale?: unknown }
+    if (stored.locale !== undefined
+      && (typeof stored.locale !== 'string' || !(SUPPORTED_LANGUAGES as readonly string[]).includes(stored.locale))) {
+      delete stored.locale
+    }
     if (Object.keys(patch).length === 0) return
     this.current = { ...this.current, ...patch }
     this.notify()
@@ -74,20 +80,13 @@ export class RuntimeConfig {
     return () => { this.listeners.delete(listener) }
   }
 
-  private async persist(config: Config): Promise<void> {
+  private async persist(patch: WebConfigPatch): Promise<void> {
     const stored = await this.configManager.load()
-    const settings: StoredSettings = {
-      ...(stored?.settings ?? {}),
-      enabled: config.enabled,
-      reportInterval: config.reportInterval,
-      reportEnabled: config.reportEnabled,
-      includeTokens: config.includeTokens,
-      includePrompts: config.includePrompts,
-      debug: config.debug,
-      tableBorders: config.tableBorders,
-      digitGrouping: config.digitGrouping,
-      /* host 工具文案语言(Web UI 语言跟随 dsh web,不经此通道) */
-      locale: config.locale,
+    /* 只落本次显式改动的键: 把全部配置项都写进 settings 会让之后修改 cordis.yml 静默失效 */
+    const settings: StoredSettings = { ...(stored?.settings ?? {}) }
+    for (const key of Object.keys(patch) as (keyof WebConfigPatch)[]) {
+      const value = patch[key]
+      if (value !== undefined) (settings as Record<string, unknown>)[key] = value
     }
     await this.configManager.save({
       ...(stored ?? { version: CONFIG_FILE_VERSION, settings }),
