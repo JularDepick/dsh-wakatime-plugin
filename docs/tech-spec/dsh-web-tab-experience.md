@@ -21,7 +21,7 @@
 | 槽名 | `conversation.view`(官方声明于 `@deepseek-ai/dsh-client-ui-conversation/client`) |
 | kind / scope | list / session |
 | 注册 options | `id`,`order`,`label`(可为 `() => string` 跟随语言) |
-| owner props | `inspect` / `onInspectDone`(跨视图检查交接,可选,不消费即可) |
+| owner props | `inspectCall` / `viewRequest` / `openView` / `completeViewRequest`(0.2.1 起由 `inspect` / `onInspectDone` 改名, 跨视图检查交接, 可选, 不消费即可) |
 | 组件 props | `PropsRuntime<'conversation.view'>`(含会话座位 sessionId/useSession/useSessions,**不强制使用**) |
 
 ### 注册代码(官方 ui-trajectory 同模式)
@@ -124,7 +124,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 1. **随页面滚(照官方 chat tab)**: 根元素自备 `padding:16px calc(var(--dsh-composer-side-clearance) + 16px)`,内容列 `width:100%;max-width:var(--dsh-chat-content-width);margin:0 auto`,不设 `data-conversation-composer-overlay`;
 2. **整页盒 + 内部滚动(照官方 trajectory tab)**: 根元素加 `data-conversation-composer-overlay` 属性,自备 `width/height:100%` + `background:var(--dsw-alias-bg-layer-1)` + `overflow:hidden`,滚动容器底部留 `calc(var(--dsh-composer-height,152px) + 16px)`.
 
-> 变体: 不需要阅读型版心时,路线 1 可再放宽为**铺满**, 不设内容列 `max-width`,只留 `padding:12px var(--dsh-composer-side-clearance) 24px` 让内容铺满 viewArea;信息层级改由分区标题 + `0.5px` 分隔线组织,不再自建卡片材质(本仓库 wakatime 标签页即此路线,战绩区用独立表格呈现).放弃内容列宽后要注意窄窗口下列宽的收敛: 表格用 `table-layout:fixed` + `colgroup` 比例,长文本列允许换行,避免出现横向滚动.
+> 变体: 不需要阅读型版心时,路线 1 可再放宽为**铺满**, 不设内容列 `max-width`,只留上下内边距 `12px`/`24px`, 左右留白落在内容包裹层上并按 `clamp(12px, 6cqi, 60px)` 自适应(不再使用 `--dsh-composer-side-clearance`), 让内容铺满 viewArea;信息层级改由分区标题 + `0.5px` 分隔线组织,不再自建卡片材质(本仓库 wakatime 标签页即此路线,战绩区用独立表格呈现).放弃内容列宽后要注意窄窗口下列宽的收敛: 表格用 `table-layout:fixed` + `colgroup` 比例,长文本列允许换行,避免出现横向滚动.
 
 ### 官方控件与版式范式(可照抄)
 

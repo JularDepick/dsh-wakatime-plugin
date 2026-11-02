@@ -21,7 +21,7 @@
   - `[meta]`: 翻译文件的元信息,包含以下键:
     - `for`: 本翻译文件对应的插件版本号
     - `lang`: 语言代码,与文件名 `xx-YY` 一致
-    - `name`: 语言显示名(用于 UI 语言切换展示)
+    - `name`: 语言显示名(仅供人工识别;加载器只解析 [translation] 节, Web UI 语言名由 dsh 自带语言行提供)
     - `endtime`: 最近维护时间,遵循守则日期格式 `yyyy-MM-dd HH:mm:ss+HH:mm`
   - `[translation]`: UI 文案键值对,键名使用英文,值使用对应语言的文案.
 - 新增翻译文件时,以 `src/translation/.example_zh-CN.ini` 为基准模板(简体中文版复刻),从该模板翻译更新为 `xx-YY.ini`,改写 `[meta]` 各键后翻译 `[translation]` 键值.
