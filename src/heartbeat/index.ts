@@ -269,7 +269,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const reportIds = new Set(this.report.map((entry) => entry.id))
     const restoredReport = state.report.filter((entry) => !reportIds.has(entry.id))
     this.queue = [...appended, ...this.queue]
-    this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed]
+    this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed].slice(-FAILED_TASK_LIMIT)
     this.report = [...restoredReport.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
     this.compressIfNeeded()
     this.notifyPending()
@@ -346,12 +346,35 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     }
     for (let index = 0; index < heartbeats.length; index += BULK_HEARTBEAT_LIMIT) {
       const chunk = heartbeats.slice(index, index + BULK_HEARTBEAT_LIMIT)
-      await this.http.request(HEARTBEATS_BULK_PATH, {
+      const response = await this.http.request<unknown>(HEARTBEATS_BULK_PATH, {
         method: 'POST',
         body: chunk,
         auth,
         maxRetries: HEARTBEAT_MAX_RETRIES,
       })
+      this.assertBulkAccepted(response)
+    }
+  }
+
+  /* bulk 响应逐条检查: 整批 2xx 也可能有单条被拒, 丢弃响应会把被拒的心跳当成已送达, 既不重试也不留记录 */
+  private assertBulkAccepted(response: unknown): void {
+    const items: unknown[] | null = Array.isArray(response)
+      ? response
+      : typeof response === 'object' && response !== null && Array.isArray((response as { data?: unknown }).data)
+        ? (response as { data: unknown[] }).data
+        : null
+    if (items === null) return
+    for (const item of items) {
+      if (typeof item !== 'object' || item === null) continue
+      const record = item as { error?: unknown, status_code?: unknown, status?: unknown }
+      const code = typeof record.status_code === 'number'
+        ? record.status_code
+        : typeof record.status === 'number' ? record.status : null
+      const failure = record.error
+      const failed = failure !== undefined && failure !== null && failure !== false && failure !== ''
+      if (!failed && (code === null || code < 400)) continue
+      const detail = typeof failure === 'string' ? failure : JSON.stringify(failure ?? code)
+      throw new WakaTimeError(code !== null && code >= 400 ? code : 400, `bulk heartbeat rejected: ${detail}`)
     }
   }
 

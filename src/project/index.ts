@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import { BRANCH_CACHE_TTL_MS, GIT_DIR_NAME, GIT_ROOT_MAX_DEPTH } from '../constants'
+import { BRANCH_CACHE_TTL_MS, GIT_DIR_NAME, GIT_ROOT_MAX_DEPTH, PROJECT_MISS_CACHE_TTL_MS } from '../constants'
 
 /* 一次采样的项目与分支 */
 export interface ProjectSample {
@@ -27,8 +27,9 @@ interface GitLocation {
 
 export class ProjectDetector {
   private readonly defaultCwd: string
-  /* 采样目录 → Git 定位(仓库根在运行期不变,永久缓存) */
-  private readonly locations = new Map<string, GitLocation | null>()
+  /* 采样目录 → Git 定位. 命中仓库时永久缓存(仓库根在运行期不变);
+     未命中只做短 TTL 缓存, 否则之后 git init 的目录会被永久当成非仓库并记错项目名 */
+  private readonly locations = new Map<string, { location: GitLocation | null; at: number }>()
   /* 头文件路径 → 分支名与读取时刻(TTL 缓存,兼顾 checkout 变化与读盘开销) */
   private readonly branches = new Map<string, { value: string | undefined; at: number }>()
 
@@ -63,9 +64,12 @@ export class ProjectDetector {
   /* 定位采样目录所属的 Git 仓库;非 Git 目录返回 null */
   private locate(cwd: string): GitLocation | null {
     const cached = this.locations.get(cwd)
-    if (cached !== undefined) return cached
+    const now = Date.now()
+    if (cached !== undefined && (cached.location !== null || now - cached.at < PROJECT_MISS_CACHE_TTL_MS)) {
+      return cached.location
+    }
     const location = resolveGitLocation(cwd)
-    this.locations.set(cwd, location)
+    this.locations.set(cwd, { location, at: now })
     return location
   }
 }

@@ -15,7 +15,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR, STEP_TIMING_LIMIT } from '../constants'
+import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR, STEP_TIMING_LIMIT, STEP_TIMING_MAX_AGE_MS } from '../constants'
 import type { Heartbeat } from '../heartbeat'
 import { machineName } from '../useragent'
 import { readFirstTokenTime, readPromptLength, readUsage } from './readers'
@@ -35,6 +35,12 @@ interface StepTiming {
 /* 会话 id + turn/step 组合键 */
 function stepKey(sessionId: string, turn: number, step: number): string {
   return `${sessionId}\u0000${turn}\u0000${step}`
+}
+
+/* 是否为真人提示词: 官方消息来源可合并扩展, 未知来源按用户消息处理(不丢真实提示词) */
+function isUserAuthored(message: { source?: { kind?: unknown } }): boolean {
+  const kind = message.source?.kind
+  return kind === undefined || kind === 'user'
 }
 
 export class SessionEventCollector {
@@ -70,6 +76,10 @@ export class SessionEventCollector {
   private handle(session: Session, event: SessionEvent): void {
     switch (event.type) {
       case 'user/message': {
+        /* 只统计真人提示词: user/message 同样承载 agent 注入的上下文(文件变更通知,
+           子目录 AGENTS.md, skill 内容, cron 通知), 官方以 source.kind 区分,
+           全算会让提示词字符与 Token 估算整体虚高 */
+        if (!isUserAuthored(event.data)) break
         /* user/message 的 data 即 UserMessage 本体(经官方消息投影读取) */
         const promptLength = readPromptLength(session, event)
         this.promptLengths.set(session.id, promptLength)
@@ -85,10 +95,19 @@ export class SessionEventCollector {
         this.stepTimings.set(stepKey(session.id, event.data.turn, event.data.step), {
           stepStartTime: event.time,
         })
-        /* 步骤被中断(无 assistant/message 结算)时不会自行清理:超限淘汰最旧的计时 */
+        /* 步骤被中断(无 assistant/message 结算)时不会自行清理: 先按龄淘汰已经不可能再结算的旧计时,
+           再按上限淘汰最旧的; 直接按上限淘汰会把仍在进行中的步骤算掉, 思考时长静默丢失 */
         if (this.stepTimings.size > STEP_TIMING_LIMIT) {
-          const oldest = this.stepTimings.keys().next().value
-          if (oldest !== undefined) this.stepTimings.delete(oldest)
+          const now = Date.now()
+          for (const [key, timing] of this.stepTimings) {
+            const startedAt = timing.stepStartTime
+            if (startedAt !== null && now - startedAt > STEP_TIMING_MAX_AGE_MS) this.stepTimings.delete(key)
+          }
+          while (this.stepTimings.size > STEP_TIMING_LIMIT) {
+            const oldest = this.stepTimings.keys().next().value
+            if (oldest === undefined) break
+            this.stepTimings.delete(oldest)
+          }
         }
         break
       }
