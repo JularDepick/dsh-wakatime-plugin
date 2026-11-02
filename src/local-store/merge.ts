@@ -12,7 +12,7 @@
  */
 
 import { FAILED_TASK_LIMIT, PENDING_QUEUE_LIMIT, REPORT_LOG_LIMIT, STORE_FILE_VERSION } from '../constants'
-import { compressPendingQueue } from '../heartbeat/compress'
+import { compressPendingQueue, mergeSameIdentity } from '../heartbeat/compress'
 import type { PendingHeartbeatEntry } from '../heartbeat'
 import type { StatsTotals } from '../stats'
 import { heartbeatKeyOf } from '../heartbeat/identity'
@@ -25,11 +25,12 @@ const TOTAL_KEYS = [
   'promptTokens', 'thinkingMs',
 ] as const satisfies readonly (keyof StatsTotals)[]
 
-/* 列表合并选项: 上限、超限时的压缩手段、被丢弃条数的通知 */
+/* 列表合并选项: 上限、超限时的压缩手段、被丢弃条数的通知, 以及同键条目相遇时的归并手段 */
 interface MergeListOptions<T> {
   limit?: number
   compress?: (items: readonly T[]) => T[]
   onDrop?: (count: number) => void
+  merge?: (left: T, right: T) => T
 }
 
 /* 按标识合并列表: 以磁盘为基底, 叠加本进程相对基线的改动(新增 / 删除 / 同键更新);
@@ -45,14 +46,28 @@ function mergeList<T>(
   keyOf: (item: T) => string,
   options: MergeListOptions<T> = {},
 ): T[] {
-  const { limit, compress, onDrop } = options
-  const liveByKey = new Map(memory.map((item) => [keyOf(item), item]))
+  const { limit, compress, onDrop, merge } = options
+  /* 内存侧同键先归并(队列按计数相加), 否则同键条目只会留下最后一个 */
+  const liveByKey = new Map<string, T>()
+  for (const item of memory) {
+    const key = keyOf(item)
+    const existing = liveByKey.get(key)
+    liveByKey.set(key, existing === undefined || merge === undefined ? item : merge(existing, item))
+  }
+  /* 磁盘侧同键先去重: 旧版本写下的同毫秒重复心跳各带自己的计数, 原样保留会被当成不同心跳重复上报.
+     去重只在磁盘侧内部做, 不与内存侧相加: 内存侧已经是同一批心跳的合并结果, 再叠加会翻倍 */
+  const diskByKey = new Map<string, T>()
+  for (const item of disk) {
+    const key = keyOf(item)
+    const existing = diskByKey.get(key)
+    if (existing === undefined) diskByKey.set(key, item)
+    else if (merge !== undefined) diskByKey.set(key, merge(existing, item))
+  }
   const baseKeys = new Set(baseline.map(keyOf))
   const removed = new Set([...baseKeys].filter((key) => !liveByKey.has(key)))
   const known = new Set<string>()
   let result: T[] = []
-  for (const item of disk) {
-    const key = keyOf(item)
+  for (const [key, item] of diskByKey) {
     if (removed.has(key)) continue
     result.push(liveByKey.get(key) ?? item)
     known.add(key)
@@ -117,6 +132,7 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
         limit: PENDING_QUEUE_LIMIT,
         compress: (items) => compressPendingQueue(items, PENDING_QUEUE_LIMIT).queue,
         onDrop: queueDrop,
+        merge: mergeSameIdentity,
       }),
       failed: mergeList(disk.pending.failed, memory.pending.failed, baseline.pending.failed, (item) => item.id, {
         limit: FAILED_TASK_LIMIT,

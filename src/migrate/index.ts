@@ -28,6 +28,7 @@ import { detectCredentialType } from '../credential-format'
 import type { PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
 import { emptyStore, normalizeCloud } from '../local-store/normalize'
+import { mergeSameIdentity } from '../heartbeat/compress'
 import { heartbeatKeyOf } from '../heartbeat/identity'
 import type { StoreFile } from '../local-store/types'
 import { archiveFile } from '../storage'
@@ -126,6 +127,18 @@ function dedupeBy<T>(items: readonly T[], keyOf: (item: T) => string, limit: num
   return [...map.values()].slice(-limit)
 }
 
+/* 待发送队列去重: 同身份的两条是同一毫秒的同一条活动, 计数相加而不是整条丢弃,
+   否则 0.3.0 期间产生的重复心跳会连带丢掉其中一条的 Token 与提示词计数 */
+function mergeQueue(items: readonly PendingHeartbeatEntry[], limit: number): PendingHeartbeatEntry[] {
+  const map = new Map<string, PendingHeartbeatEntry>()
+  for (const item of items) {
+    const key = heartbeatKeyOf(item)
+    const existing = map.get(key)
+    map.set(key, existing === undefined ? item : mergeSameIdentity(existing, item))
+  }
+  return [...map.values()].slice(-limit)
+}
+
 /* 0.3.0 分凭证数据桶 -> 单份本地数据; 非旧结构返回 null */
 export function migrateStoreFile(raw: unknown): StoreFile | null {
   if (typeof raw !== 'object' || raw === null) return null
@@ -168,7 +181,7 @@ export function migrateStoreFile(raw: unknown): StoreFile | null {
     stats,
     cloud,
     pending: {
-      queue: dedupeBy(queue, heartbeatKeyOf, PENDING_QUEUE_LIMIT),
+      queue: mergeQueue(queue, PENDING_QUEUE_LIMIT),
       /* 失败列表不从旧版本继承, 迁移后为空 */
       failed: [],
       report: dedupeBy(report, (entry) => entry.id, REPORT_LOG_LIMIT),
