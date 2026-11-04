@@ -85,6 +85,8 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 > 0.2.1 的增量(实测无影响): 平台模块表新增 `zod` 与 `@tanstack/react-virtual`(超集,本插件未使用);`dsh-client-modules` 引入宿主 release 标识(`__DSH_BOOT__.release`),页面只在同一 release 内应用模块图,与插件产物格式无关;`ctx.slots` 的 `register`/`inject` 与 `conversation.view` 声明逐行未变,`dsh-client-ui-slots` 仅新增可选 `inline` 标记,`dsh-client-ui-renderer` 仅扩宽 keyed hook 参数,`dsh-client-ui-conversation` 仅新增 user-text 槽与草稿类型;启动器新增 `engines.dsh` 兼容声明(见 `basic/publish.zh.md`),属包清单层面的变化.
 >
 > 0.2.1-rc.3 的增量(实测无影响): 平台模块表与 `/client` 子路径契约未变(本插件 client 产物只 require `react` 与 `react/jsx-runtime`,两者始终在表内);七个宿主包中六个只改 `package.json` 的版本与依赖版本字段,声明层逐字节未变;`dsh-client-ui-conversation` 是唯一有实质声明改动的包,新增 `conversation.session.header.views.actions` 槽(scope root,owner `ConversationViewActionsOwnerProps`)与 `view-pins` 声明,header 注入面增加 `entryPins`/`entryActions`/`setPinned`,`ConversationSessionHeaderSlotProps` 随之改写,但 `conversation.view` 的 kind/scope/owner 三行逐字未变,不消费 header 面的标签页不受影响;`cordis` 与 `schemastery` 逐字节相同.
+>
+> 0.2.2-rc.1 的增量(清单比对 + 指向新版 `.d.ts` 的类型探针, 0 错误): 平台模块表与 `/client` 子路径契约未变(本插件 client 产物只 require `react` 与 `react/jsx-runtime`);八个宿主包把 `cordis` peer 由 `~4.0.5` 抬到 `~4.1.0`,`dsh-tools`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation` 与 `@deepseek-ai/dsh` 五处把 `schemastery` 依赖由 `~3.18.5` 抬到 `~3.19.0`(`dsh-session`/`ui-renderer`/`ui-slots` 两版都没有该字段);四个 client 包的 `exports` 键与值逐字节未变;`dsh-tools` 删除 `./types` 导出并新增 `./pipeline`,`@deepseek-ai/dsh` 新增 `engines.node >=24.9.0`. 结论来自 npm 清单与 `exports` 表比对, 换版本时仍应以该版本发布包的类型声明复核.
 
 ### 2. 跨插件协作纪律(构建期 purity 门强制)
 
