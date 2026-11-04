@@ -31,8 +31,11 @@ export interface Heartbeat {
      但服务端存在同名列(Summaries 与 Stats 均暴露 ai_cached_input_tokens),
      故按官方统计字段名上报;官方计费输入 = 未命中输入 + 缓存读 + 缓存写 */
   ai_cached_input_tokens?: number
-  /* 本机机器名:WakaTime Machines 维度(官方 POST 字段表未列出,官方 CLI 仍会发送) */
+  /* 本机机器名:官方 POST 字段表未列出该键, 服务端会忽略(响应里的 machine_name_id 由它自己归类),
+     保留发送仅为兼容历史载荷; 真正影响 Editor/OS 归类的是下面的 user_agent */
   machine_name?: string
+  /* 官方 CLI 每次心跳都会带的编辑器标识(WakaTime 据此解析 Editor 与 OS) */
+  user_agent?: string
   /* 可选字段 */
   language?: string
   lines?: number
@@ -81,6 +84,18 @@ export interface PendingHeartbeatState {
   report: ReportEntry[]
 }
 
+/* 推送运行态: 供状态接口与工具面展示(不落盘) */
+export interface TransmissionStatus {
+  /* 待发送条数(含在途批次) */
+  queued: number
+  /* 失败任务条数 */
+  failed: number
+  /* 最近一次推送成功的时刻(Unix 毫秒), 从未成功为 null */
+  lastSuccessAt: number | null
+  /* 凭证被服务端拒绝时的原因与时刻, 当前未被拒为 null */
+  rejected: { message: string; at: number } | null
+}
+
 /* 心跳引擎对外能力 */
 export interface HeartbeatEngine {
   /* 入队一条心跳(追加到待发送队列尾部,不立即发送) */
@@ -99,4 +114,6 @@ export interface HeartbeatEngine {
   pendingState(): PendingHeartbeatState
   /* 上报记录(时间最近优先由前端处理) */
   reportLog(): readonly ReportEntry[]
+  /* 推送运行态: 积压, 失败数, 最近成功时刻, 凭证是否被拒 */
+  transmissionStatus(): TransmissionStatus
 }

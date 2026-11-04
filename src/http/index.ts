@@ -46,7 +46,8 @@ export class FetchHttpClient implements HttpClient {
     if (options.auth) headers.Authorization = options.auth.scheme + ' ' + options.auth.value
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
-    const init: RequestInit = { method, headers }
+    /* 不自动跟随跳转: 官方用 302 作为限流提示, 跟随会拿到 200 的 HTML 页并误判为非 JSON 失败 */
+    const init: RequestInit = { method, headers, redirect: 'manual' }
     if (options.body !== undefined) init.body = JSON.stringify(options.body)
 
     const maxRetries = options.noRetry ? 0 : (options.maxRetries ?? RETRY_MAX_RETRIES)
@@ -87,6 +88,14 @@ export class FetchHttpClient implements HttpClient {
         continue
       }
 
+      /* 官方文档: 有时用 302 代替 429 提醒放慢请求节奏(fetch 默认会跟随跳转,
+         拿到的 200 HTML 会被当成非 JSON 响应失败), 因此这里按重定向处理并按退避重试 */
+      if (response.status >= 300 && response.status < 400) {
+        if (attempt > maxRetries) throw new WakaTimeError(429, 'WakaTime API redirected (rate limit hint)')
+        await this.backoff(attempt)
+        continue
+      }
+
       /* 不可重试或重试耗尽:解析错误体后抛出 */
       let message = `WakaTime API responded with status ${response.status}`
       let code: string | undefined
@@ -94,9 +103,15 @@ export class FetchHttpClient implements HttpClient {
         const text = await response.text()
         const parsed = text ? JSON.parse(text) : undefined
         if (parsed && typeof parsed === 'object') {
-          const err = parsed as { error?: string; message?: string }
-          code = err.error
-          message = err.message || err.error || message
+          /* 官方文档: 错误可能放在 errors 数组或 error 键, 两者都要读, 否则真实原因会被状态码摘要盖掉 */
+          const body = parsed as { error?: unknown; message?: unknown; errors?: unknown }
+          const list = Array.isArray(body.errors)
+            ? body.errors.filter((item): item is string => typeof item === 'string')
+            : []
+          const fromError = typeof body.error === 'string' ? body.error : ''
+          const fromMessage = typeof body.message === 'string' ? body.message : ''
+          code = fromError === '' ? undefined : fromError
+          message = fromMessage || fromError || list.join('; ') || message
         }
       } catch {
         /* 错误体不是 JSON,保留状态码摘要 */

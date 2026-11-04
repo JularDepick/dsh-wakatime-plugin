@@ -17,7 +17,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { AI_SESSION_GLOBAL_ID, HEARTBEAT_CATEGORY_AI, HEARTBEAT_CATEGORY_TOOL, PROMPT_TOKEN_ESTIMATE_DIVISOR, STEP_TIMING_LIMIT, STEP_TIMING_MAX_AGE_MS } from '../constants'
 import type { Heartbeat } from '../heartbeat'
-import { machineName } from '../useragent'
+import { machineName, userAgent } from '../useragent'
 import { readFirstTokenTime, readPromptLength, readUsage } from './readers'
 import type { CollectorOptions } from './types'
 
@@ -136,6 +136,7 @@ export class SessionEventCollector {
           branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
           machine_name: machineName(),
+          user_agent: userAgent(),
         }
         if (usage) {
           heartbeat.ai_input_tokens = usage.inputTokens
@@ -167,6 +168,7 @@ export class SessionEventCollector {
           branch: project.branch,
           ai_session: AI_SESSION_GLOBAL_ID,
           machine_name: machineName(),
+          user_agent: userAgent(),
         }
         this.options.heartbeat.enqueue(heartbeat)
         break

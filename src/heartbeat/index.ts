@@ -49,6 +49,7 @@ import type {
   PendingHeartbeatEntry,
   PendingHeartbeatState,
   ReportEntry,
+  TransmissionStatus,
 } from './types'
 
 /* 凭证提供者:每次上报前由调用方按端点用途解析出认证头;未配置凭证时抛 NotAuthenticatedError */
@@ -92,6 +93,10 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private inFlightBatch: PendingHeartbeatEntry[] = []
   /* 上次"凭证被拒"记录时刻:凭证持续失效时按间隔节流, 避免刷满上报记录 */
   private lastRejectLoggedAt = 0
+  /* 最近一次推送成功的时刻:从未成功为 null, 状态接口据此区分"从没上报成功"与"暂时积压" */
+  private lastSuccessAt: number | null = null
+  /* 凭证被拒的运行态: 凭证一直无效时界面与工具面据此提示, 而不是只留一条节流日志 */
+  private credentialRejected: { message: string; at: number } | null = null
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -178,6 +183,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       await this.deliver(batch.map((entry) => entry.heartbeat))
       /* 推送成功即视为凭证可用, 下一次被拒重新记一条 */
       this.lastRejectLoggedAt = 0
+      this.credentialRejected = null
+      this.lastSuccessAt = Date.now()
       this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
@@ -186,7 +193,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
          移到队尾后每轮从不同位置取批, 整条队列都能轮到. 心跳自带时间戳, 发送顺序不影响上报结果 */
       if (error instanceof NotAuthenticatedError) {
         this.queue.push(...batch)
-        this.log('info', '[wakatime] no credential configured, heartbeat rotated to queue tail')
+        /* 未配置凭证是"上报停摆"而不是普通信息: 默认 info 被 debug 开关抑制时这条路径将完全无痕 */
+        this.log('warn', '[wakatime] no credential configured, heartbeats stay queued')
         return
       }
       const message = (error as Error).message
@@ -195,6 +203,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
          同时避免队首那一批被反复重取导致队尾新心跳永久饥饿 */
       if (isCredentialRejected(error)) {
         this.queue.push(...batch)
+        /* 记录运行态: 凭证无效时用户需要看到原因, 否则队列只会静默堆积 */
+        this.credentialRejected = { message, at: Date.now() }
         /* 凭证持续失效时每轮推送都会命中, 按间隔只记一条, 避免把上报记录挤满 */
         const now = Date.now()
         if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
@@ -273,6 +283,16 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.report = [...restoredReport.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
     this.compressIfNeeded()
     this.notifyPending()
+  }
+
+  /* 推送运行态: 供状态接口与工具面展示, 不参与落盘 */
+  transmissionStatus(): TransmissionStatus {
+    return {
+      queued: this.queue.length + this.inFlightBatch.length,
+      failed: this.failed.length,
+      lastSuccessAt: this.lastSuccessAt,
+      rejected: this.credentialRejected === null ? null : { ...this.credentialRejected },
+    }
   }
 
   /* 当前待发送状态快照(供落盘;返回副本) */
@@ -358,23 +378,48 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
 
   /* bulk 响应逐条检查: 整批 2xx 也可能有单条被拒, 丢弃响应会把被拒的心跳当成已送达, 既不重试也不留记录 */
   private assertBulkAccepted(response: unknown): void {
-    const items: unknown[] | null = Array.isArray(response)
-      ? response
-      : typeof response === 'object' && response !== null && Array.isArray((response as { data?: unknown }).data)
-        ? (response as { data: unknown[] }).data
-        : null
-    if (items === null) return
-    for (const item of items) {
-      if (typeof item !== 'object' || item === null) continue
-      const record = item as { error?: unknown, status_code?: unknown, status?: unknown }
-      const code = typeof record.status_code === 'number'
-        ? record.status_code
-        : typeof record.status === 'number' ? record.status : null
-      const failure = record.error
-      const failed = failure !== undefined && failure !== null && failure !== false && failure !== ''
-      if (!failed && (code === null || code < 400)) continue
-      const detail = typeof failure === 'string' ? failure : JSON.stringify(failure ?? code)
-      throw new WakaTimeError(code !== null && code >= 400 ? code : 400, `bulk heartbeat rejected: ${detail}`)
+    const entries = this.bulkResponseEntries(response)
+    if (entries === null) return
+    for (const entry of entries) {
+      const failure = this.bulkEntryFailure(entry)
+      if (failure === null) continue
+      throw new WakaTimeError(failure.status, `bulk heartbeat rejected: ${failure.detail}`)
+    }
+  }
+
+  /* bulk 结果列表: 官方响应形如 {"responses":[[<响应体>,<状态码>], ...]}
+     (见 wakatime-cli 的 heartbeat.go), 同时兼容顶层数组与 data 数组两种历史形态 */
+  private bulkResponseEntries(response: unknown): unknown[] | null {
+    if (Array.isArray(response)) return response
+    if (typeof response !== 'object' || response === null) return null
+    const record = response as { responses?: unknown, data?: unknown }
+    if (Array.isArray(record.responses)) return record.responses
+    if (Array.isArray(record.data)) return record.data
+    return null
+  }
+
+  /* 单条 bulk 结果: 官方形态是 [响应体, 状态码]; 历史形态是带 error 或 status_code 的对象 */
+  private bulkEntryFailure(entry: unknown): { status: number, detail: string } | null {
+    if (Array.isArray(entry)) {
+      const body = entry[0]
+      const status = typeof entry[1] === 'number' ? entry[1] : 0
+      if (status < 400) return null
+      const detail = typeof body === 'object' && body !== null
+        ? String((body as { error?: unknown }).error ?? (body as { message?: unknown }).message ?? JSON.stringify(body))
+        : String(body)
+      return { status, detail }
+    }
+    if (typeof entry !== 'object' || entry === null) return null
+    const record = entry as { error?: unknown, status_code?: unknown, status?: unknown }
+    const code = typeof record.status_code === 'number'
+      ? record.status_code
+      : typeof record.status === 'number' ? record.status : null
+    const failure = record.error
+    const failed = failure !== undefined && failure !== null && failure !== false && failure !== ''
+    if (!failed && (code === null || code < 400)) return null
+    return {
+      status: code !== null && code >= 400 ? code : 400,
+      detail: typeof failure === 'string' ? failure : JSON.stringify(failure ?? code),
     }
   }
 
@@ -394,6 +439,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       is_write: heartbeat.is_write,
       ai_session: heartbeat.ai_session,
       machine_name: heartbeat.machine_name,
+      user_agent: heartbeat.user_agent,
     }
     if (this.options.includeTokens) {
       copy.ai_input_tokens = heartbeat.ai_input_tokens
@@ -581,4 +627,5 @@ export type {
   PendingHeartbeatEntry,
   PendingHeartbeatState,
   ReportEntry,
+  TransmissionStatus,
 } from './types'
