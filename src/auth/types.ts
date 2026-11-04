@@ -28,6 +28,8 @@ export interface SetCredentialResult {
   replaced: boolean
   /* 凭证写盘时刻 */
   updatedAt: number
+  /* 写入权限探测结果: 缺 write_heartbeats 时心跳会被服务端拒绝(missing), 网络异常时为 unknown */
+  writeScope?: 'ok' | 'missing' | 'unknown'
 }
 
 export interface AuthStatus {
@@ -41,6 +43,8 @@ export interface AuthStatus {
   username?: string
   /* 凭证最后写入时刻(Unix 毫秒) */
   updatedAt?: number
+  /* 最近一次保存时探测到的写权限: 个人令牌只读, 缺 write_heartbeats 时心跳无法上报 */
+  writeScope?: 'ok' | 'missing' | 'unknown'
 }
 
 export interface AuthManager {

@@ -133,6 +133,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     ...(status.maskedSecret === undefined ? {} : { maskedSecret: status.maskedSecret }),
     ...(status.username === undefined ? {} : { username: status.username }),
     ...(status.updatedAt === undefined ? {} : { credentialUpdatedAt: status.updatedAt }),
+    ...(status.writeScope === undefined ? {} : { writeScope: status.writeScope }),
     config: {
       enabled: config.enabled,
       reportInterval: config.reportInterval,
@@ -144,6 +145,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
       digitGrouping: config.digitGrouping,
     },
     stats: resolveStatsView(deps.store.snapshot()),
+    transmission: deps.heartbeat.transmissionStatus(),
     ...(legacy === null ? {} : { legacy }),
   }
   writeJson(res, 200, body)
@@ -201,6 +203,7 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
       username: result.username ?? null,
       existed: result.existed,
       replaced: result.replaced,
+      ...(result.writeScope === undefined ? {} : { writeScope: result.writeScope }),
     }
     writeJson(res, 200, body)
   } catch (error) {

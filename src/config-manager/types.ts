@@ -50,6 +50,8 @@ export interface StoredConfig {
   userId?: string
   username?: string
   accountUpdatedAt?: number
+  /* 最近一次保存凭证时探测到的写权限: 个人令牌只读, 缺该权限时心跳会被服务端拒绝 */
+  writeScope?: 'ok' | 'missing' | 'unknown'
   settings: StoredSettings
 }
 

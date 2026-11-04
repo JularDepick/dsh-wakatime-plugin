@@ -68,6 +68,9 @@ export function normalizeStoredConfig(value: unknown): StoredConfig | null {
     ...(typeof raw.userId === 'string' && raw.userId !== '' ? { userId: raw.userId } : {}),
     ...(typeof raw.username === 'string' && raw.username !== '' ? { username: raw.username } : {}),
     ...(typeof raw.accountUpdatedAt === 'number' ? { accountUpdatedAt: numberOr(raw.accountUpdatedAt, 0) } : {}),
+    ...(raw.writeScope === 'ok' || raw.writeScope === 'missing' || raw.writeScope === 'unknown'
+      ? { writeScope: raw.writeScope }
+      : {}),
   }
 }
 
@@ -80,9 +83,10 @@ function laterThan(desiredStamp: number, diskStamp: number): boolean {
 export function mergeConfig(disk: StoredConfig | null, desired: StoredConfig): StoredConfig {
   if (!disk) return desired
   const credentialStamp = Math.max(disk.credentialUpdatedAt ?? 0, desired.credentialUpdatedAt ?? 0)
-  const credential = laterThan(desired.credentialUpdatedAt ?? 0, disk.credentialUpdatedAt ?? 0)
-    ? desired.credential
-    : disk.credential
+  const useDesiredCredential = laterThan(desired.credentialUpdatedAt ?? 0, disk.credentialUpdatedAt ?? 0)
+  const credential = useDesiredCredential ? desired.credential : disk.credential
+  /* 写权限是凭证自身的属性, 跟随凭证的新旧而不是账号名的缓存时刻 */
+  const writeScope = useDesiredCredential ? desired.writeScope : disk.writeScope
   const settings = laterThan(desired.settingsUpdatedAt ?? 0, disk.settingsUpdatedAt ?? 0) ? desired.settings : disk.settings
   const useDesiredAccount = laterThan(desired.accountUpdatedAt ?? 0, disk.accountUpdatedAt ?? 0)
   const account = useDesiredAccount ? desired : disk
@@ -94,6 +98,7 @@ export function mergeConfig(disk: StoredConfig | null, desired: StoredConfig): S
     settingsUpdatedAt: Math.max(disk.settingsUpdatedAt ?? 0, desired.settingsUpdatedAt ?? 0),
     ...(account.userId === undefined ? {} : { userId: account.userId }),
     ...(account.username === undefined ? {} : { username: account.username }),
+    ...(writeScope === undefined ? {} : { writeScope }),
     accountUpdatedAt: Math.max(disk.accountUpdatedAt ?? 0, desired.accountUpdatedAt ?? 0),
   }
 }

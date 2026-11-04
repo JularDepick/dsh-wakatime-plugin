@@ -9,6 +9,7 @@
 import type { StatsView } from '../local-store/resolve'
 import type { LegacySource } from '../local-store'
 import type { DigitGrouping } from '../config'
+import type { TransmissionStatus } from '../heartbeat'
 
 /* 状态接口响应:认证状态 + 生效配置 + 解析好的战绩视图 */
 export interface WebStatusResponse {
@@ -22,6 +23,8 @@ export interface WebStatusResponse {
   username?: string
   /* 凭证最后写入时刻(Unix 毫秒) */
   credentialUpdatedAt?: number
+  /* 最近一次保存时探测到的写权限(个人令牌只读, 缺 write_heartbeats 时无法上报) */
+  writeScope?: 'ok' | 'missing' | 'unknown'
   config: {
     enabled: boolean
     reportInterval: number
@@ -36,6 +39,8 @@ export interface WebStatusResponse {
   stats: StatsView
   /* 检测到待迁移的旧版数据来源(界面据此显示红字提示); 无旧数据时不带该字段 */
   legacy?: LegacySource
+  /* 上报运行态: 积压条数, 失败数, 最近一次成功时刻, 凭证是否被拒 */
+  transmission: TransmissionStatus
 }
 
 /* 凭证保存请求:只提交原文, 类型固定为 OAuth 令牌(仅覆盖写入, 不提供查看) */
@@ -53,6 +58,8 @@ export interface WebCredentialResponse {
   /* 与已保存的是同一份凭证; replaced 表示之前存的是另一份(本次为更换) */
   existed?: boolean
   replaced?: boolean
+  /* 写权限探测: 缺 write_heartbeats 时心跳会被服务端拒绝 */
+  writeScope?: 'ok' | 'missing' | 'unknown'
   /* 稳定错误码(empty / client_secret / api_key / unknown_format)或验证失败原因 */
   error?: string
 }

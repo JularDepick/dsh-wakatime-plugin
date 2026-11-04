@@ -12,6 +12,7 @@ import {
   ANONYMOUS_DISPLAY_NAME,
   CLOUD_SUMMARY_RANGE,
   CONFIG_FILE_VERSION,
+  HEARTBEATS_PATH,
   ENV_OAUTH_TOKEN,
   SUMMARIES_PATH,
   USER_INFO_PATH,
@@ -112,6 +113,8 @@ export class AuthManagerImpl implements AuthManager {
     const credential = new OauthCredential(input.trim())
     /* 验证失败(无效凭证或网络异常)不落盘 */
     const profile = await this.validateCredential(credential)
+    /* 顺带探测写权限: 只有读权限的令牌能保存成功却永远推不上心跳, 必须当场告诉用户 */
+    const writeScope = await this.probeWriteScope(credential.secret)
     const stored = (await this.config()) ?? emptyConfig()
     const now = Date.now()
     const existed = stored.credential?.secret === credential.secret
@@ -125,6 +128,7 @@ export class AuthManagerImpl implements AuthManager {
       ...(profile.userId === undefined ? {} : { userId: profile.userId }),
       ...(profile.username === undefined ? {} : { username: profile.username }),
       accountUpdatedAt: now,
+      writeScope,
     }
     await this.setStored(next)
     return {
@@ -133,6 +137,28 @@ export class AuthManagerImpl implements AuthManager {
       existed,
       replaced: stored.credential !== undefined && !existed,
       updatedAt: now,
+      writeScope,
+    }
+  }
+
+  /* 探测 write_heartbeats 权限: 发一条故意不合法的写入, 服务端先校验 scope 再校验载荷,
+     缺权限回 401/403(不写入任何数据), 有权限回 400/422; 网络异常返回 unknown 且不影响保存 */
+  private async probeWriteScope(secret: string): Promise<'ok' | 'missing' | 'unknown'> {
+    try {
+      await this.http.request(HEARTBEATS_PATH, {
+        method: 'POST',
+        body: {},
+        auth: { scheme: 'Bearer', value: secret },
+        noRetry: true,
+        maxRetries: 0,
+      })
+      return 'ok'
+    } catch (error) {
+      if (error instanceof WakaTimeError) {
+        if (error.status === 401 || error.status === 403) return 'missing'
+        if (error.status === 400 || error.status === 422) return 'ok'
+      }
+      return 'unknown'
     }
   }
 
@@ -141,7 +167,8 @@ export class AuthManagerImpl implements AuthManager {
     if (this.hasEnvCredential()) throw new CredentialInputError('env_locked')
     const stored = await this.config()
     if (!stored || stored.credential === undefined) return
-    const { credential: _credential, userId: _userId, username: _username, ...rest } = stored
+    /* 写权限结论属于被清除的那份凭证, 一并丢弃, 否则新凭证会继承旧的只读判定 */
+    const { credential: _credential, userId: _userId, username: _username, writeScope: _writeScope, ...rest } = stored
     const now = Date.now()
     await this.setStored({ ...rest, credentialUpdatedAt: now, accountUpdatedAt: now })
   }
@@ -161,6 +188,7 @@ export class AuthManagerImpl implements AuthManager {
       fromEnv: false,
       maskedSecret: maskCredential(stored.credential.secret),
       updatedAt: stored.credential.updatedAt,
+      ...(stored.writeScope === undefined ? {} : { writeScope: stored.writeScope }),
     }
     const username = await this.resolveUsername(stored)
     return username === undefined ? base : { ...base, username }
