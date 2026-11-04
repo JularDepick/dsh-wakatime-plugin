@@ -78,6 +78,12 @@ export type WakatimeKey =
   | 'logs.errNetwork'
   | 'logs.errPayload'
   | 'logs.errRateLimit'
+  | 'status.rejectedShort'
+  | 'status.rejectedTitle'
+  | 'status.rejectedDetail'
+  | 'status.queuedDetail'
+  | 'credential.writeScopeMissing'
+  | 'status.writeScopeMissingTitle'
   | 'logs.retryUnavailable'
   | 'logs.retryBusy'
   | 'logs.retryFailed'
@@ -185,7 +191,13 @@ export const zh: WakatimeDict = {
   'logs.errCredential': '凭证失效或权限不足',
   'logs.errNetwork': '网络或服务端异常',
   'logs.errPayload': '上报被服务端拒绝(载荷或端点不被接受)',
-  'logs.errRateLimit': '被 WakaTime 限流, 稍后会自动重试',
+  'logs.errRateLimit': '被 WakaTime 限流, 该批已进入失败列表, 可在失败行手动重试',
+  'status.rejectedShort': '上报被拒',
+  'status.rejectedTitle': '心跳上报被服务端拒绝',
+  'status.rejectedDetail': '原因: {reason}',
+  'status.queuedDetail': '当前积压 {n} 条, 修好凭证后会自动续传',
+  'credential.writeScopeMissing': 'WakaTime 个人令牌只读, 无法写入心跳; 请在 wakatime.com/apps 创建应用并以 scope=write_heartbeats 完成授权, 把应用令牌粘贴到这里',
+  'status.writeScopeMissingTitle': '当前令牌只能读取, 无法写入心跳',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
   'logs.retryFailed': '重试失败',
@@ -291,7 +303,13 @@ export const en: WakatimeDict = {
   'logs.errCredential': 'credential rejected or lacking permission',
   'logs.errNetwork': 'network or upstream error',
   'logs.errPayload': 'Rejected by the server (payload or endpoint not accepted)',
-  'logs.errRateLimit': 'Rate limited by WakaTime; it will retry automatically',
+  'logs.errRateLimit': 'Rate limited by WakaTime; this batch moved to the failed list and can be retried manually',
+  'status.rejectedShort': 'Push rejected',
+  'status.rejectedTitle': 'Heartbeat pushes are rejected by the server',
+  'status.rejectedDetail': 'Reason: {reason}',
+  'status.queuedDetail': '{n} heartbeats are queued and will be pushed once the credential is fixed',
+  'credential.writeScopeMissing': 'Personal WakaTime tokens are read-only and cannot write heartbeats; create an app at wakatime.com/apps and authorize it with scope=write_heartbeats, then paste the app token here',
+  'status.writeScopeMissingTitle': 'This token is read-only and cannot write heartbeats',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
   'logs.retryFailed': 'Retry failed',

@@ -144,6 +144,29 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.tag[data-tone='danger'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* 上报被拒提示条: 凭证无效时在主视图常驻, 推送恢复后自动消失 */
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-state-error-primary);
+  border-radius: var(--dsw-radius-md);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.bannerTitle {
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxs-strong-12);
+}
+
 /* ---------- 文本 ---------- */
 
 .muted {

@@ -12,6 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AuthManager } from '../auth'
+import type { TransmissionStatus } from '../heartbeat'
 import type { StatsView } from '../local-store/resolve'
 import { CredentialInputError } from '../errors'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
@@ -27,6 +28,20 @@ export interface WakatimeToolsOptions {
   resolveStats: () => StatsView
   /* 读取前同步其它 profile 进程写入的数据(按文件 mtime 检测), 缺省时跳过 */
   refresh?: () => Promise<boolean>
+  /* 上报运行态(积压/最近成功/凭证是否被拒), 缺省时不输出该段 */
+  transmission?: () => TransmissionStatus
+}
+
+/* 本地时区时间戳: yyyy-MM-dd HH:mm:ss+HH:mm(与界面日期格式一致) */
+function formatTimestamp(ms: number): string {
+  const date = new Date(ms)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absMinutes = Math.abs(offsetMinutes)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    + `${sign}${pad(Math.floor(absMinutes / 60))}:${pad(absMinutes % 60)}`
 }
 
 /* 配置工具可写的键(白名单, 与 WebConfigPatch 对齐, 不含凭证) */
@@ -119,7 +134,25 @@ export class WakatimeTools {
         const lines = [translate('status.configured')]
         lines.push(translate('credential.activeType') + ': ' + translate('credential.typeOauth') + masked)
         if (status.username) lines.push(translate('status.username') + ': ' + status.username)
+        /* 写权限: 后补的个人令牌只读, 没有这一行时工具面看起来"已配置"却永远上报不了 */
+        lines.push(translate('status.writeScope') + ': ' + (
+          status.writeScope === 'ok'
+            ? translate('status.writeScopeOk')
+            : status.writeScope === 'missing' ? translate('status.writeScopeMissing') : translate('status.writeScopeUnknown')
+        ))
         lines.push(translate('credential.hidden'))
+        /* 上报运行态: 没有这一段的时代价是"凭证被拒时工具面看起来一切正常" */
+        const transmission = this.options.transmission?.()
+        if (transmission !== undefined) {
+          lines.push(translate('status.queued') + ': ' + transmission.queued)
+          if (transmission.failed > 0) lines.push(translate('status.failed') + ': ' + transmission.failed)
+          lines.push(transmission.lastSuccessAt === null
+            ? translate('status.neverSuccess')
+            : translate('status.lastSuccess') + ': ' + formatTimestamp(transmission.lastSuccessAt))
+          if (transmission.rejected !== null) {
+            lines.push(translate('status.rejected') + ': ' + transmission.rejected.message)
+          }
+        }
         return lines.join('\n')
       },
     }))

@@ -408,7 +408,9 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .then((result) => {
         setCredentialInput('')
-        setNotice({ kind: 'ok', text: result.replaced ? t('credential.replaced') : t('credential.added') })
+        setNotice(result.writeScope === 'missing'
+          ? { kind: 'error', text: t('credential.writeScopeMissing') }
+          : { kind: 'ok', text: result.replaced ? t('credential.replaced') : t('credential.added') })
         /* 换了账号:同步节流与错误态重置,下次按新令牌重新同步 */
         clearSynced()
         setCloudState('idle')
@@ -564,11 +566,15 @@ function WakatimePanels(props: PanelsProps) {
     </button>
   )
 
-  /* 只读账号状态:主视图复制一份展示(与配置视图的凭证区同源,不含任何写操作入口) */
+  /* 只读账号状态:主视图复制一份展示(与配置视图的凭证区同源,不含任何写操作入口).
+     凭证被服务端拒绝时这里改为告警态, 否则令牌失效期间仍显示"已配置"的绿色标签 */
+  const rejected = data.transmission?.rejected ?? null
   const accountStatus = (
     <span className={css.statusLine}>
-      <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
-        {data.configured ? t('status.configured') : t('status.notConfigured')}
+      <span className={css.tag} data-tone={rejected !== null ? 'danger' : data.configured ? 'success' : 'outline'}>
+        {rejected !== null
+          ? t('status.rejectedShort')
+          : data.configured ? t('status.configured') : t('status.notConfigured')}
       </span>
       {data.configured && data.username ? (
         <span className={`${css.muted} ${css.statusText}`}>
@@ -743,6 +749,22 @@ function WakatimePanels(props: PanelsProps) {
   return (
     <>
       <div className={css.toolbar}>{accountStatus}{toggleButton}</div>
+
+      {rejected === null ? null : (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.rejectedTitle')}</span>
+          <span>{t('status.rejectedDetail').replace('{reason}', rejected.message)}</span>
+          <span>{t('status.queuedDetail').replace('{n}', String(data.transmission?.queued ?? 0))}</span>
+        </div>
+      )}
+
+      {rejected === null && data.writeScope === 'missing' ? (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.writeScopeMissingTitle')}</span>
+          <span>{t('credential.writeScopeMissing')}</span>
+        </div>
+      ) : null}
+
 
       <section className={css.section}>
         <div className={css.sectionHead}>
