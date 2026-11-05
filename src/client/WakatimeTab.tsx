@@ -5,7 +5,8 @@
  * Agent 协作战绩(全局):提示词字符总量(官方 ai_prompt_length 口径)、
  * 模型思考总时长、输出 TOKEN 总量、有效 TOKEN 消耗量(官方计费口径)、
  * 平均输出速度(输出 TOKEN ÷ 思考秒数,向下取整)等;
- * 单份 OAuth 凭证管理(小后端代理,仅覆盖不可查看;更换凭证后本地战绩保留);
+ * 双槽凭证管理(写入槽 API Key + 读取槽 OAuth 令牌, 小后端代理, 仅覆盖不可查看;
+ * 两槽必须同属一个 WakaTime 用户, 更换凭证后本地战绩保留);
  * 上报记录日志(可展开/收起,调试级);主视图工具条左侧带只读账号状态,
  * 凭证变更与上报参数同属配置,由右上角按钮切换出的配置视图承载(ESC 切回主视图)。
  * 数据经 host webserver 接口读写(仅 web profile 提供)。
@@ -16,7 +17,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { detectCredentialType } from '../credential-format'
+import { detectSlotCredential } from '../credential-format'
+import type { CredentialRejectReason, CredentialSlot } from '../credential-format'
 import type { CSSProperties, MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -109,13 +111,14 @@ const CONFIG_PANEL_ID = 'wakatime-config-panel'
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
   const [draft, setDraft] = useState<ConfigDraft | null>(null)
-  /* 输入框内容(只接受 OAuth 访问令牌) */
-  const [credentialInput, setCredentialInput] = useState('')
+  /* 两槽各自的输入框内容(写入槽 API Key, 读取槽 OAuth 令牌) */
+  const [slotInputs, setSlotInputs] = useState<Record<CredentialSlot, string>>({ write: '', read: '' })
   const [logs, setLogs] = useState<readonly WebLogEntry[]>([])
   const [logsOpen, setLogsOpen] = useState(false)
   const [loadError, setLoadError] = useState<string>()
   const [notice, setNotice] = useState<Notice>()
-  const [keySaving, setKeySaving] = useState(false)
+  /* 正在保存的槽位: 只禁用该槽按钮, 另一槽仍可操作 */
+  const [savingSlot, setSavingSlot] = useState<CredentialSlot | undefined>(undefined)
   const [tick, setTick] = useState(0)
   /* 刷新请求序号: 只采用最后一次请求的结果, 避免旧响应覆盖新状态 */
   const reloadSeq = useRef(0)
@@ -279,9 +282,14 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const credentialErrorText = (code: string | undefined): string => {
     if (code === 'empty') return t('credential.errEmpty')
     if (code === 'client_secret') return t('credential.errClientSecret')
-    if (code === 'api_key') return t('credential.errApiKey')
+    if (code === 'api_key_format') return t('credential.errApiKeyFormat')
+    if (code === 'oauth_format') return t('credential.errOauthFormat')
+    if (code === 'wrong_slot') return t('credential.errWrongSlot')
     if (code === 'unknown_format') return t('credential.errUnknownFormat')
     if (code === 'env_locked') return t('credential.errEnvLocked')
+    if (code === 'write_scope') return t('credential.errWriteScope')
+    if (code === 'network') return t('credential.errNetwork')
+    if (code === 'different_account') return t('credential.errDifferentAccount')
     /* 未知错误码不再直显服务端英文原文 */
     return t('credential.errInvalid')
   }
@@ -383,20 +391,20 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous))
   }
 
-  /* 凭证保存或更换:前端先按前缀校验格式, 小后端再权威校验并验证有效性;
-     成功后清空输入框、提示已保存并刷新状态(本地战绩不受影响) */
-  const saveCredential = (): void => {
-    const value = credentialInput.trim()
+  /* 凭证保存或更换:前端先按槽位校验格式, 小后端再权威校验、
+     验证有效性并取证两槽是否同一账号;成功后清空该槽输入框并刷新状态(本地战绩不受影响) */
+  const saveCredential = (slot: CredentialSlot): void => {
+    const value = slotInputs[slot].trim()
     /* 格式不通过时前端直接拦下, 不发请求 */
-    if (!detectCredentialType(value).ok) return
-    setKeySaving(true)
+    if (!detectSlotCredential(value, slot).ok) return
+    setSavingSlot(slot)
     setNotice(undefined)
     /* 服务端错误码已映射成整句本地化文案, 只有网络层失败才需要再加前缀 */
     let localized = false
     fetch(CREDENTIAL_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ secret: value }),
+      body: JSON.stringify({ slot, secret: value }),
     })
       .then(async (response) => {
         const result = await response.json() as WebCredentialResponse
@@ -407,10 +415,12 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         return result
       })
       .then((result) => {
-        setCredentialInput('')
-        setNotice(result.writeScope === 'missing'
-          ? { kind: 'error', text: t('credential.writeScopeMissing') }
-          : { kind: 'ok', text: result.replaced ? t('credential.replaced') : t('credential.added') })
+        setSlotInputs((previous) => ({ ...previous, [slot]: '' }))
+        const saved = result.replaced ? t('credential.replaced') : t('credential.added')
+        /* 另一槽还空着时上报仍暂停, 提示里说清楚, 别让用户以为已经修好 */
+        setNotice(result.paired === false
+          ? { kind: 'info', text: saved + ' · ' + t('credential.partial') }
+          : { kind: 'ok', text: saved })
         /* 换了账号:同步节流与错误态重置,下次按新令牌重新同步 */
         clearSynced()
         setCloudState('idle')
@@ -420,7 +430,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         const message = (error as Error).message
         setNotice({ kind: 'error', text: localized ? message : `${t('credential.saveFailed')}: ${message}` })
       })
-      .finally(() => { setKeySaving(false) })
+      .finally(() => { setSavingSlot(undefined) })
   }
 
   return (
@@ -446,8 +456,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               syncError={syncError}
               retryingId={retryingId}
               migrating={migrating}
-              credentialInput={credentialInput}
-              keySaving={keySaving}
+              slotInputs={slotInputs}
+              savingSlot={savingSlot}
               clearConfirm={clearConfirm}
               configOpen={configOpen}
               configToggleRef={configToggleRef}
@@ -459,8 +469,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
               onRetry={retryLog}
               onMigrate={migrateLegacy}
               onClearCredentials={clearCredentials}
-              onCredentialInput={setCredentialInput}
-              onSaveCredential={saveCredential}
+              onSlotInput={(slot, value) => { setSlotInputs((previous) => ({ ...previous, [slot]: value })) }}
+              onSaveSlot={saveCredential}
               onPatch={patch}
               onDraft={draftOnly}
             />
@@ -490,8 +500,9 @@ interface PanelsProps {
   retryingId?: string
   /* 旧版数据迁移进行中(迁移按钮在此期间禁用) */
   migrating: boolean
-  credentialInput: string
-  keySaving: boolean
+  /* 两槽输入框内容与在途保存的槽位 */
+  slotInputs: Record<CredentialSlot, string>
+  savingSlot?: CredentialSlot
   clearConfirm: boolean
   configOpen: boolean
   configToggleRef: MutableRefObject<HTMLButtonElement | null>
@@ -503,8 +514,8 @@ interface PanelsProps {
   onRetry: (id: string) => void
   onMigrate: () => void
   onClearCredentials: () => void
-  onCredentialInput: (value: string) => void
-  onSaveCredential: () => void
+  onSlotInput: (slot: CredentialSlot, value: string) => void
+  onSaveSlot: (slot: CredentialSlot) => void
   onPatch: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
   onDraft: (key: keyof ConfigDraft, value: ConfigDraft[keyof ConfigDraft]) => void
 }
@@ -518,10 +529,10 @@ interface PanelsProps {
  */
 function WakatimePanels(props: PanelsProps) {
   const { t, data, draft, logs, logsOpen, cloudState, syncError } = props
-  const { credentialInput: credentialValue, keySaving, clearConfirm } = props
+  const { slotInputs, savingSlot, clearConfirm } = props
   const { configOpen, configToggleRef } = props
   const { describeLogError, onToggleLogs, onRefresh, onSync, onRetry, onMigrate, onClearCredentials, onToggleConfig } = props
-  const { onCredentialInput, onSaveCredential, onPatch, onDraft } = props
+  const { onSlotInput, onSaveSlot, onPatch, onDraft } = props
   /* 战绩视图由服务端解析:本地累计量已与云端快照逐项取最大 */
   const view = data.stats  /* 表格边框:配置项驱动(默认开启),关闭时退回仅横向分隔线的观感 */
   const bordered = draft.tableBorders ? 'true' : 'false'
@@ -584,17 +595,77 @@ function WakatimePanels(props: PanelsProps) {
     </span>
   )
 
-  /* 凭证输入框的本地格式校验:只接受 OAuth 令牌, 不通过时不发请求 */
-  const detection = detectCredentialType(credentialValue)
-  const inputError = credentialValue.trim() === '' || detection.ok
+  /* 逐槽本地格式校验: 形态不符或填错槽位时前端直接拦下, 不发请求 */
+  const localErrorText = (reason: CredentialRejectReason): string => {
+    if (reason === 'client_secret') return t('credential.errClientSecret')
+    if (reason === 'api_key_format') return t('credential.errApiKeyFormat')
+    if (reason === 'oauth_format') return t('credential.errOauthFormat')
+    if (reason === 'wrong_slot') return t('credential.errWrongSlot')
+    return t('credential.errUnknownFormat')
+  }
+  const writeDetection = detectSlotCredential(slotInputs.write, 'write')
+  const readDetection = detectSlotCredential(slotInputs.read, 'read')
+  const writeInputError = slotInputs.write.trim() === '' || writeDetection.ok
     ? undefined
-    : detection.reason === 'client_secret'
-      ? t('credential.errClientSecret')
-      : detection.reason === 'api_key'
-        ? t('credential.errApiKey')
-        : t('credential.errUnknownFormat')
+    : localErrorText(writeDetection.reason)
+  const readInputError = slotInputs.read.trim() === '' || readDetection.ok
+    ? undefined
+    : localErrorText(readDetection.reason)
 
-  /* 凭证管理属于配置:当前凭证信息(打码值/账号/更新时间) + 保存或更换 + 清除 */
+  /* 单槽控件: 状态标签与打码值一行, 输入框 + 保存按钮一行, 输入框下方只写一行官网地址 */
+  const slotField = (
+    slot: CredentialSlot,
+    status: WebStatusResponse['write'],
+    title: string,
+    placeholder: string,
+    hint: string,
+    value: string,
+    formatOk: boolean,
+    errorText: string | undefined,
+  ) => (
+    <div className={css.field}>
+      <span className={css.fieldLabel}>{title}</span>
+      <div className={css.credentialRow}>
+        <span className={css.tag} data-tone={status.configured ? 'success' : 'outline'}>
+          {status.configured ? t('status.configured') : t('status.slotMissing')}
+        </span>
+        {status.maskedSecret === undefined ? null : (
+          <span className={css.muted}>{status.maskedSecret}</span>
+        )}
+        {status.fromEnv ? <span className={css.muted}>{t('credential.fromEnv')}</span> : null}
+        {status.updatedAt === undefined ? null : (
+          <span className={css.muted}>
+            {t('credential.updatedAt')}
+            {': '}
+            {formatTime(status.updatedAt)}
+          </span>
+        )}
+      </div>
+      <div className={css.credentialRow}>
+        <input
+          className={css.input}
+          type="password"
+          autoComplete="off"
+          aria-label={title}
+          placeholder={placeholder}
+          value={value}
+          onChange={(event) => { onSlotInput(slot, event.target.value) }}
+        />
+        <button
+          type="button"
+          className={`${css.button} ${css.buttonPrimary}`}
+          disabled={savingSlot !== undefined || !formatOk}
+          onClick={() => { onSaveSlot(slot) }}
+        >
+          {savingSlot === slot ? t('config.saving') : t('credential.save')}
+        </button>
+      </div>
+      {errorText === undefined ? null : <p className={css.error}>{errorText}</p>}
+      <span className={css.muted}>{hint}</span>
+    </div>
+  )
+
+  /* 凭证管理属于配置: 两槽各自的状态与输入框(写入槽 API Key, 读取槽 OAuth 令牌) + 清除 */
   const credentialSection = (
     <section id={CONFIG_PANEL_ID} className={css.section}>
       <div className={css.sectionHead}>
@@ -603,7 +674,7 @@ function WakatimePanels(props: PanelsProps) {
           <span className={css.tag} data-tone={data.configured ? 'success' : 'outline'}>
             {data.configured ? t('status.configured') : t('status.notConfigured')}
           </span>
-          {data.configured && !data.fromEnv ? (
+          {data.write.configured || data.read.configured ? (
             <button
               type="button"
               className={clearConfirm
@@ -619,54 +690,35 @@ function WakatimePanels(props: PanelsProps) {
           </button>
         </div>
       </div>
-      {data.configured ? (
-        <>
-          {data.maskedSecret === undefined ? null : (
-            <p className={css.ok} role="status">
-              {data.maskedSecret}
-              {data.fromEnv ? ' · ' + t('credential.fromEnv') : ''}
-            </p>
-          )}
-          <p className={css.muted}>
-            {t('status.account')}
-            {': '}
-            {data.username ?? t('credential.accountUnknown')}
-          </p>
-          {data.credentialUpdatedAt === undefined ? null : (
-            <p className={css.muted}>
-              {t('credential.updatedAt')}
-              {': '}
-              {formatTime(data.credentialUpdatedAt)}
-            </p>
-          )}
-        </>
-      ) : null}
-      <div className={css.field}>
-        <span className={css.fieldLabel}>{t('credential.add')}</span>
-        <div className={css.credentialRow}>
-          <input
-            className={css.input}
-            type="password"
-            autoComplete="off"
-            aria-label={t('credential.add')}
-            placeholder={t('credential.placeholder')}
-            value={credentialValue}
-            onChange={(event) => { onCredentialInput(event.target.value) }}
-          />
-          <button
-            type="button"
-            className={`${css.button} ${css.buttonPrimary}`}
-            disabled={keySaving || !detection.ok}
-            onClick={onSaveCredential}
-          >
-            {keySaving ? t('config.saving') : t('credential.save')}
-          </button>
-        </div>
-        {inputError === undefined ? null : <p className={css.error}>{inputError}</p>}
-        <span className={css.muted}>{t('credential.hintOauth')}</span>
-        <span className={css.muted}>{t('credential.hintOauthScopes')}</span>
-        <span className={css.muted}>{t('credential.overwrite')}</span>
-      </div>
+      {/* 两槽必须同属一个账号这条前提写在区头: 输入框下方只留一行官网地址 */}
+      <p className={css.muted}>{t('credential.hintSameAccount')}</p>
+      {data.username === undefined ? null : (
+        <p className={css.muted}>
+          {t('status.account')}
+          {': '}
+          {data.username}
+        </p>
+      )}
+      {slotField(
+        'write',
+        data.write,
+        t('credential.slotWrite'),
+        t('credential.placeholderApiKey'),
+        t('credential.hintApiKeyPage'),
+        slotInputs.write,
+        writeDetection.ok,
+        writeInputError,
+      )}
+      {slotField(
+        'read',
+        data.read,
+        t('credential.slotRead'),
+        t('credential.placeholderOauth'),
+        t('credential.hintOauthPage'),
+        slotInputs.read,
+        readDetection.ok,
+        readInputError,
+      )}
     </section>
   )
 
@@ -758,10 +810,18 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       )}
 
-      {rejected === null && data.writeScope === 'missing' ? (
+      {/* 两槽同账号是上报的前提: 未确认时给出说明, 确认不是同一账号时直接拦停上报 */}
+      {rejected === null && data.sameAccount === 'different' ? (
         <div className={css.banner} role="status">
-          <span className={css.bannerTitle}>{t('status.writeScopeMissingTitle')}</span>
-          <span>{t('credential.writeScopeMissing')}</span>
+          <span className={css.bannerTitle}>{t('status.sameAccountDifferentTitle')}</span>
+          <span>{t('status.queuedDetail').replace('{n}', String(data.transmission?.queued ?? 0))}</span>
+        </div>
+      ) : null}
+
+      {rejected === null && data.configured && data.sameAccount === 'unknown' ? (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.sameAccountTitle')}</span>
+          <span>{t('status.sameAccountDetail')}</span>
         </div>
       ) : null}
 

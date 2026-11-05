@@ -13,14 +13,22 @@ export type WakatimeKey =
   | 'status.notConfigured'
   | 'status.account'
   | 'status.loggedInAs'
+  | 'status.slotWrite'
+  | 'status.slotRead'
+  | 'status.slotMissing'
+  | 'status.sameAccountTitle'
+  | 'status.sameAccountDetail'
+  | 'status.sameAccountDifferentTitle'
   | 'credential.title'
   | 'credential.fromEnv'
-  | 'credential.add'
   | 'credential.save'
-  | 'credential.placeholder'
-  | 'credential.hintOauth'
-  | 'credential.hintOauthScopes'
-  | 'credential.overwrite'
+  | 'credential.placeholderApiKey'
+  | 'credential.placeholderOauth'
+  | 'credential.slotWrite'
+  | 'credential.slotRead'
+  | 'credential.hintSameAccount'
+  | 'credential.hintApiKeyPage'
+  | 'credential.hintOauthPage'
   | 'credential.updatedAt'
   | 'credential.replaced'
   | 'credential.clear'
@@ -28,12 +36,20 @@ export type WakatimeKey =
   | 'credential.clearFailed'
   | 'credential.cleared'
   | 'credential.added'
+  | 'credential.partial'
   | 'credential.errEmpty'
   | 'credential.errClientSecret'
-  | 'credential.errApiKey'
+  | 'credential.errApiKeyFormat'
+  | 'credential.errOauthFormat'
   | 'credential.errUnknownFormat'
+  | 'credential.errWrongSlot'
   | 'credential.errInvalid'
   | 'credential.errEnvLocked'
+  | 'credential.errWriteScope'
+  | 'credential.errNetwork'
+  | 'credential.errDifferentAccount'
+  | 'credential.accountUnknown'
+  | 'credential.saveFailed'
   | 'stats.title'
   | 'stats.promptChars'
   | 'stats.promptEstimate'
@@ -82,12 +98,9 @@ export type WakatimeKey =
   | 'status.rejectedTitle'
   | 'status.rejectedDetail'
   | 'status.queuedDetail'
-  | 'credential.writeScopeMissing'
-  | 'status.writeScopeMissingTitle'
   | 'logs.retryUnavailable'
   | 'logs.retryBusy'
   | 'logs.retryFailed'
-  | 'credential.saveFailed'
   | 'logs.legacyHint'
   | 'logs.legacyMigrating'
   | 'logs.legacyDone'
@@ -112,7 +125,6 @@ export type WakatimeKey =
   | 'config.groupPayload'
   | 'config.groupDisplay'
   | 'config.groupDiagnostics'
-  | 'credential.accountUnknown'
   | 'config.saveFailed'
   | 'action.refresh'
   | 'state.loading'
@@ -122,37 +134,52 @@ type WakatimeDict = Record<WakatimeKey, string>
 
 export const zh: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': '已配置凭证',
-  'status.notConfigured': '未配置凭证',
+  'status.configured': '凭证已配置',
+  'status.notConfigured': '凭证未配置完整',
   'status.account': '当前账号',
   'status.loggedInAs': '已登录: {name}',
+  'status.slotWrite': '写入槽',
+  'status.slotRead': '读取槽',
+  'status.slotMissing': '未配置',
+  'status.sameAccountTitle': '两槽尚未确认是同一个账号',
+  'status.sameAccountDetail': '写入槽与读取槽必须属于同一个 WakaTime 用户; 重新保存任一槽时会再次取证',
+  'status.sameAccountDifferentTitle': '两槽不属于同一个账号, 上报已暂停',
   'credential.title': '凭证',
   'credential.fromEnv': '由环境变量提供',
-  'credential.add': '保存或更换凭证',
   'credential.save': '保存',
-  'credential.placeholder': '粘贴 OAuth 访问令牌…',
-  'credential.hintOauth': 'OAuth 令牌: 登录后访问 wakatime.com/oauth 获取, 自用无需创建应用',
-  'credential.hintOauthScopes': '需要自定义 scope 或供他人使用时, 在 wakatime.com/apps 创建应用, 授权时用 scope 参数申请 write_heartbeats, read_summaries, email',
-  'credential.accountUnknown': '未知',
-  'credential.overwrite': '只保存 OAuth 访问令牌, 仅覆盖不可查看; 更换凭证后本地战绩保留',
-  'credential.updatedAt': '凭证更新时间',
+  'credential.placeholderApiKey': '粘贴 WakaTime API Key…',
+  'credential.placeholderOauth': '粘贴 OAuth 访问令牌…',
+  'credential.slotWrite': '写入槽: API Key(用于上报心跳)',
+  'credential.slotRead': '读取槽: OAuth 令牌(用于账号与战绩)',
+  'credential.hintSameAccount': '两槽必须属于同一个 WakaTime 用户, 保存时会自动取证',
+  'credential.hintApiKeyPage': 'https://wakatime.com/settings/api-key',
+  'credential.hintOauthPage': 'https://wakatime.com/oauth',
+  'credential.updatedAt': '更新时间',
   'credential.replaced': '已更换凭证',
   'credential.clear': '清除凭证',
   'credential.clearConfirm': '确认清除?',
   'credential.clearFailed': '清除凭证失败, 请稍后重试',
   'credential.cleared': '已清除凭证, 本地战绩保留',
   'credential.added': '已保存凭证',
+  'credential.partial': '另一槽尚未配置, 上报仍暂停',
   'credential.errEmpty': '凭证不能为空',
-  'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 不能当凭证使用; 访问令牌请到 https://wakatime.com/oauth 获取',
-  'credential.errApiKey': '插件密钥不再支持, 请改用个人 OAuth 访问令牌(在 https://wakatime.com/oauth 获取)',
-  'credential.errUnknownFormat': '无法识别的凭证格式: OAuth 访问令牌以 waka_tok_ 开头且长度完整',
+  'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 两槽都不能用',
+  'credential.errApiKeyFormat': 'API Key 形态不符: 应为 waka_ 加 36 位 UUID, 共 41 字符',
+  'credential.errOauthFormat': 'OAuth 令牌形态不符: 应以 waka_tok_ 开头且长度完整',
+  'credential.errUnknownFormat': '无法识别的凭证格式',
+  'credential.errWrongSlot': '凭证类型与槽位不符: 写入槽填 API Key, 读取槽填 OAuth 令牌',
   'credential.errInvalid': '凭证无效或验证失败',
-  'credential.errEnvLocked': '环境变量 WAKATIME_OAUTH_TOKEN 生效中, 其优先级高于本地保存; 请先移除该变量再重启 dsh',
+  'credential.errEnvLocked': '该槽凭证由环境变量提供, 其优先级高于本地保存; 请先移除对应环境变量再重启 dsh',
+  'credential.errWriteScope': '该 API Key 被服务端拒绝, 无法写入心跳; 请确认复制的是完整密钥',
+  'credential.errNetwork': '验证凭证时网络异常, 请检查网络后重试',
+  'credential.errDifferentAccount': '两槽不属于同一个 WakaTime 用户, 已拒绝保存',
+  'credential.accountUnknown': '未知',
+  'credential.saveFailed': '保存凭证失败',
   'stats.title': 'Agent 协作战绩',
   'stats.promptChars': '提示词字符总量',
   'stats.promptEstimate': '≈ {n} token',
-  'stats.thinking': '模型思考总时长',
   'stats.tokenPerSecond': '{n} token/s',
+  'stats.thinking': '模型思考总时长',
   'stats.outputTokens': '输出 TOKEN 总量',
   'stats.apiEffective': '有效 TOKEN 消耗量',
   'stats.avgOutputSpeed': '平均输出速度',
@@ -196,12 +223,9 @@ export const zh: WakatimeDict = {
   'status.rejectedTitle': '心跳上报被服务端拒绝',
   'status.rejectedDetail': '原因: {reason}',
   'status.queuedDetail': '当前积压 {n} 条, 修好凭证后会自动续传',
-  'credential.writeScopeMissing': 'WakaTime 个人令牌只读, 无法写入心跳; 请在 wakatime.com/apps 创建应用并以 scope=write_heartbeats 完成授权, 把应用令牌粘贴到这里',
-  'status.writeScopeMissingTitle': '当前令牌只能读取, 无法写入心跳',
   'logs.retryUnavailable': '该失败任务已不在待重试列表, 可能在其它进程或已被重试',
   'logs.retryBusy': '已放回队列, 但本轮推送正忙, 稍后会自动重试',
   'logs.retryFailed': '重试失败',
-  'credential.saveFailed': '保存凭证失败',
   'logs.legacyHint': '存在旧版数据, 点击迁移',
   'logs.legacyMigrating': '迁移中…',
   'logs.legacyDone': '旧版数据已迁移',
@@ -234,37 +258,52 @@ export const zh: WakatimeDict = {
 
 export const en: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': 'Credential configured',
-  'status.notConfigured': 'Credential not configured',
+  'status.configured': 'Credentials configured',
+  'status.notConfigured': 'Credential setup incomplete',
   'status.account': 'Current account',
   'status.loggedInAs': 'Logged in as {name}',
-  'credential.title': 'Credential',
+  'status.slotWrite': 'Write slot',
+  'status.slotRead': 'Read slot',
+  'status.slotMissing': 'Not configured',
+  'status.sameAccountTitle': 'The two slots are not confirmed as the same account',
+  'status.sameAccountDetail': 'The write slot and the read slot must belong to the same WakaTime user; saving either slot verifies it again',
+  'status.sameAccountDifferentTitle': 'The two slots belong to different accounts, reporting is paused',
+  'credential.title': 'Credentials',
   'credential.fromEnv': 'Provided by environment',
-  'credential.add': 'Save or replace credential',
   'credential.save': 'Save',
-  'credential.placeholder': 'Paste an OAuth access token…',
-  'credential.hintOauth': 'OAuth token: open wakatime.com/oauth while signed in; no app is needed for personal use.',
-  'credential.hintOauthScopes': 'To pick custom scopes or act for others, create an app at wakatime.com/apps and request write_heartbeats, read_summaries and email via the scope argument.',
-  'credential.accountUnknown': 'Unknown',
-  'credential.overwrite': 'OAuth access token only, overwrite-only and never shown; local stats are kept after replacing it.',
-  'credential.updatedAt': 'Credential updated at',
+  'credential.placeholderApiKey': 'Paste your WakaTime API key…',
+  'credential.placeholderOauth': 'Paste your OAuth access token…',
+  'credential.slotWrite': 'Write slot: API key (used to report heartbeats)',
+  'credential.slotRead': 'Read slot: OAuth token (used for account and stats)',
+  'credential.hintSameAccount': 'Both slots must belong to the same WakaTime user; saving verifies it automatically',
+  'credential.hintApiKeyPage': 'https://wakatime.com/settings/api-key',
+  'credential.hintOauthPage': 'https://wakatime.com/oauth',
+  'credential.updatedAt': 'Updated at',
   'credential.replaced': 'Credential replaced',
-  'credential.clear': 'Clear credential',
+  'credential.clear': 'Clear credentials',
   'credential.clearConfirm': 'Confirm clear?',
-  'credential.clearFailed': 'Failed to clear the credential, please retry',
-  'credential.cleared': 'Credential cleared; local stats are kept',
+  'credential.clearFailed': 'Failed to clear the credentials, please retry',
+  'credential.cleared': 'Credentials cleared; local stats are kept',
   'credential.added': 'Credential saved',
+  'credential.partial': 'The other slot is still empty, reporting stays paused',
   'credential.errEmpty': 'The credential must not be empty',
-  'credential.errClientSecret': 'This is an OAuth client secret and cannot be used as a credential; get an access token at https://wakatime.com/oauth',
-  'credential.errApiKey': 'Plugin keys are no longer supported; use a personal OAuth access token from https://wakatime.com/oauth',
-  'credential.errUnknownFormat': 'Unrecognized credential format: OAuth access tokens start with waka_tok_ and have full length',
+  'credential.errClientSecret': 'This is an OAuth client secret and cannot be used in either slot',
+  'credential.errApiKeyFormat': 'Malformed API key: expected waka_ plus a 36 character UUID, 41 characters in total',
+  'credential.errOauthFormat': 'Malformed OAuth token: it must start with waka_tok_ and have full length',
+  'credential.errUnknownFormat': 'Unrecognized credential format',
+  'credential.errWrongSlot': 'Wrong credential type for this slot: API key for the write slot, OAuth token for the read slot',
   'credential.errInvalid': 'Credential invalid or verification failed',
-  'credential.errEnvLocked': 'WAKATIME_OAUTH_TOKEN is set and takes precedence over the saved credential; remove it and restart dsh',
+  'credential.errEnvLocked': 'This slot is supplied by an environment variable and takes precedence over the saved credential; remove the variable and restart dsh',
+  'credential.errWriteScope': 'The API key was rejected and cannot write heartbeats; make sure the whole key was copied',
+  'credential.errNetwork': 'Network error while verifying the credential, please retry',
+  'credential.errDifferentAccount': 'The two slots belong to different WakaTime users, so the save was rejected',
+  'credential.accountUnknown': 'Unknown',
+  'credential.saveFailed': 'Failed to save the credential',
   'stats.title': 'Agent collaboration battle stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',
-  'stats.thinking': 'Model thinking time',
   'stats.tokenPerSecond': '{n} token/s',
+  'stats.thinking': 'Model thinking time',
   'stats.outputTokens': 'Output TOKEN total',
   'stats.apiEffective': 'Effective TOKEN usage',
   'stats.avgOutputSpeed': 'Average output speed',
@@ -308,12 +347,9 @@ export const en: WakatimeDict = {
   'status.rejectedTitle': 'Heartbeat pushes are rejected by the server',
   'status.rejectedDetail': 'Reason: {reason}',
   'status.queuedDetail': '{n} heartbeats are queued and will be pushed once the credential is fixed',
-  'credential.writeScopeMissing': 'Personal WakaTime tokens are read-only and cannot write heartbeats; create an app at wakatime.com/apps and authorize it with scope=write_heartbeats, then paste the app token here',
-  'status.writeScopeMissingTitle': 'This token is read-only and cannot write heartbeats',
   'logs.retryUnavailable': 'That failed task is no longer pending, it may belong to another process or was already retried',
   'logs.retryBusy': 'Queued again, but the current push round is busy; it will be retried automatically',
   'logs.retryFailed': 'Retry failed',
-  'credential.saveFailed': 'Failed to save the credential',
   'logs.legacyHint': 'Legacy data found, click to migrate',
   'logs.legacyMigrating': 'Migrating…',
   'logs.legacyDone': 'Legacy data migrated',
