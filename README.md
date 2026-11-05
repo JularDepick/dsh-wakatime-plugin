@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.4.1-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.4.1)
+[![Version](https://img.shields.io/badge/Version-0.5.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.5.0)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
@@ -42,7 +42,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # 或使用发布 tarball 本地安装(预构建产物,无需构建)
-dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.1.tgz
+dsh plugin --profile <name> add dsh-wakatime-plugin-0.5.0.tgz
 ```
 
 > 从 GitHub 源码安装拉取的是源码而非构建产物,pnpm 会在安装时运行包的 `prepare` 构建脚本;pnpm 10 及以上默认拒绝执行 git 依赖的构建脚本,首次 `add` 会失败: 把 pnpm 打印的包键(形如 `dsh-wakatime-plugin`)加入该 profile 的 `pnpm-workspace.yaml` 后再重新执行:
@@ -60,7 +60,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.1.tgz
 - dsh 版本: 支持实测区间 `>=0.2.1-rc.1 <=0.2.2-rc.1`,共用同一份产物,无需按版本分别安装;dsh 0.2.2-rc.1 宿主自身要求 Node.js `>=24.9.0`,在该版本上运行以宿主要求为准.
 - 安装校验: 包清单以 `engines.dsh` 与宿主包对等依赖声明实测版本区间 `>=0.2.1-rc.1 <=0.2.2-rc.1`;若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本尚未实测,不在区间内.
 - 后续版本: 高于 0.2.2-rc.1 的 dsh 版本(含 0.2.2 正式版,0.2.2-rc.2 与 0.3.x)都会被本插件拒绝,需要等待插件实测并推进上界.
-- 从 0.3.0 升级: 凭证在首次启动自动迁移(从已保存的凭证列表里挑出一份 OAuth 令牌作为唯一凭证,插件密钥因官方只允许写入, 无法读取战绩而不再支持,只保存过插件密钥的用户需要改用个人 OAuth 令牌); 本地数据改为在 Web 界面上确认后迁移: 检测到 0.3.0 旧版数据时插件只读运行(不覆盖旧文件),在上报记录标题下方显示一行红字「存在旧版数据, 点击迁移」,点击后把分凭证的多份数据合并为一份(战绩逐项求和, 待发送队列按心跳身份计数归并(同毫秒的重复心跳计数相加, 不再丢弃其中一条), 云端快照取最新;0.3.0 的失败列表不继承,迁移后为空,只保留批次级上报记录),更早版本的 `stats.json` 与 `heartbeats.json` 在数据文件缺失时并入,迁移成功后红字消失;确认迁移之前本进程的战绩只留在内存,重启会丢,看到红字后请尽快点击; 迁移后本地数据与凭证解耦,此后更换凭证不再影响战绩;`statsScope` 配置项与 `WAKATIME_API_KEY` 环境变量已移除,旧 `cordis.yml` 里的残留项不会被拒绝,但插件不再读取,因此不生效,其余默认值不变(`tableBorders` 默认开启,`digitGrouping` 默认 `thousand`).
+- 从 0.3.0 升级: 凭证在首次启动自动迁移(凭证列表转换为双槽: 插件密钥进写入槽, OAuth 令牌进读取槽;只存过插件密钥的用户还需再补一个个人 OAuth 令牌到读取槽); 本地数据改为在 Web 界面上确认后迁移: 检测到 0.3.0 旧版数据时插件只读运行(不覆盖旧文件),在上报记录标题下方显示一行红字「存在旧版数据, 点击迁移」,点击后把分凭证的多份数据合并为一份(战绩逐项求和, 待发送队列按心跳身份计数归并(同毫秒的重复心跳计数相加, 不再丢弃其中一条), 云端快照取最新;0.3.0 的失败列表不继承,迁移后为空,只保留批次级上报记录),更早版本的 `stats.json` 与 `heartbeats.json` 在数据文件缺失时并入,迁移成功后红字消失;确认迁移之前本进程的战绩只留在内存,重启会丢,看到红字后请尽快点击; 迁移后本地数据与凭证解耦,此后更换凭证不再影响战绩;`statsScope` 配置项与 `WAKATIME_API_KEY` 环境变量在 0.4.0 移除(0.5.0 起该变量重新启用, 语义改为写入槽 API Key 的临时凭证, 见上一段),旧 `cordis.yml` 里的残留项不会被拒绝,但插件不再读取,其余默认值不变(`tableBorders` 默认开启,`digitGrouping` 默认 `thousand`).
 - 从 0.4.x 升级: 已保存的 OAuth 令牌自动迁移到**读取槽**(它是个人令牌, 只有读取权限), 写入槽留空, 因此升级后上报会暂停(心跳留在队列, 一条都不丢), 需要到 https://wakatime.com/settings/api-key 生成 API Key 并填进写入槽, 补齐后积压自动续传;配置文件结构版本由 3 升到 4, 旧文件归档为 `config.json.v3.<时间戳>.bak`;本地数据文件结构不变, 战绩与待发送队列照旧.0.4.0 起移除的 `WAKATIME_API_KEY` 环境变量在 0.5.0 重新启用, 语义改为「写入槽 API Key」的临时凭证
 - 升级前请备份 `~/.dsh/plugins/wakatime` 目录;0.3.0 与 0.4.0 不能同时使用同一数据目录(旧版本会把新版结构重写成空的旧结构,导致战绩丢失),升级后也不要回退,确需回退时先用备份恢复.在界面上点击迁移后会把旧数据文件归档为 `buckets.json.v2.<时间戳>.bak`,更早版本的 `stats.json` 与 `heartbeats.json` 在数据文件缺失时被并入, 并入后同样归档为 `*.legacy.*.bak`; 损坏或无法识别的文件会把原件归档为 `*.corrupt.*.bak` 或 `*.unknown.*.bak` 后重建.写入槽的 API Key 没有读取面, 保存时以一条空载荷心跳探测(合法密钥被拒为 400/422 即视为可写, 401/403 判为密钥不可用并拒绝保存, 探测本身不写任何数据);写入槽被服务端拒绝或两槽被判定为不同账号时, 心跳留在队列轮转不丢, 主视图显示原因与积压条数.
 
@@ -80,7 +80,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-0.4.1.tgz
 - **Agent 引导**: 让 Agent 调用 `wakatime_config` 工具(op=set_credential,带 `slot` 指定 `write` 或 `read`)代替你完成配置;
 - **环境变量**: `WAKATIME_API_KEY`(写入槽)与 `WAKATIME_OAUTH_TOKEN`(读取槽)作为临时凭证优先于文件配置,不落盘.
 
-每槽只保留一份凭证: 再次保存即覆盖该槽(本地战绩继续累计),「清除凭证」清两槽并回退到未登录状态(本地战绩保留).若某槽设置了对应环境变量,该槽的保存与清除都会被拒绝并提示,需要先移除变量再重启 dsh.
+每槽只保留一份凭证: 再次保存即覆盖该槽(本地战绩继续累计),「清除凭证」清两槽并回退到未登录状态(本地战绩保留).若某槽设置了对应环境变量,该槽的保存会被拒绝并提示;清除时该槽会被跳过(另一槽照清,提示里点名跳过的是哪一槽),两槽都被环境变量占住才会整体失败,需要先移除变量再重启 dsh.
 
 两槽缺一时插件视为未配置: 心跳不会推送但会留在队列继续累积,补齐后自动续传.
 配置视图里的开关与上报间隔改动即时生效,无需另点保存(数字字段在失焦或回车后写入).
