@@ -89,7 +89,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-<版本>.tgz
 
 | 工具 | 用途 |
 |:---:|:---:|
-| `wakatime_config` | 查看/修改插件配置(op=get/set);凭证操作: `set_credential` 需带 `slot`(`write` 收 API Key,`read` 收 OAuth 访问令牌)与 `secret`(凭证原文),仅覆盖不可查看 |
+| `wakatime_config` | 查看/修改插件配置(op=get/set);凭证操作: `set_credential` 需带 `slot`(`write` 收 API Key,`read` 收 OAuth 访问令牌)与 `secret`(凭证原文),仅覆盖不可查看;op=get 的 `sameAccount` 字段输出原始枚举 `same`/`different`/`unknown` |
 | `wakatime_logout` | 清除两槽本地凭证(本地战绩保留) |
 | `wakatime_status` | 查看两槽认证状态,同账号结论与上报运行态(积压条数,失败数,最近成功时刻,凭证被拒原因;不回显明文) |
 | `wakatime_stats` | 查看 Agent 协作战绩(提示词字符总量,提示词 Token 估算,模型思考总时长,输出 TOKEN 总量,有效 TOKEN 消耗量,缓存命中 TOKEN 总量,输入 TOKEN 总量,平均输出速度;与界面战绩表同源) |
@@ -109,7 +109,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-<版本>.tgz
     locale: zh-CN          # 界面语言(host 工具文案;Web UI 语言跟随 dsh web)
     reportInterval: 60     # 定时上报间隔(秒, 取值 1 到 3600),启动时上报一次后循环
     reportEnabled: true    # 是否开启定时上报
-    includeTokens: true    # 是否上报 Token 用量
+    includeTokens: true    # 是否上报 TOKEN 用量
     includePrompts: true   # 是否上报提示词长度
     debug: false           # 调试日志开关
     tableBorders: true     # 战绩表是否显示表格边框(纯展示项)

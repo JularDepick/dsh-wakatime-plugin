@@ -36,3 +36,13 @@
 
 - 本套 ini 翻译服务于 host 侧工具文案,由插件配置 `locale`(zh-CN/en-US)选择,未命中回退默认语言 `zh-CN.ini`.
 - Web UI(浏览器端)文案不经 ini: 由 `src/client/locales.ts` 的 zh/en 字典提供,语言跟随 dsh web UI 切换.
+
+## 与 Web UI 字典的键名重叠
+
+ini 与 `src/client/locales.ts` 共用同一套键名(如 `credential.errApiKeyFormat`, `credential.fromEnv`, `status.configured`), 但两处的值允许存在措辞差异, 这不是漏改:
+
+- host 工具面(ini)取完整自明的表述, 需要带官网获取网址, 因为工具输出没有任何上下文可点.
+- Web UI 面(locales)取简短表述, 网址由凭证输入框下方单独一行呈现, 不再重复进句子.
+- 个别键两边的形态本就不同(如 `stats.promptEstimate` 在 ini 是指标标签, 在 locales 是数值模板 `≈ {n} tokens`), 属分工而非不一致.
+
+维护任一侧时不必同步另一侧的字面值, 只需保持各自内部的中英一致与键集合完整.
