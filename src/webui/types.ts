@@ -39,6 +39,8 @@ export interface WebStatusResponse {
   writeScope?: 'ok' | 'missing' | 'unknown'
   /* 两槽是否同一账号; 任一槽变更后回到 unknown */
   sameAccount: 'same' | 'different' | 'unknown'
+  /* 配置文件处于只读运行态(结构版本高于本插件支持版本): 界面据此提示并禁用写入 */
+  readOnly?: boolean
   config: {
     enabled: boolean
     reportInterval: number
@@ -82,7 +84,8 @@ export interface WebCredentialResponse {
   /* 另一槽是否已配置(否则本次只保存了一半) */
   paired?: boolean
   /* 稳定错误码(empty / client_secret / api_key_format / oauth_format / wrong_slot /
-     env_locked / write_scope / read_scope / network / different_account)或验证失败原因 */
+     unknown_format / env_locked / write_scope / read_scope / network / different_account /
+     config_readonly / persist_failed)或验证失败原因 */
   error?: string
 }
 
