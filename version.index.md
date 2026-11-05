@@ -23,6 +23,7 @@ AGENTS.md:444  # 0.5.0 进行中条目
 AGENTS.md:469  # 项目启动段的当前版本
 AGENTS.md:369  # 目录结构段 src/migrate/ 的迁移标注
 AGENTS.md:411  # 设计细节段凭证与配置存放的版本语境
+AGENTS.md:423  # 设计细节段多进程数据一致性的配置/数据结构版本语境
 README.md:63-65  # 升级说明段的 0.3.0 / 0.4.x -> 当前双槽 迁移与混跑警告(历史语境, 不随版本号迭代)
 README_en-US.md:63-65  # 升级说明段的 0.3.0 / 0.4.x -> 当前双槽 迁移与混跑警告(历史语境, 不随版本号迭代)
 docs/repo-spec/tag-release-spec.md:15,23  # Tag&Release 规范里的版本号示例(随定版更新)
