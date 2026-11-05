@@ -282,6 +282,10 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     skipped = await deps.auth.clearCredential(payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined)
   } catch (error) {
     /* 目标槽位全被环境变量占住时配置文件里的凭证删了也不起作用, 明确拒绝而不是假装成功 */
+    if (error instanceof ConfigReadOnlyError) {
+      writeJson(res, 409, { ok: false, error: 'config_readonly' } satisfies WebCredentialClearResponse)
+      return
+    }
     const reason = error instanceof CredentialInputError ? error.code : 'clear failed'
     writeJson(res, 409, { ok: false, error: reason } satisfies WebCredentialClearResponse)
     return

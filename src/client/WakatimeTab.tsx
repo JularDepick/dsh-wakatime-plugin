@@ -196,6 +196,11 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .catch((error: unknown) => {
         const code = error instanceof Error ? error.message : ''
+        /* 只读态与凭证被拒是两种原因, 不能都说成"清除失败, 请稍后重试" */
+        if (code === 'config_readonly') {
+          setNotice({ kind: 'error', text: t('credential.errConfigReadonly') })
+          return
+        }
         setNotice({
           kind: 'error',
           text: code === 'env_locked' ? t('credential.errEnvLocked') : t('credential.clearFailed'),
@@ -356,7 +361,10 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
      统一落到"其它错误", 需要原文时看宿主日志 */
   const describeLogError = (error: string | undefined): string => {
     if (error === undefined || error === '') return ''
-    if (/credential|401|403|Unauthorized|Forbidden/i.test(error)) return t('logs.errCredential')
+    /* 判据与引擎 isCredentialRejected 同一套词: 官方 403 原文
+       "This resource requires scopes: write_heartbeats." 只靠 credential|401|403 匹配不到,
+       会让同一批心跳在横幅上显示"上报被拒"却在记录行显示"其它错误", 两处口径矛盾 */
+    if (/scope|permission|forbidden|unauthor|credential|api key|token|401|403/i.test(error)) return t('logs.errCredential')
     /* 服务端对载荷类错误的原文形如 "WakaTime API responded with status 422"; 不映射会把英文直出到中文界面 */
     /* 429 是限流而不是载荷问题: 单列一条文案, 否则持续限流耗尽重试后会误导成端点不被接受 */
     if (/status 429|rate limit/i.test(error)) return t('logs.errRateLimit')
