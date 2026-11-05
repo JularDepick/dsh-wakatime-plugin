@@ -106,7 +106,7 @@ const CONFIG_PANEL_ID = 'wakatime-config-panel'
 /**
  * 渲染 wakatime 标签页。
  * @param props - 框架座位:t 为 locale 座位,会话座位不消费。
- * @returns 战绩表、单凭证管理区、上报日志区与配置视图。
+ * @returns 战绩表、双槽凭证管理区、上报日志区与配置视图。
  */
 export function WakatimeTab({ t }: WakatimeTabProps) {
   const [data, setData] = useState<WebStatusResponse | null>(null)
@@ -117,7 +117,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   const [logsOpen, setLogsOpen] = useState(false)
   const [loadError, setLoadError] = useState<string>()
   const [notice, setNotice] = useState<Notice>()
-  /* 正在保存的槽位: 只禁用该槽按钮, 另一槽仍可操作 */
+  /* 正在保存的槽位: 保存期间两槽按钮都禁用(取证要读写两侧, 并发保存会让结论落空) */
   const [savingSlot, setSavingSlot] = useState<CredentialSlot | undefined>(undefined)
   const [tick, setTick] = useState(0)
   /* 刷新请求序号: 只采用最后一次请求的结果, 避免旧响应覆盖新状态 */
@@ -185,7 +185,11 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         if (!response.ok || body.ok === false) throw new Error(body.error ?? `HTTP ${response.status}`)
         clearSynced()
         setCloudState('idle')
-        setNotice({ kind: 'ok', text: t('credential.cleared') })
+        /* 被环境变量占住的槽位清不掉, 其余已清: 明确点名, 否则用户以为全清了 */
+        const skipped = body.skipped ?? []
+        setNotice(skipped.length === 0
+          ? { kind: 'ok', text: t('credential.cleared') }
+          : { kind: 'info', text: t('credential.clearSkipped') + ': ' + skipped.map((slot) => (slot === 'write' ? t('status.slotWrite') : t('status.slotRead'))).join(' / ') })
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
@@ -200,6 +204,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 云端同步:向小后端拉取 summaries AI 聚合(force 为手动刷新,跳过两侧缓存);
      服务端把结果写入本地数据的云端快照并返回解析好的战绩视图,前端直接替换展示数据 */
   const syncCloud = (force = false): void => {
+    /* 重入守卫: 在途同步未结算时忽略新的触发(定时刷新与手动按钮都可能命中) */
+    if (!force && cloudState === 'syncing') return
     setCloudState('syncing')
     /* 强制刷新走自定义请求头而非查询参数: 查询参数会触发跨源请求,
        而浏览器对跨源子资源请求不带 Origin, 小后端会一律拒绝 */
@@ -288,6 +294,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (code === 'unknown_format') return t('credential.errUnknownFormat')
     if (code === 'env_locked') return t('credential.errEnvLocked')
     if (code === 'write_scope') return t('credential.errWriteScope')
+    if (code === 'read_scope') return t('credential.errReadScope')
     if (code === 'network') return t('credential.errNetwork')
     if (code === 'different_account') return t('credential.errDifferentAccount')
     /* 未知错误码不再直显服务端英文原文 */
@@ -315,7 +322,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
         setData(next)
         /* 有未落定的配置提交时保留草稿, 服务端值在提交成功后随下一次刷新落地 */
         if (pendingPatch.current.size === 0) setDraft(fromConfig(next.config))
-        if (next.configured && !syncedRecently()) syncCloud()
+        /* 云端同步只依赖读取槽: 只配好读取槽时也能同步, 不必等两槽齐备 */
+        if (next.read.configured && !syncedRecently()) syncCloud()
       })
       .catch((error: unknown) => {
         if (seq !== reloadSeq.current) return
@@ -394,6 +402,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
   /* 凭证保存或更换:前端先按槽位校验格式, 小后端再权威校验、
      验证有效性并取证两槽是否同一账号;成功后清空该槽输入框并刷新状态(本地战绩不受影响) */
   const saveCredential = (slot: CredentialSlot): void => {
+    /* 重入守卫: 在途保存未结算前忽略重复提交(双击与自动化场景都会命中) */
+    if (savingSlot !== undefined) return
     const value = slotInputs[slot].trim()
     /* 格式不通过时前端直接拦下, 不发请求 */
     if (!detectSlotCredential(value, slot).ok) return

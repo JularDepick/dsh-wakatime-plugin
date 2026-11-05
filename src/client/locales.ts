@@ -35,6 +35,7 @@ export type WakatimeKey =
   | 'credential.clearConfirm'
   | 'credential.clearFailed'
   | 'credential.cleared'
+  | 'credential.clearSkipped'
   | 'credential.added'
   | 'credential.partial'
   | 'credential.errEmpty'
@@ -45,6 +46,7 @@ export type WakatimeKey =
   | 'credential.errWrongSlot'
   | 'credential.errInvalid'
   | 'credential.errEnvLocked'
+  | 'credential.errReadScope'
   | 'credential.errWriteScope'
   | 'credential.errNetwork'
   | 'credential.errDifferentAccount'
@@ -134,7 +136,7 @@ type WakatimeDict = Record<WakatimeKey, string>
 
 export const zh: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': '凭证已配置',
+  'status.configured': '已配置双槽凭证',
   'status.notConfigured': '凭证未配置完整',
   'status.account': '当前账号',
   'status.loggedInAs': '已登录: {name}',
@@ -160,16 +162,18 @@ export const zh: WakatimeDict = {
   'credential.clearConfirm': '确认清除?',
   'credential.clearFailed': '清除凭证失败, 请稍后重试',
   'credential.cleared': '已清除凭证, 本地战绩保留',
+  'credential.clearSkipped': '以下槽位由环境变量提供, 未能清除',
   'credential.added': '已保存凭证',
   'credential.partial': '另一槽尚未配置, 上报仍暂停',
   'credential.errEmpty': '凭证不能为空',
   'credential.errClientSecret': '这是 OAuth 应用密钥(client secret), 两槽都不能用',
   'credential.errApiKeyFormat': 'API Key 形态不符: 应为 waka_ 加 36 位 UUID, 共 41 字符',
-  'credential.errOauthFormat': 'OAuth 令牌形态不符: 应以 waka_tok_ 开头且长度完整',
+  'credential.errOauthFormat': 'OAuth 令牌形态不符: 应以 waka_tok_ 开头, 且长度不小于 20 字符',
   'credential.errUnknownFormat': '无法识别的凭证格式',
   'credential.errWrongSlot': '凭证类型与槽位不符: 写入槽填 API Key, 读取槽填 OAuth 令牌',
   'credential.errInvalid': '凭证无效或验证失败',
-  'credential.errEnvLocked': '该槽凭证由环境变量提供, 其优先级高于本地保存; 请先移除对应环境变量再重启 dsh',
+  'credential.errEnvLocked': '该槽凭证由环境变量提供(WAKATIME_API_KEY 或 WAKATIME_OAUTH_TOKEN), 其优先级高于本地保存; 请先移除对应环境变量再重启 dsh',
+  'credential.errReadScope': '该 OAuth 令牌被服务端拒绝, 无法读取账号与战绩; 请确认复制的是完整令牌',
   'credential.errWriteScope': '该 API Key 被服务端拒绝, 无法写入心跳; 请确认复制的是完整密钥',
   'credential.errNetwork': '验证凭证时网络异常, 请检查网络后重试',
   'credential.errDifferentAccount': '两槽不属于同一个 WakaTime 用户, 已拒绝保存',
@@ -258,7 +262,7 @@ export const zh: WakatimeDict = {
 
 export const en: WakatimeDict = {
   'tab.label': 'WakaTime',
-  'status.configured': 'Credentials configured',
+  'status.configured': 'Both slots configured',
   'status.notConfigured': 'Credential setup incomplete',
   'status.account': 'Current account',
   'status.loggedInAs': 'Logged in as {name}',
@@ -284,16 +288,18 @@ export const en: WakatimeDict = {
   'credential.clearConfirm': 'Confirm clear?',
   'credential.clearFailed': 'Failed to clear the credentials, please retry',
   'credential.cleared': 'Credentials cleared; local stats are kept',
+  'credential.clearSkipped': 'These slots are supplied by environment variables and were not cleared',
   'credential.added': 'Credential saved',
   'credential.partial': 'The other slot is still empty, reporting stays paused',
   'credential.errEmpty': 'The credential must not be empty',
   'credential.errClientSecret': 'This is an OAuth client secret and cannot be used in either slot',
   'credential.errApiKeyFormat': 'Malformed API key: expected waka_ plus a 36 character UUID, 41 characters in total',
-  'credential.errOauthFormat': 'Malformed OAuth token: it must start with waka_tok_ and have full length',
+  'credential.errOauthFormat': 'Malformed OAuth token: it must start with waka_tok_ and be at least 20 characters long',
   'credential.errUnknownFormat': 'Unrecognized credential format',
   'credential.errWrongSlot': 'Wrong credential type for this slot: API key for the write slot, OAuth token for the read slot',
   'credential.errInvalid': 'Credential invalid or verification failed',
-  'credential.errEnvLocked': 'This slot is supplied by an environment variable and takes precedence over the saved credential; remove the variable and restart dsh',
+  'credential.errEnvLocked': 'This slot is supplied by an environment variable (WAKATIME_API_KEY or WAKATIME_OAUTH_TOKEN) and takes precedence over the saved credential; remove that variable and restart dsh',
+  'credential.errReadScope': 'The OAuth token was rejected and cannot read the account or stats; make sure the whole token was copied',
   'credential.errWriteScope': 'The API key was rejected and cannot write heartbeats; make sure the whole key was copied',
   'credential.errNetwork': 'Network error while verifying the credential, please retry',
   'credential.errDifferentAccount': 'The two slots belong to different WakaTime users, so the save was rejected',
@@ -330,17 +336,17 @@ export const en: WakatimeDict = {
   'logs.empty': 'No report records yet',
   'logs.count': 'items',
   'logs.time': 'Time',
-  'logs.records': 'Records',
+  'logs.records': 'Count',
   'logs.result': 'Result',
   'logs.detail': 'Detail',
-  'logs.success': 'OK',
+  'logs.success': 'Success',
   'logs.failed': 'Failed',
   'logs.retried': 'Retried',
   'logs.retry': 'Retry',
   'logs.retrying': 'Retrying…',
   'logs.attempts': 'tried {n} times',
   'logs.errCredential': 'credential rejected or lacking permission',
-  'logs.errNetwork': 'network or upstream error',
+  'logs.errNetwork': 'Network or upstream error',
   'logs.errPayload': 'Rejected by the server (payload or endpoint not accepted)',
   'logs.errRateLimit': 'Rate limited by WakaTime; this batch moved to the failed list and can be retried manually',
   'status.rejectedShort': 'Push rejected',
@@ -356,8 +362,8 @@ export const en: WakatimeDict = {
   'logs.legacyFailed': 'Migration failed, please retry later',
   'logs.action': 'Action',
   'config.title': 'Configuration',
-  'config.open': 'Settings',
-  'config.collapse': 'Hide settings',
+  'config.open': 'Configuration',
+  'config.collapse': 'Hide configuration',
   'config.enabled': 'Enable reporting (new heartbeats are dropped when off)',
   'config.reportInterval': 'Report interval (seconds)',
   'config.reportEnabled': 'Enable scheduled reporting',
