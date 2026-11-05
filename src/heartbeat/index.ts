@@ -118,8 +118,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.appendEntry({ heartbeat: this.prepare(heartbeat), enqueuedAt: Date.now(), attempts: 0 })
   }
 
-  /* 统一入队入口: 并行事件常共享同一毫秒时间戳, 逐字节相同的心跳会被服务端记为重复上报,
-     故先把同毫秒同身份的已有条目找出来合并计数再决定是否追加; 手动重试也走这里, 避免绕过该不变量 */
+  /* 统一入队入口: 心跳时间由采集面取整到秒, 同一秒内的同身份事件会折叠成一条,
+     逐字节相同的心跳会被服务端记为重复上报, 故先把同秒同身份的已有条目找出来合并计数再决定是否追加;
+     手动重试也走这里, 避免绕过该不变量 */
   private appendEntry(entry: PendingHeartbeatEntry): void {
     const index = this.findSameIdentity(entry)
     const existing = index >= 0 ? this.queue[index] : undefined
@@ -133,7 +134,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   }
 
   /* 从队尾向前找同身份的条目: 遇到时间戳不同的条目立即停止.
-     队列基本按时间追加, 同一毫秒的条目必然连续落在队尾附近, 回扫成本与同毫秒条目数同阶 */
+     队列基本按时间追加, 同一秒的条目必然连续落在队尾附近, 回扫成本与同秒条目数同阶 */
   private findSameIdentity(entry: PendingHeartbeatEntry): number {
     const key = heartbeatMergeKeyOf(entry)
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
