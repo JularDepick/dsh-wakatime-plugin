@@ -15,6 +15,7 @@ import { chmod, mkdir, rename } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_FILE_VERSION, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
+import { ConfigReadOnlyError } from '../errors'
 import { migrateStoredConfig } from '../migrate'
 import { archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
@@ -73,6 +74,11 @@ export class ConfigManagerImpl implements ConfigManager {
   /* 只读运行标记: 磁盘结构版本高于本插件支持版本时置位, 期间禁止写盘且不归档 */
   private readOnly = false
 
+  /* 当前是否只读运行:供状态接口与界面提示 */
+  isReadOnly(): boolean {
+    return this.readOnly
+  }
+
   async load(): Promise<StoredConfig | null> {
     const path = configPath()
     const file = await readJsonFileState(path)
@@ -98,7 +104,6 @@ export class ConfigManagerImpl implements ConfigManager {
 
   save(config: StoredConfig): Promise<StoredConfig> {
     const task = this.writeQueue.then(async () => {
-      if (this.readOnly) throw new Error('config file structure version is newer than this plugin supports')
       const dir = resolveConfigDir()
       const path = configPath()
       await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -108,12 +113,16 @@ export class ConfigManagerImpl implements ConfigManager {
         const file = await readJsonFileState(path)
         /* 读不出旧内容就不能写: 直接返回会让调用方(凭证保存/配置写入)把没落盘当成已保存 */
         if (file.state === 'unreadable') throw new Error('config file is not readable')
-        /* 结构版本高于本插件: 只读运行, 不归档也不重建 */
+        /* 结构版本高于本插件: 只读运行, 不归档也不重建.
+           判定只看"磁盘此刻的内容", 不在入口处复用旧标记 —— 否则用户换掉/删掉那份文件后,
+           本进程会一直以为自己还在只读态, 直到重启为止 */
         if (isFutureConfigVersion(file.value)) {
+          if (!this.readOnly) this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')
           this.readOnly = true
-          this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')
-          throw new Error('config file structure version is newer than this plugin supports')
+          throw new ConfigReadOnlyError()
         }
+        /* 磁盘内容已回到可识别结构: 解除只读标记 */
+        this.readOnly = false
         let disk = normalizeStoredConfig(file.value)
         let archivedPath: string | null = null
         if (disk === null) {
@@ -158,7 +167,14 @@ export class ConfigManagerImpl implements ConfigManager {
   async refresh(): Promise<StoredConfig | null> {
     const path = configPath()
     const mtime = await fileMtime(path)
-    if (mtime === null || mtime === this.mtime) return null
+    if (mtime === null) {
+      /* 文件被删除(例如用户重装或手工清理): 只读标记与基线一并复位, 允许重新写盘 */
+      if (this.readOnly) this.readOnly = false
+      this.mtime = null
+      this.lastKnown = null
+      return null
+    }
+    if (mtime === this.mtime) return null
     const file = await readJsonFileState(path)
     if (file.state === 'unreadable') return null
     if (isFutureConfigVersion(file.value)) {
@@ -173,8 +189,8 @@ export class ConfigManagerImpl implements ConfigManager {
     if (disk !== null) this.readOnly = false
     this.mtime = mtime
     if (!disk) {
-      /* 损坏或结构未知: 归档留痕, 本次按无配置处理 */
-      if (file.state !== 'missing') await archiveFileWithPath(path, 'corrupt')
+      /* 损坏或结构未知: 读路径只按无配置处理, 不在这里归档改名 ——
+         状态查询等纯读操作不应该移动用户的文件, 归档留给写入路径(那里持锁且失败可回滚) */
       return null
     }
     /* 按变更时刻合并:外部新增的凭证与本次内存变化都要保留 */

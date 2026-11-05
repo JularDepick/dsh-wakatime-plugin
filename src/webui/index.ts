@@ -21,8 +21,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
+import type { ConfigManager } from '../config-manager'
 import { REPORT_LOG_LIMIT, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
-import { CredentialInputError } from '../errors'
+import { ConfigReadOnlyError, CredentialInputError } from '../errors'
 import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
 import type { LocalStore } from '../local-store'
 import { resolveStatsView } from '../local-store'
@@ -33,6 +34,8 @@ import type { WebConfigResponse, WebCredentialClearPayload, WebCredentialClearRe
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
+  /* 配置管理器: 只读运行态与落盘失败需要区分给界面(否则一律显示"凭证无效") */
+  configManager: ConfigManager
   auth: AuthManager
   heartbeat: HeartbeatEngine
   sync: CloudSync
@@ -141,6 +144,8 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     sameAccount: status.sameAccount,
     ...(status.username === undefined ? {} : { username: status.username }),
     ...(status.writeScope === undefined ? {} : { writeScope: status.writeScope }),
+    /* 配置文件处于只读运行态(结构版本更高或不可写): 界面据此提示并禁用保存 */
+    ...(deps.configManager.isReadOnly() ? { readOnly: true } : {}),
     config: {
       enabled: config.enabled,
       reportInterval: config.reportInterval,
@@ -181,7 +186,15 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
     writeJson(res, 400, { ok: false, error: 'invalid-value', field: invalid })
     return
   }
-  await deps.runtimeConfig.update(patch)
+  try {
+    await deps.runtimeConfig.update(patch)
+  } catch (error) {
+    if (error instanceof ConfigReadOnlyError) {
+      writeJson(res, 409, { ok: false, error: 'config_readonly' })
+      return
+    }
+    throw error
+  }
   const body: WebConfigResponse = { ok: true }
   writeJson(res, 200, body)
 }
@@ -229,8 +242,13 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
       writeJson(res, 400, { ok: false, error: error.code })
       return
     }
+    /* 只读运行与落盘失败必须与"凭证无效"区分开: 前者重填多少次都不会成功 */
+    if (error instanceof ConfigReadOnlyError) {
+      writeJson(res, 409, { ok: false, error: 'config_readonly' })
+      return
+    }
     deps.logger?.warn?.('[wakatime] failed to save credential: ' + String(error))
-    writeJson(res, 500, { ok: false, error: 'invalid' })
+    writeJson(res, 500, { ok: false, error: 'persist_failed' })
   }
 }
 

@@ -77,6 +77,8 @@ export interface ConfigManager {
   save(config: StoredConfig): Promise<StoredConfig>
   /* 检测其它进程是否改过文件(mtime 变化), 有变化时返回合并后的配置, 否则返回 null */
   refresh(): Promise<StoredConfig | null>
+  /* 当前是否只读运行(磁盘结构版本高于本插件支持版本时禁止写盘): 供状态接口与界面提示 */
+  isReadOnly(): boolean
 }
 
 export { CONFIG_FILE_VERSION }

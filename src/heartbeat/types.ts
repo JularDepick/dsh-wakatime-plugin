@@ -116,4 +116,6 @@ export interface HeartbeatEngine {
   reportLog(): readonly ReportEntry[]
   /* 推送运行态: 积压, 失败数, 最近成功时刻, 凭证是否被拒 */
   transmissionStatus(): TransmissionStatus
+  /* 清空"凭证被拒"运行态: 凭证刚被保存或清除时调用, 避免队列为空时旧告警长期挂着 */
+  resetTransmissionState(): void
 }

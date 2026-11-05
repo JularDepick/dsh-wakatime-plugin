@@ -285,6 +285,12 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.notifyPending()
   }
 
+  /* 清空"凭证被拒"运行态: 凭证变更后由装配处调用, 让界面不必等到下一次成功推送才恢复 */
+  resetTransmissionState(): void {
+    this.credentialRejected = null
+    this.lastRejectLoggedAt = 0
+  }
+
   /* 推送运行态: 供状态接口与工具面展示, 不参与落盘 */
   transmissionStatus(): TransmissionStatus {
     return {
