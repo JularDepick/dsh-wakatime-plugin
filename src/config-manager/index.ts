@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_FILE_VERSION, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
 import { ConfigReadOnlyError } from '../errors'
 import { migrateStoredConfig } from '../migrate'
-import { archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
+import { archiveFileWithPath, cleanupStaleTempFiles, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
 import type { ConfigManager, StoredConfig } from './types'
 
@@ -81,6 +81,8 @@ export class ConfigManagerImpl implements ConfigManager {
 
   async load(): Promise<StoredConfig | null> {
     const path = configPath()
+    /* 与数据文件同口径: 进程在写完临时文件后被杀死会留下原子写残留, 启动时清掉 */
+    await cleanupStaleTempFiles(path)
     const file = await readJsonFileState(path)
     if (isFutureConfigVersion(file.value)) {
       this.readOnly = true

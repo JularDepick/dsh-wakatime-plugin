@@ -25,7 +25,7 @@ import type { ConfigManager, StoredConfig, StoredCredentialSlot } from '../confi
 import type { CredentialRejectReason, CredentialSlot } from '../credential-format'
 import { detectSlotCredential, maskCredential } from '../credential-format'
 import type { CredentialErrorCode } from '../errors'
-import { CredentialInputError, NotAuthenticatedError } from '../errors'
+import { ConfigReadOnlyError, CredentialInputError, NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
 import { ApiKeyCredential, OauthCredential } from './credential'
@@ -293,6 +293,9 @@ export class AuthManagerImpl implements AuthManager {
     const targets: CredentialSlot[] = slot === undefined ? ['write', 'read'] : [slot]
     const locked = targets.filter((target) => this.envSecret(target) !== null)
     if (locked.length === targets.length) throw new CredentialInputError('env_locked')
+    /* 只读态同样拦下清除: 凭证与配置两条写路由都回 409, 清除不能悄悄回 200
+       让脚本调用方以为已经清掉了(实际磁盘一点没动) */
+    if (this.configManager.isReadOnly()) throw new ConfigReadOnlyError()
     const stored = await this.config()
     if (!stored) return locked
     const clearWrite = targets.includes('write') && !locked.includes('write')
