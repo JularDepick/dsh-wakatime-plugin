@@ -47,7 +47,8 @@ function loadTable(locale: string): Record<string, string> {
     const url = new URL(`./${locale}.ini`, import.meta.url)
     table = parseTranslationSection(readFileSync(url, 'utf-8'))
   } catch {
-    table = {}
+    /* 读盘失败不写缓存: 否则一次暂时缺文件会让该语言在进程内永久回退成空表 */
+    return table
   }
   cache.set(locale, table)
   return table

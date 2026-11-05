@@ -23,7 +23,9 @@ import type { CSSProperties, MutableRefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
+  API_KEY_PAGE_URL,
   DIGIT_GROUP_SIZES,
+  OAUTH_TOKEN_PAGE_URL,
   WEB_CONFIG_PATH,
   WEB_CREDENTIAL_CLEAR_PATH,
   WEB_CREDENTIAL_PATH,
@@ -297,6 +299,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (code === 'read_scope') return t('credential.errReadScope')
     if (code === 'network') return t('credential.errNetwork')
     if (code === 'different_account') return t('credential.errDifferentAccount')
+    if (code === 'config_readonly') return t('credential.errConfigReadonly')
+    if (code === 'persist_failed') return t('credential.errPersistFailed')
     /* 未知错误码不再直显服务端英文原文 */
     return t('credential.errInvalid')
   }
@@ -348,7 +352,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
 
   useEffect(() => { reload() }, [tick])
 
-  /* 上报记录失败原因: 已知类别映射为字典文案, 其余(如底层网络错误)原样展示便于排查 */
+  /* 上报记录失败原因: 已知类别映射为字典文案, 未覆盖的原文不再直出(中文界面里出现英文整句),
+     统一落到"其它错误", 需要原文时看宿主日志 */
   const describeLogError = (error: string | undefined): string => {
     if (error === undefined || error === '') return ''
     if (/credential|401|403|Unauthorized|Forbidden/i.test(error)) return t('logs.errCredential')
@@ -357,7 +362,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     if (/status 429|rate limit/i.test(error)) return t('logs.errRateLimit')
     if (/non-JSON/i.test(error) || /status (400|404|422)/i.test(error)) return t('logs.errPayload')
     if (/network|timeout|ENOTFOUND|ECONN|fetch failed|5\d\d|^HTTP \d{3}$/i.test(error)) return t('logs.errNetwork')
-    return error
+    return t('logs.errUnknown')
   }
 
   /* 提示停留后自动消失(与官方 Toast 的 3000ms 停留 + 1000ms 淡出一致) */
@@ -405,8 +410,14 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     /* 重入守卫: 在途保存未结算前忽略重复提交(双击与自动化场景都会命中) */
     if (savingSlot !== undefined) return
     const value = slotInputs[slot].trim()
-    /* 格式不通过时前端直接拦下, 不发请求 */
-    if (!detectSlotCredential(value, slot).ok) return
+    /* 格式不通过时前端直接拦下(不发请求), 但要给出提示:
+       按钮虽被 disabled, 回车或自动化提交仍可能走到这里, 静默无反应最容易被当成故障 */
+    const detection = detectSlotCredential(value, slot)
+    if (!detection.ok) {
+      /* 识别阶段的原因与服务端错误码只差一处命名(unknown / unknown_format), 复用同一套文案 */
+      setNotice({ kind: 'error', text: credentialErrorText(detection.reason === 'unknown' ? 'unknown_format' : detection.reason) })
+      return
+    }
     setSavingSlot(slot)
     setNotice(undefined)
     /* 服务端错误码已映射成整句本地化文案, 只有网络层失败才需要再加前缀 */
@@ -659,12 +670,13 @@ function WakatimePanels(props: PanelsProps) {
           aria-label={title}
           placeholder={placeholder}
           value={value}
+          disabled={data.readOnly === true}
           onChange={(event) => { onSlotInput(slot, event.target.value) }}
         />
         <button
           type="button"
           className={`${css.button} ${css.buttonPrimary}`}
-          disabled={savingSlot !== undefined || !formatOk}
+          disabled={savingSlot !== undefined || !formatOk || data.readOnly === true}
           onClick={() => { onSaveSlot(slot) }}
         >
           {savingSlot === slot ? t('config.saving') : t('credential.save')}
@@ -675,7 +687,8 @@ function WakatimePanels(props: PanelsProps) {
     </div>
   )
 
-  /* 凭证管理属于配置: 两槽各自的状态与输入框(写入槽 API Key, 读取槽 OAuth 令牌) + 清除 */
+  /* 凭证管理属于配置: 两槽各自的状态与输入框(写入槽 API Key, 读取槽 OAuth 令牌) + 清除;
+      只读态(配置结构版本更高)下禁用一切写入入口, 避免把新版本数据覆盖掉 */
   const credentialSection = (
     <section id={CONFIG_PANEL_ID} className={css.section}>
       <div className={css.sectionHead}>
@@ -690,6 +703,7 @@ function WakatimePanels(props: PanelsProps) {
               className={clearConfirm
                 ? `${css.button} ${css.buttonSm} ${css.buttonDanger}`
                 : compactButton}
+              disabled={data.readOnly === true}
               onClick={onClearCredentials}
             >
               {clearConfirm ? t('credential.clearConfirm') : t('credential.clear')}
@@ -714,7 +728,7 @@ function WakatimePanels(props: PanelsProps) {
         data.write,
         t('credential.slotWrite'),
         t('credential.placeholderApiKey'),
-        t('credential.hintApiKeyPage'),
+        API_KEY_PAGE_URL,
         slotInputs.write,
         writeDetection.ok,
         writeInputError,
@@ -724,7 +738,7 @@ function WakatimePanels(props: PanelsProps) {
         data.read,
         t('credential.slotRead'),
         t('credential.placeholderOauth'),
-        t('credential.hintOauthPage'),
+        OAUTH_TOKEN_PAGE_URL,
         slotInputs.read,
         readDetection.ok,
         readInputError,
@@ -750,17 +764,20 @@ function WakatimePanels(props: PanelsProps) {
                 label={t('config.enabled')}
                 checked={draft.enabled}
                 onChange={(value) => { onPatch('enabled', value) }}
+                disabled={data.readOnly === true}
               />
               <ToggleField
                 label={t('config.reportEnabled')}
                 checked={draft.reportEnabled}
                 onChange={(value) => { onPatch('reportEnabled', value) }}
+                disabled={data.readOnly === true}
               />
               <NumberField
                 label={t('config.reportInterval')}
                 value={draft.reportInterval}
                 onChange={(value) => { onDraft('reportInterval', value) }}
                 onCommit={(value) => { onPatch('reportInterval', value) }}
+                disabled={data.readOnly === true}
               />
             </div>
             <div className={css.configGroup}>
@@ -769,11 +786,13 @@ function WakatimePanels(props: PanelsProps) {
                 label={t('config.includeTokens')}
                 checked={draft.includeTokens}
                 onChange={(value) => { onPatch('includeTokens', value) }}
+                disabled={data.readOnly === true}
               />
               <ToggleField
                 label={t('config.includePrompts')}
                 checked={draft.includePrompts}
                 onChange={(value) => { onPatch('includePrompts', value) }}
+                disabled={data.readOnly === true}
               />
             </div>
             <div className={css.configGroup}>
@@ -786,11 +805,13 @@ function WakatimePanels(props: PanelsProps) {
                   { value: 'myriad', label: t('config.digitGroupingMyriad') },
                 ]}
                 onChange={(value) => { onPatch('digitGrouping', value === 'myriad' ? 'myriad' : 'thousand') }}
+                disabled={data.readOnly === true}
               />
               <ToggleField
                 label={t('config.tableBorders')}
                 checked={draft.tableBorders}
                 onChange={(value) => { onPatch('tableBorders', value) }}
+                disabled={data.readOnly === true}
               />
             </div>
             <div className={css.configGroup}>
@@ -799,6 +820,7 @@ function WakatimePanels(props: PanelsProps) {
                 label={t('config.debug')}
                 checked={draft.debug}
                 onChange={(value) => { onPatch('debug', value) }}
+                disabled={data.readOnly === true}
               />
             </div>
           </div>
@@ -820,6 +842,20 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       )}
 
+      {data.readOnly ? (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.readOnlyTitle')}</span>
+          <span>{t('status.readOnlyDetail')}</span>
+        </div>
+      ) : null}
+
+      {rejected === null && data.read.configured && !data.write.configured ? (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.writeSlotMissingTitle')}</span>
+          <span>{t('status.writeSlotMissingDetail')}</span>
+        </div>
+      ) : null}
+
       {/* 两槽同账号是上报的前提: 未确认时给出说明, 确认不是同一账号时直接拦停上报 */}
       {rejected === null && data.sameAccount === 'different' ? (
         <div className={css.banner} role="status">
@@ -831,7 +867,7 @@ function WakatimePanels(props: PanelsProps) {
       {rejected === null && data.configured && data.sameAccount === 'unknown' ? (
         <div className={css.banner} role="status">
           <span className={css.bannerTitle}>{t('status.sameAccountTitle')}</span>
-          <span>{t('status.sameAccountDetail')}</span>
+          <span>{data.fromEnv ? t('status.sameAccountEnvDetail') : t('status.sameAccountDetail')}</span>
         </div>
       ) : null}
 
@@ -998,7 +1034,7 @@ function MetricRows({ t, view, groupSize }: {
 }
 
 /* 开关行:标签文本与官方 Switch 形态的按钮(aria-checked 驱动开态) */
-function ToggleField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+function ToggleField({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
   return (
     <div className={css.field}>
       <div className={css.row}>
@@ -1009,6 +1045,7 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
           aria-checked={checked}
           aria-label={label}
           className={css.switch}
+          disabled={disabled}
           onClick={() => { onChange(!checked) }}
         >
           <span className={css.thumb} />
@@ -1020,11 +1057,12 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
 
 /* 数字输入行:标签文本与官方形态输入框;
    输入过程只回传草稿值,失焦或回车才回传提交值(避免中间值即时生效) */
-function NumberField({ label, value, onChange, onCommit }: {
+function NumberField({ label, value, onChange, onCommit, disabled }: {
   label: string
   value: number
   onChange: (value: number) => void
   onCommit: (value: number) => void
+  disabled?: boolean
 }) {
   /* 本地草稿为字符串: 允许输入框被清空、允许输入过程中的中间值,
      空值或非法值只影响草稿, 失焦/回车时回滚到服务端已生效的值 */
@@ -1059,6 +1097,7 @@ function NumberField({ label, value, onChange, onCommit }: {
           type="number"
           min={1}
           aria-label={label}
+          disabled={disabled}
           value={raw}
           onChange={(event) => {
             const next = event.target.value
@@ -1129,11 +1168,12 @@ function fromConfig(config: WebStatusResponse['config']): ConfigDraft {
 }
 
 /* 档位切换条:滑块式二选一控件(radiogroup 语义,选中档由滑块指示,支持键盘聚焦与空格切换) */
-function SegmentedField({ label, value, options, onChange }: {
+function SegmentedField({ label, value, options, onChange, disabled }: {
   label: string
   value: string
   options: readonly { value: string, label: string }[]
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   const activeIndex = Math.max(0, options.findIndex((option) => option.value === value))
   const buttons = useRef<Array<HTMLButtonElement | null>>([])
@@ -1172,6 +1212,7 @@ function SegmentedField({ label, value, options, onChange }: {
               tabIndex={option.value === value ? 0 : -1}
               className={css.segment}
               data-active={option.value === value}
+              disabled={disabled}
               onClick={() => { onChange(option.value) }}
             >
               {option.label}
