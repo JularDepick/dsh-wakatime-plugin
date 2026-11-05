@@ -28,7 +28,7 @@ import type { CredentialErrorCode } from '../errors'
 import { CredentialInputError, NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
-import { ApiKeyCredential, OauthCredential, credentialOf } from './credential'
+import { ApiKeyCredential, OauthCredential } from './credential'
 import { probeSameAccount } from './same-account'
 import type { AuthManager, AuthStatus, SameAccountVerdict, SetCredentialResult, SlotStatus, UserProfile } from './types'
 
@@ -89,6 +89,8 @@ export class AuthManagerImpl implements AuthManager {
   private stored: StoredConfig | null = null
   /* 账号名解析失败时刻:窗口内不再外呼资料接口 */
   private profileFailureAt = 0
+  /* 已告警过的环境变量槽位(避免每轮状态查询都重复告警) */
+  private readonly envWarned = new Set<CredentialSlot>()
   private loaded = false
   /* 凭证变更订阅者(作废云端快照等副作用由调用方处理) */
   private readonly listeners = new Set<() => void>()
@@ -125,8 +127,10 @@ export class AuthManagerImpl implements AuthManager {
     const secret = await this.slotSecret('write')
     if (secret === null) throw new NotAuthenticatedError()
     if ((await this.slotSecret('read')) === null) throw new NotAuthenticatedError()
-    /* 两槽已确认不是同一个账号时拒绝写入: 否则心跳会进错账号的报表 */
-    if (this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
+    /* 两槽已确认不是同一个账号时拒绝写入: 否则心跳会进错账号的报表.
+       任一槽来自环境变量时落盘结论对不上当前生效的凭证(状态接口此时也报 unknown), 故不据此拦停 */
+    const envInvolved = this.envSecret('write') !== null || this.envSecret('read') !== null
+    if (!envInvolved && this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
     return new ApiKeyCredential(secret).authHeader()
   }
 
@@ -156,7 +160,16 @@ export class AuthManagerImpl implements AuthManager {
       if (writeScope === 'missing') throw new CredentialInputError('write_scope')
       if (writeScope !== 'ok') throw new CredentialInputError('network')
     } else {
-      profile = await this.validateReadSecret(secret)
+      try {
+        profile = await this.validateReadSecret(secret)
+      } catch (error) {
+        /* 读取槽被服务端拒绝与写入槽同等对待: 给稳定错误码, 不让它落成小后端的 500 */
+        if (error instanceof WakaTimeError && (error.status === 401 || error.status === 403)) {
+          throw new CredentialInputError('read_scope')
+        }
+        if (error instanceof WakaTimeError && (error.status === 0 || error.status >= 500)) throw new CredentialInputError('network')
+        throw error
+      }
     }
 
     /* 另一次取证的槽位凭证: 已存配置或环境变量 */
@@ -249,17 +262,22 @@ export class AuthManagerImpl implements AuthManager {
     )
   }
 
-  /* 清除凭证: 缺省清两槽(本地数据保留); 只清读取槽时账号缓存一并丢弃 */
-  async clearCredential(slot?: CredentialSlot): Promise<void> {
+  /* 清除凭证: 缺省清两槽(本地数据保留); 只清读取槽时账号缓存一并丢弃.
+     由环境变量提供的槽位清不掉(配置改不动), 这些槽位不阻断另一槽的清除,
+     直接跳过并作为返回值交给调用方提示; 两槽都被环境变量占用时才算失败 */
+  async clearCredential(slot?: CredentialSlot): Promise<CredentialSlot[]> {
     const targets: CredentialSlot[] = slot === undefined ? ['write', 'read'] : [slot]
-    for (const target of targets) {
-      if (this.envSecret(target) !== null) throw new CredentialInputError('env_locked')
-    }
+    const locked = targets.filter((target) => this.envSecret(target) !== null)
+    if (locked.length === targets.length) throw new CredentialInputError('env_locked')
     const stored = await this.config()
-    if (!stored) return
-    const clearWrite = targets.includes('write')
-    const clearRead = targets.includes('read')
-    if (clearWrite && stored.writeCredential === undefined && clearRead && stored.readCredential === undefined) return
+    if (!stored) return locked
+    const clearWrite = targets.includes('write') && !locked.includes('write')
+    const clearRead = targets.includes('read') && !locked.includes('read')
+    /* 只有待清的槽位本来都是空时才无事可做: 否则即使目标槽为空也要推进该槽的变更时刻,
+       让其它进程与本进程看到"这次清除"已经发生(并把云端快照作废一次) */
+    const writeEmpty = stored.writeCredential === undefined
+    const readEmpty = stored.readCredential === undefined
+    if ((!clearWrite || writeEmpty) && (!clearRead || readEmpty)) return locked
     const now = Date.now()
     const { writeCredential: _write, writeScope: _scope, readCredential: _read, userId: _userId, username: _username, accountUpdatedAt: _accountAt, sameAccount: _same, ...rest } = stored
     await this.setStored({
@@ -282,13 +300,7 @@ export class AuthManagerImpl implements AuthManager {
             ...(stored.accountUpdatedAt === undefined ? {} : { accountUpdatedAt: stored.accountUpdatedAt }),
           }),
     })
-  }
-
-  /* 环境变量是否提供该槽凭证(优先级高于配置文件) */
-  hasEnvCredential(slot?: CredentialSlot): boolean {
-    return slot === undefined
-      ? this.envSecret('write') !== null || this.envSecret('read') !== null
-      : this.envSecret(slot) !== null
+    return locked
   }
 
   async getStatus(): Promise<AuthStatus> {
@@ -308,7 +320,8 @@ export class AuthManagerImpl implements AuthManager {
       sameAccount,
       ...(stored?.writeScope === undefined || write.fromEnv ? {} : { writeScope: stored.writeScope }),
     }
-    if (!configured) return base
+    /* 账号名只依赖读取槽: 只配好读取槽时也解析出来, 让界面能显示"哪个账号已就位" */
+    if (readSecret === null) return base
     const username = await this.resolveUsername(stored)
     return username === undefined ? base : { ...base, username }
   }
@@ -322,7 +335,8 @@ export class AuthManagerImpl implements AuthManager {
       configured: true,
       fromEnv,
       maskedSecret: maskCredential(secret),
-      ...(record === undefined ? {} : { updatedAt: record.updatedAt }),
+      /* 环境变量凭证优先于文件凭证: 此时磁盘上的写入时刻属于被覆盖的那一份, 不下发免得误读 */
+      ...(record === undefined || fromEnv ? {} : { updatedAt: record.updatedAt }),
     }
   }
 
@@ -416,10 +430,18 @@ export class AuthManagerImpl implements AuthManager {
     this.loaded = true
   }
 
-  /* 环境变量注入的凭证(不落盘): 写入槽用 WAKATIME_API_KEY, 读取槽用 WAKATIME_OAUTH_TOKEN */
+  /* 环境变量注入的凭证(不落盘): 写入槽用 WAKATIME_API_KEY, 读取槽用 WAKATIME_OAUTH_TOKEN.
+     环境变量绕过保存链路(不做格式校验与同账号取证), 因此这里补一次形态检查并只告警一次:
+     配错时不至于一直以"已配置"状态静默失败 */
   private envSecret(slot: CredentialSlot): string | null {
-    const token = process.env[slot === 'write' ? ENV_API_KEY : ENV_OAUTH_TOKEN]?.trim()
-    return token ? token : null
+    const name = slot === 'write' ? ENV_API_KEY : ENV_OAUTH_TOKEN
+    const token = process.env[name]?.trim()
+    if (!token) return null
+    if (!this.envWarned.has(slot) && !detectSlotCredential(token, slot).ok) {
+      this.envWarned.add(slot)
+      this.logger?.warn?.(`[wakatime] ${name} does not look like a valid ${slot === 'write' ? 'WakaTime API key' : 'OAuth access token'}, the slot may never work`)
+    }
+    return token
   }
 
   /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时用读取槽重新解析并回写,
@@ -452,5 +474,4 @@ export class AuthManagerImpl implements AuthManager {
   }
 }
 
-export { credentialOf }
 export type { AuthManager, AuthStatus, SameAccountVerdict, SetCredentialResult, SlotStatus, UserProfile } from './types'

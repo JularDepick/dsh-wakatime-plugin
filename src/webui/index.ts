@@ -251,15 +251,16 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
+  let skipped: ('write' | 'read')[] = []
   try {
-    await deps.auth.clearCredential(payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined)
+    skipped = await deps.auth.clearCredential(payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined)
   } catch (error) {
-    /* 环境变量凭证生效时配置文件里的凭证删了也不起作用, 明确拒绝而不是假装成功 */
+    /* 目标槽位全被环境变量占住时配置文件里的凭证删了也不起作用, 明确拒绝而不是假装成功 */
     const reason = error instanceof CredentialInputError ? error.code : 'clear failed'
     writeJson(res, 409, { ok: false, error: reason } satisfies WebCredentialClearResponse)
     return
   }
-  const body: WebCredentialClearResponse = { ok: true }
+  const body: WebCredentialClearResponse = { ok: true, ...(skipped.length === 0 ? {} : { skipped }) }
   writeJson(res, 200, body)
 }
 

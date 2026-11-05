@@ -116,15 +116,19 @@ export class WakatimeTools {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async () => {
+        let skipped: readonly ('write' | 'read')[] = []
         try {
-          await this.options.auth.clearCredential()
+          skipped = await this.options.auth.clearCredential()
         } catch (error) {
           if (error instanceof CredentialInputError && error.code === 'env_locked') {
             return translate('credential.errEnvLocked')
           }
           throw error
         }
-        return translate('credential.cleared')
+        /* 由环境变量提供的槽位清不掉: 其余槽位已清, 明确说明哪一槽仍生效 */
+        if (skipped.length === 0) return translate('credential.cleared')
+        const names = skipped.map((slot) => (slot === 'write' ? translate('status.slotWrite') : translate('status.slotRead')))
+        return translate('credential.cleared') + '\n' + translate('credential.clearSkipped') + ': ' + names.join(' / ')
       },
     }))
     ctx.tools.register(defineTool({
@@ -294,6 +298,7 @@ export class WakatimeTools {
           case 'wrong_slot': return translate('credential.errWrongSlot')
           case 'env_locked': return translate('credential.errEnvLocked')
           case 'write_scope': return translate('credential.errWriteScope')
+          case 'read_scope': return translate('credential.errReadScope')
           case 'network': return translate('credential.errNetwork')
           case 'different_account': return translate('credential.errDifferentAccount')
         }

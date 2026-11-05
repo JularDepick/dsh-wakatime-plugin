@@ -53,8 +53,3 @@ export class OauthCredential implements SlotCredential {
     return { scheme: 'Bearer', value: this.secret }
   }
 }
-
-/* 按槽位构造凭证对象 */
-export function credentialOf(slot: 'write' | 'read', secret: string): SlotCredential {
-  return slot === 'write' ? new ApiKeyCredential(secret) : new OauthCredential(secret)
-}

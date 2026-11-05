@@ -188,13 +188,13 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
-      /* 未配置凭证:不丢失、不计尝试次数,整批移到队尾轮转.
-         放回队首会让同一批最旧的心跳被反复取走, 队尾新心跳永远轮不到(长期未配置凭证时等于停摆);
+      /* 凭证不可用(两槽未齐备, 或两槽被判定不是同一账号):不丢失、不计尝试次数,整批移到队尾轮转.
+         放回队首会让同一批最旧的心跳被反复取走, 队尾新心跳永远轮不到(长期不可用时等于停摆);
          移到队尾后每轮从不同位置取批, 整条队列都能轮到. 心跳自带时间戳, 发送顺序不影响上报结果 */
       if (error instanceof NotAuthenticatedError) {
         this.queue.push(...batch)
-        /* 未配置凭证是"上报停摆"而不是普通信息: 默认 info 被 debug 开关抑制时这条路径将完全无痕 */
-        this.log('warn', '[wakatime] no credential configured, heartbeats stay queued')
+        /* 这是"上报停摆"而不是普通信息: 默认 info 被 debug 开关抑制时这条路径将完全无痕 */
+        this.log('warn', '[wakatime] credential slots incomplete or unusable, heartbeats stay queued')
         return
       }
       const message = (error as Error).message

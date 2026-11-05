@@ -4,7 +4,8 @@
  *
  * 本模块把旧结构转换为当前结构, 是全项目唯一保留旧格式知识的地方:
  * - 配置: 0.3.0 的 credentials 列表 + activeCredentialId(以及更早的 apiKey / oauthToken
- *   单字段)转换为单份 OAuth 凭证; 插件密钥不再支持, 找不到 OAuth 令牌时按未配置处理;
+ *   单字段)、0.4.x 的单份 credential 都转换为当前的双槽凭证 — 插件密钥(API Key)进写入槽,
+ *   OAuth 令牌进读取槽; 两槽缺失时按未配置处理;
  * - 数据: 0.3.0 的分凭证数据桶(buckets)合并为单份本地数据, 累计量逐项求和、
  *   队列/失败/记录按标识去重合并、云端快照取 syncedAt 最新的一份;
  * - 更早版本: 独立快照 stats.json / heartbeats.json 在数据文件缺失时并入.

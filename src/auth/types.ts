@@ -85,8 +85,10 @@ export interface AuthManager {
   getReadSecret(): Promise<string | null>
   /* 保存单槽凭证(覆盖该槽已有凭证):格式校验 -> 服务端验证 -> 同账号取证 -> 落盘 */
   setCredential(slot: CredentialSlot, input: string): Promise<SetCredentialResult>
-  /* 清除凭证: 给定槽位只清该槽, 缺省清两槽(本地数据保留) */
-  clearCredential(slot?: CredentialSlot): Promise<void>
+  /* 清除凭证: 给定槽位只清该槽, 缺省清两槽(本地数据保留).
+     返回因环境变量占用而跳过的槽位; 缺省清两槽时两槽都被占用才抛 env_locked,
+     指定单槽时该槽被占用即抛 env_locked(该槽确实清不掉) */
+  clearCredential(slot?: CredentialSlot): Promise<CredentialSlot[]>
   /* 凭证变更订阅 */
   onChange(listener: () => void): () => void
   getStatus(): Promise<AuthStatus>

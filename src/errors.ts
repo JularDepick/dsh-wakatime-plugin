@@ -17,6 +17,7 @@ export class NotAuthenticatedError extends Error {
    / unknown_format 无法识别的格式 / wrong_slot 格式有效但填在了另一个槽
    / env_locked 该槽由环境变量提供, 改配置不会生效
    / write_scope 写入槽凭证被服务端拒绝(无效或缺写入权限)
+   / read_scope 读取槽凭证被服务端拒绝(无效或缺读取权限)
    / network 验证时网络异常 / different_account 两槽不属于同一个 WakaTime 用户 */
 export type CredentialErrorCode =
   | 'empty'
@@ -27,6 +28,7 @@ export type CredentialErrorCode =
   | 'wrong_slot'
   | 'env_locked'
   | 'write_scope'
+  | 'read_scope'
   | 'network'
   | 'different_account'
 

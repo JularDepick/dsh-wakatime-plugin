@@ -14,7 +14,7 @@
 import { chmod, mkdir, rename } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
+import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, CONFIG_FILE_VERSION, CONFIG_LOCK_FILE_NAME, ENV_CONFIG_DIR, ENV_DSH_HOME, STORAGE_LOCK_BACKOFF_MS, STORAGE_LOCK_RENEW_MS, STORAGE_LOCK_RETRIES, STORAGE_LOCK_TTL_MS } from '../constants'
 import { migrateStoredConfig } from '../migrate'
 import { archiveFileWithPath, fileMtime, readJsonFileState, withFileLock, writeFileAtomic } from '../storage'
 import { mergeConfig, normalizeStoredConfig } from './merge'
@@ -48,6 +48,16 @@ function legacyArchiveLabel(value: unknown): string {
   return version === 3 ? 'v3' : 'v2'
 }
 
+/* 磁盘配置的结构版本是否高于本插件支持版本:
+   这种情况按"不认识"处理(只读运行, 不归档不重建), 与数据文件同一口径 ——
+   否则旧版本进程会把新结构当成损坏文件归档重建, 直接抹掉新版本写入的凭证 */
+function isFutureConfigVersion(value: unknown): boolean {
+  const version = typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>).version
+    : undefined
+  return typeof version === 'number' && version > CONFIG_FILE_VERSION
+}
+
 export class ConfigManagerImpl implements ConfigManager {
   /* 串行化本进程内的写操作 */
   private writeQueue: Promise<unknown> = Promise.resolve()
@@ -60,11 +70,22 @@ export class ConfigManagerImpl implements ConfigManager {
   private mtime: number | null = null
   /* 写入失败告警出口(可选):不注入时静默,注入后由宿主日志可见 */
   private onError?: (message: string) => void
+  /* 只读运行标记: 磁盘结构版本高于本插件支持版本时置位, 期间禁止写盘且不归档 */
+  private readOnly = false
 
   async load(): Promise<StoredConfig | null> {
     const path = configPath()
     const file = await readJsonFileState(path)
+    if (isFutureConfigVersion(file.value)) {
+      this.readOnly = true
+      this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')
+      this.lastKnown = null
+      this.mtime = await fileMtime(path)
+      return null
+    }
     const current = normalizeStoredConfig(file.value)
+    /* 结构又回到本插件能识别的版本(例如用户把未来的文件换掉): 解除只读, 不必等到重启 */
+    if (current !== null) this.readOnly = false
     if (current === null) {
       /* 旧结构交给写入路径在锁内归档并迁移; 损坏或结构未知同样由写入路径归档 */
       const migrated = migrateStoredConfig(file.value)
@@ -77,6 +98,7 @@ export class ConfigManagerImpl implements ConfigManager {
 
   save(config: StoredConfig): Promise<StoredConfig> {
     const task = this.writeQueue.then(async () => {
+      if (this.readOnly) throw new Error('config file structure version is newer than this plugin supports')
       const dir = resolveConfigDir()
       const path = configPath()
       await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -86,6 +108,12 @@ export class ConfigManagerImpl implements ConfigManager {
         const file = await readJsonFileState(path)
         /* 读不出旧内容就不能写: 直接返回会让调用方(凭证保存/配置写入)把没落盘当成已保存 */
         if (file.state === 'unreadable') throw new Error('config file is not readable')
+        /* 结构版本高于本插件: 只读运行, 不归档也不重建 */
+        if (isFutureConfigVersion(file.value)) {
+          this.readOnly = true
+          this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')
+          throw new Error('config file structure version is newer than this plugin supports')
+        }
         let disk = normalizeStoredConfig(file.value)
         let archivedPath: string | null = null
         if (disk === null) {
@@ -133,7 +161,16 @@ export class ConfigManagerImpl implements ConfigManager {
     if (mtime === null || mtime === this.mtime) return null
     const file = await readJsonFileState(path)
     if (file.state === 'unreadable') return null
+    if (isFutureConfigVersion(file.value)) {
+      /* 纯读路径同样不归档: 归档会改文件名, 等于替新版本进程做了破坏性操作 */
+      if (!this.readOnly) this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')
+      this.readOnly = true
+      this.mtime = mtime
+      return null
+    }
     const disk = normalizeStoredConfig(file.value) ?? migrateStoredConfig(file.value)
+    /* 外部把配置换回可识别的结构后恢复写入能力, 避免只读标记粘住到重启 */
+    if (disk !== null) this.readOnly = false
     this.mtime = mtime
     if (!disk) {
       /* 损坏或结构未知: 归档留痕, 本次按无配置处理 */

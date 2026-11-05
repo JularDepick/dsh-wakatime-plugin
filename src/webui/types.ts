@@ -82,7 +82,7 @@ export interface WebCredentialResponse {
   /* 另一槽是否已配置(否则本次只保存了一半) */
   paired?: boolean
   /* 稳定错误码(empty / client_secret / api_key_format / oauth_format / wrong_slot /
-     env_locked / write_scope / network / different_account)或验证失败原因 */
+     env_locked / write_scope / read_scope / network / different_account)或验证失败原因 */
   error?: string
 }
 
@@ -91,10 +91,12 @@ export interface WebCredentialClearPayload {
   slot?: 'write' | 'read'
 }
 
-/* 清除凭证响应:失败时给出稳定错误码(如 env_locked) */
+/* 清除凭证响应:失败时给出稳定错误码(如 env_locked);
+   skipped 列出因环境变量占用而未清除的槽位(其余槽位已清除) */
 export interface WebCredentialClearResponse {
   ok: boolean
   error?: string
+  skipped?: ('write' | 'read')[]
 }
 
 /* 配置写入响应 */
