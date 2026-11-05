@@ -42,3 +42,12 @@ export class CredentialInputError extends Error {
     this.code = code
   }
 }
+/* 配置文件处于只读运行态(磁盘结构版本高于本插件支持版本):
+   与凭证错误区分开, 让界面能提示"当前只读运行"而不是"凭证无效".
+   读不出内容或写入失败不走这里(那是 save 抛出的普通错误, 上层按落盘失败处理) */
+export class ConfigReadOnlyError extends Error {
+  constructor(reason = 'config file is running read-only') {
+    super(reason)
+    this.name = 'ConfigReadOnlyError'
+  }
+}

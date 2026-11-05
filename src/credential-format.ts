@@ -11,9 +11,11 @@
 
 import {
   API_KEY_LENGTH,
+  API_KEY_PATTERN,
   CREDENTIAL_MIN_LENGTH,
   CREDENTIAL_PREFIX_API_KEY,
   CREDENTIAL_PREFIX_OAUTH,
+  CREDENTIAL_MAX_LENGTH,
   CREDENTIAL_PREFIX_SECRET,
   KEY_MASK_EDGE_CHARS,
   KEY_MASK_STARS,
@@ -55,11 +57,17 @@ export function detectCredentialType(input: string): CredentialDetection {
   if (!value) return { ok: false, reason: 'empty' }
   if (value.startsWith(CREDENTIAL_PREFIX_SECRET)) return { ok: false, reason: 'client_secret' }
   if (value.startsWith(CREDENTIAL_PREFIX_OAUTH)) {
+    /* 内部空白(粘贴多行/带换行)会让 Authorization 头非法, 请求层抛错后被当成网络失败,
+       用户只会反复重试, 故在识别阶段就拒掉 */
+    if (/\s/.test(value)) return { ok: false, reason: 'oauth_format' }
+    if (value.length > CREDENTIAL_MAX_LENGTH) return { ok: false, reason: 'oauth_format' }
     return value.length >= CREDENTIAL_MIN_LENGTH
       ? { ok: true, type: 'oauth' }
       : { ok: false, reason: 'oauth_format' }
   }
   if (value.startsWith(CREDENTIAL_PREFIX_API_KEY)) {
+    /* 形态与长度都要对: 前缀之外必须是标准 UUID, 总长固定为 API_KEY_LENGTH */
+    if (!API_KEY_PATTERN.test(value)) return { ok: false, reason: 'api_key_format' }
     return value.length === API_KEY_LENGTH
       ? { ok: true, type: 'api_key' }
       : { ok: false, reason: 'api_key_format' }

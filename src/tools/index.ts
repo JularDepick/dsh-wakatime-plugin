@@ -15,7 +15,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AuthManager } from '../auth'
 import type { TransmissionStatus } from '../heartbeat'
 import type { StatsView } from '../local-store/resolve'
-import { CredentialInputError } from '../errors'
+import { ConfigReadOnlyError, CredentialInputError } from '../errors'
 import { averageOutputSpeed, effectiveTokens, formatThinkingDuration } from '../metrics'
 import type { RuntimeConfig } from '../runtime-config'
 import { validateConfigPatch } from '../runtime-config'
@@ -81,7 +81,7 @@ export class WakatimeTools {
   register(ctx: Context): void {
     ctx.tools.register(defineTool({
       name: 'wakatime_config',
-      description: 'Read or update WakaTime plugin configuration and the credential of one slot. Plaintext is never read back.',
+      description: 'Read or update WakaTime plugin configuration and the credential of one slot. The two slots must belong to the same WakaTime account, a slot supplied by an environment variable rejects saves, and reporting stays paused until both slots are set. Plaintext is never read back.',
       parameters: {
         op: {
           type: 'string',
@@ -94,7 +94,7 @@ export class WakatimeTools {
         slot: {
           type: 'string',
           enum: ['write', 'read'],
-          description: 'Credential slot for op=set_credential: write accepts a WakaTime API key and is used for heartbeats; read accepts a personal OAuth token and is used for stats',
+          description: 'Credential slot for op=set_credential (required together with secret): write accepts a WakaTime API key and is used for heartbeats; read accepts a personal OAuth token and is used for stats',
         },
         secret: {
           type: 'string',
@@ -109,7 +109,7 @@ export class WakatimeTools {
     }))
     ctx.tools.register(defineTool({
       name: 'wakatime_logout',
-      description: 'Clear both locally stored WakaTime credential slots. Local stats are kept.',
+      description: 'Clear both locally stored WakaTime credential slots (slots supplied by environment variables are skipped and reported). Local stats are kept.',
       parameters: {},
       output: {
         schema: { type: 'string' },
@@ -133,7 +133,7 @@ export class WakatimeTools {
     }))
     ctx.tools.register(defineTool({
       name: 'wakatime_status',
-      description: 'Show the current WakaTime credential configuration status.',
+      description: 'Show the WakaTime credential status per slot: mask values, write-scope probe, same-account verdict and the reporting runtime state.',
       parameters: {},
       output: {
         schema: { type: 'string' },
@@ -157,8 +157,10 @@ export class WakatimeTools {
         if (status.username) lines.push(translate('status.username') + ': ' + status.username)
         /* 两槽必须同一账号: 未确认时也要显式说明, 否则用户不知道这个前提 */
         lines.push(translate('status.sameAccount') + ': ' + verdict)
-        /* 写权限: 写入槽被拒时心跳永远上报不了, 工具面必须显式提示 */
-        if (status.write.configured) {
+        /* 写权限: 写入槽被拒时心跳永远上报不了, 工具面必须显式提示.
+           但凭证被拒期间"写权限 ok"是上一轮的旧结论, 与下面的被拒原因并列会自相矛盾, 故此时不打印 */
+        const transmissionNow = this.options.transmission?.()
+        if (status.write.configured && (transmissionNow === undefined || transmissionNow.rejected === null)) {
           lines.push(translate('status.writeScope') + ': ' + (
             status.writeScope === 'ok'
               ? translate('status.writeScopeOk')
@@ -167,7 +169,7 @@ export class WakatimeTools {
         }
         lines.push(translate('credential.hidden'))
         /* 上报运行态: 没有这一段的时代价是"凭证被拒时工具面看起来一切正常" */
-        const transmission = this.options.transmission?.()
+        const transmission = transmissionNow
         if (transmission !== undefined) {
           lines.push(translate('status.queued') + ': ' + transmission.queued)
           if (transmission.failed > 0) lines.push(translate('status.failed') + ': ' + transmission.failed)
@@ -221,7 +223,8 @@ export class WakatimeTools {
     if (op === 'set_credential') {
       const slot = String(args.slot ?? '')
       if (slot !== 'write' && slot !== 'read') {
-        return translate('config.invalidValue') + ': slot (' + translate('credential.typeApiKey') + ' / ' + translate('credential.typeOauth') + ')'
+        /* slot 的取值是槽位名(write/read), 不能拿凭证类型名冒充枚举值 */
+        return translate('config.invalidSlot')
       }
       return this.setCredential(slot, String(args.secret ?? ''))
     }
@@ -271,8 +274,14 @@ export class WakatimeTools {
     if (validateConfigPatch({ [key]: value } as never) !== null) {
       return translate('config.invalidValue') + ': ' + key
     }
-    await this.options.runtimeConfig.update({ [key]: value } as never)
-    return key + '=' + String(value)
+    try {
+      await this.options.runtimeConfig.update({ [key]: value } as never)
+      return key + '=' + String(value)
+    } catch (error) {
+      /* 只读运行与落盘失败必须与"写入失败"区分开: 前者重试多少次都不会成功 */
+      if (error instanceof ConfigReadOnlyError) return translate('config.readonly')
+      return translate('config.writeError')
+    }
   }
 
   /* set_credential: 保存或更换某一槽的凭证(仅覆盖不可查看) */
@@ -283,7 +292,9 @@ export class WakatimeTools {
       const slotName = slot === 'write' ? translate('status.slotWrite') : translate('status.slotRead')
       const suffix = result.username === undefined ? '' : ': ' + result.username
       /* existed 表示与已保存内容相同(重复保存), replaced 表示换成了另一份凭证 */
-      const prefix = result.replaced ? translate('credential.replaced') : translate('credential.added')
+      const prefix = result.existed
+        ? translate('credential.unchanged')
+        : result.replaced ? translate('credential.replaced') : translate('credential.added')
       const head = prefix + ' [' + slotName + '] ' + typeName + suffix
       /* 另一槽还空着时上报仍暂停, 必须说清楚, 否则用户以为已经修好了 */
       return result.paired ? head : head + '\n' + translate('credential.partial')
@@ -303,7 +314,9 @@ export class WakatimeTools {
           case 'different_account': return translate('credential.errDifferentAccount')
         }
       }
-      return translate('credential.errInvalid')
+      /* 只读运行与落盘失败不再折叠成"凭证无效": 界面已按 409/500 区分, 工具面同口径 */
+      if (error instanceof ConfigReadOnlyError) return translate('credential.errConfigReadonly')
+      return translate('credential.errPersistFailed')
     }
   }
 }
