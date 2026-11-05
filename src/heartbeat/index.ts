@@ -83,8 +83,11 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private queue: PendingHeartbeatEntry[] = []
   /* 失败任务(尝试次数耗尽,等待用户手动重试) */
   private failed: FailedPushTask[] = []
-  /* 上报记录(调试级,最近 REPORT_LOG_LIMIT 条) */
-  private report: ReportEntry[] = []
+  /* 批次级上报记录(调试级,最近 REPORT_LOG_LIMIT 条) */
+  private batches: ReportEntry[] = []
+  /* 失败任务的记录行: 每条失败任务的唯一重试入口, 单独计数.
+     若与批次记录共用一个上限, 记录被挤掉就等于把重试入口一起吃掉(界面无可操作入口) */
+  private tasks: ReportEntry[] = []
   /* 推送轮重入保护:同一时刻只允许一轮推送 */
   private pushing = false
   /* 在途推送的完成信号(手动重试前等待它结算) */
@@ -185,7 +188,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       this.lastRejectLoggedAt = 0
       this.credentialRejected = null
       this.lastSuccessAt = Date.now()
-      this.appendReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
+      this.appendBatchReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
       this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
     } catch (error) {
       /* 凭证不可用(两槽未齐备, 或两槽被判定不是同一账号):不丢失、不计尝试次数,整批移到队尾轮转.
@@ -209,7 +212,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         const now = Date.now()
         if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
           this.lastRejectLoggedAt = now
-          this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+          this.appendBatchReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
         }
         this.log('warn', `[wakatime] credential rejected, heartbeat kept in queue: ${message}`)
         return
@@ -223,7 +226,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
           this.queue.push({ ...entry, attempts })
         }
       }
-      this.appendReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+      this.appendBatchReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
       this.log('warn', `[wakatime] push failed (${terminal ? 'terminal' : 'retryable'}): ${message}`)
     } finally {
       /* 批次已结算: 成功则条目确实不再需要, 失败则已按分类回队或进失败列表 */
@@ -240,7 +243,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const [task] = this.failed.splice(index, 1)
     if (!task) return false
     this.appendEntry({ heartbeat: task.heartbeat, enqueuedAt: Date.now(), attempts: 0 })
-    for (const entry of this.report) {
+    for (const entry of this.tasks) {
       if (entry.taskId === id && entry.state === 'failed') entry.state = 'retried'
     }
     this.log('info', `[wakatime] failed task ${id} requeued for retry`)
@@ -276,11 +279,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     }
     const failedIds = new Set(this.failed.map((task) => task.id))
     const restoredFailed = state.failed.filter((task) => !failedIds.has(task.id))
-    const reportIds = new Set(this.report.map((entry) => entry.id))
-    const restoredReport = state.report.filter((entry) => !reportIds.has(entry.id))
+    const batchIds = new Set(this.batches.map((entry) => entry.id))
+    const taskIds = new Set(this.tasks.map((entry) => entry.id))
+    const restoredBatches = state.report.filter((entry) => entry.kind !== 'task' && !batchIds.has(entry.id))
+    const restoredTasks = state.report.filter((entry) => entry.kind === 'task' && !taskIds.has(entry.id))
     this.queue = [...appended, ...this.queue]
     this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed].slice(-FAILED_TASK_LIMIT)
-    this.report = [...restoredReport.map((entry) => ({ ...entry })), ...this.report].slice(-REPORT_LOG_LIMIT)
+    this.batches = [...restoredBatches.map((entry) => ({ ...entry })), ...this.batches].slice(-REPORT_LOG_LIMIT)
+    this.tasks = [...restoredTasks.map((entry) => ({ ...entry })), ...this.tasks].slice(-FAILED_TASK_LIMIT)
     this.compressIfNeeded()
     this.notifyPending()
   }
@@ -308,13 +314,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     return {
       queue: queue.map((entry) => ({ ...entry })),
       failed: this.failed.map((task) => ({ ...task })),
-      report: this.report.map((entry) => ({ ...entry })),
+      report: this.reportLog().map((entry) => ({ ...entry })),
     }
   }
 
-  /* 上报记录(追加顺序,由前端按时间倒序展示) */
+  /* 上报记录(追加顺序,由前端按时间倒序展示):批次行与任务行合并视图.
+     任务行单独计数(见 appendTaskReport), 不再被批次记录的上限挤掉 */
   reportLog(): readonly ReportEntry[] {
-    return this.report
+    return [...this.tasks, ...this.batches]
   }
 
   /* 本批推送条数:积压不足阈值时逐条,达到阈值后按积压 ÷ 除数(受 bulk 上限截断) */
@@ -333,10 +340,22 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.log('warn', `[wakatime] pending queue over limit, compressed ${result.merged} heartbeats`)
   }
 
-  /* 记一条上报记录 */
-  private appendReport(entry: Omit<ReportEntry, 'id' | 'time'>): void {
-    this.report.push({ ...entry, id: randomUUID(), time: Date.now() })
-    if (this.report.length > REPORT_LOG_LIMIT) this.report.splice(0, this.report.length - REPORT_LOG_LIMIT)
+  /* 记一条批次级上报记录(受 REPORT_LOG_LIMIT 截断) */
+  private appendBatchReport(entry: Omit<ReportEntry, 'id' | 'time'>): void {
+    this.batches.push({ ...entry, id: randomUUID(), time: Date.now() })
+    if (this.batches.length > REPORT_LOG_LIMIT) this.batches.splice(0, this.batches.length - REPORT_LOG_LIMIT)
+  }
+
+  /* 记一条失败任务的记录行: 它是该任务在界面上唯一的重试入口, 因此单独计数,
+     与失败列表同上限(FAILED_TASK_LIMIT), 不受批次记录上限挤占 */
+  private appendTaskReport(entry: Omit<ReportEntry, 'id' | 'time'>): void {
+    this.tasks.push({ ...entry, id: randomUUID(), time: Date.now() })
+    if (this.tasks.length > FAILED_TASK_LIMIT) {
+      const dropped = this.tasks.length - FAILED_TASK_LIMIT
+      this.tasks.splice(0, dropped)
+      /* 任务记录行被截断等于同时吃掉重试入口, 与失败列表截断一样必须留痕 */
+      this.log('warn', `[wakatime] task report log over limit, dropped ${dropped} oldest entries`)
+    }
   }
 
   /* 记一条失败任务(附一条可点击重试的 task 记录) */
@@ -355,7 +374,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
       /* 失败列表截断会连可重试的入口一起丢掉, 必须留痕 */
       this.log('warn', `[wakatime] failed task list over limit, dropped ${dropped} oldest entries`)
     }
-    this.appendReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id, ...detailOf([entry]) })
+    this.appendTaskReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id, ...detailOf([entry]) })
   }
 
   /* 上报一批:单条走 heartbeats,多条走 bulk */

@@ -130,7 +130,8 @@ export class SessionEventCollector {
         const heartbeat: Heartbeat = {
           entity: session.id,
           type: 'app',
-          time: event.time / 1000,
+          /* 官方字段是整数 UNIX 秒: 小数秒既可能被服务端拒绝, 又让同秒同身份归并的键永不相等 */
+          time: Math.floor(event.time / 1000),
           category: HEARTBEAT_CATEGORY_AI,
           project: project.project,
           branch: project.branch,
@@ -162,7 +163,8 @@ export class SessionEventCollector {
         const heartbeat: Heartbeat = {
           entity: `tool:${event.data.name}`,
           type: 'app',
-          time: event.time / 1000,
+          /* 同上: 取整到秒, 与同账号取证写探测心跳的口径一致 */
+          time: Math.floor(event.time / 1000),
           category: HEARTBEAT_CATEGORY_TOOL,
           project: project.project,
           branch: project.branch,
