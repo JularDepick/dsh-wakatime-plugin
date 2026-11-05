@@ -80,6 +80,14 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
     /* 统一兜底:处理器异常(如落盘失败)时回 500,避免请求悬挂与未处理的 Promise 拒绝 */
     const safe = (handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>) =>
       (req: IncomingMessage, res: ServerResponse): void => {
+        /* 带自定义请求头或 application/json 的请求都是非简单请求, 浏览器会先发 OPTIONS 预检;
+            宿主 webserver 未必自行响应预检, 这里自包含地回 204, 否则预检拿到 405
+            会让浏览器阻止实际请求, 全部 POST 路由与手动同步一起失效 */
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, { Allow: 'GET, POST, OPTIONS' })
+          res.end()
+          return
+        }
         void handler(req, res).catch((error: unknown) => {
           /* 处理器异常一律留痕: 只回 500 不记日志会让落盘失败与鉴权失败无法排查 */
           const reason = error instanceof Error ? error.message : String(error)

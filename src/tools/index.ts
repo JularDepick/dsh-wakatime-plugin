@@ -45,7 +45,8 @@ function formatTimestamp(ms: number): string {
     + `${sign}${pad(Math.floor(absMinutes / 60))}:${pad(absMinutes % 60)}`
 }
 
-/* 配置工具可写的键(白名单, 与 WebConfigPatch 对齐, 不含凭证) */
+/* 配置工具可写的键(白名单, 不含凭证): WebConfigPatch 的子集加 locale ——
+   locale 只从工具面可写, Web 面语言跟随 dsh web, 故比 WebConfigPatch 多这一项 */
 const CONFIG_KEYS = [
   'enabled', 'locale', 'reportInterval', 'reportEnabled',
   'includeTokens', 'includePrompts', 'debug', 'tableBorders', 'digitGrouping',
