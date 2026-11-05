@@ -23,8 +23,9 @@ export const CONFIG_FILE_NAME = 'config.json'
 export const BUCKET_FILE_NAME = 'buckets.json'
 /* 数据文件结构版本: 0.3.0 为 2(分凭证数据桶), 0.4.0 起为 3(单份本地数据) */
 export const STORE_FILE_VERSION = 3
-/* 配置文件结构版本: 0.3.0 及更早无该字段, 0.4.0 起为 3 */
-export const CONFIG_FILE_VERSION = 3
+/* 配置文件结构版本: 0.3.0 及更早无该字段, 0.4.0 至 0.4.x 为 3(单份 OAuth 令牌),
+   0.5.0 起为 4(双槽凭证: 写入槽 API Key + 读取槽 OAuth 令牌) */
+export const CONFIG_FILE_VERSION = 4
 /* 统计变更触发落盘的防抖窗口(毫秒):避免高频统计变更频繁写盘 */
 export const BUCKET_SAVE_DEBOUNCE_MS = 2000
 /* 落盘失败后的重排间隔(毫秒):首次失败后按此值起跳, 每次失败翻倍至上限, 成功落盘即复位.
@@ -84,7 +85,7 @@ export const SUMMARIES_PATH = '/users/current/summaries'
 export const ANONYMOUS_DISPLAY_NAME = 'Anonymous User'
 
 /* 凭证前缀(用于自动识别类型, 无需用户选择):
-   插件密钥形如 waka_ 加 UUID(共 41 字符),
+   API Key 形如 waka_ 加 UUID(共 41 字符),
    OAuth 访问令牌形如 waka_tok_ 加随机串,
    OAuth 应用密钥形如 waka_sec_ 加随机串(属客户端密钥, 不能当凭证使用) */
 export const CREDENTIAL_PREFIX_API_KEY = 'waka_'
@@ -92,6 +93,28 @@ export const CREDENTIAL_PREFIX_OAUTH = 'waka_tok_'
 export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
 /* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
 export const CREDENTIAL_MIN_LENGTH = 20
+
+/* API Key 的精确长度: waka_ 加 36 位 UUID 共 41 字符(官方固定形态, 长度不符即格式错误) */
+export const API_KEY_LENGTH = 41
+
+/* 双槽凭证(0.5.0 起): 写入槽负责心跳上报(API Key, Basic 认证),
+   读取槽负责账号资料与云端战绩(个人 OAuth 访问令牌, Bearer 认证).
+   官方把 API Key 限定为写入专用, 个人 OAuth 令牌限定为读取专用, 故两槽各取所长 */
+export const CREDENTIAL_SLOTS = ['write', 'read'] as const
+
+/* 官网获取页(界面在每个输入框下方只写一行, 便于用户直达) */
+export const API_KEY_PAGE_URL = 'https://wakatime.com/settings/api-key'
+export const OAUTH_TOKEN_PAGE_URL = 'https://wakatime.com/oauth'
+
+/* 同账号判定(两槽必须指向同一个 WakaTime 用户):
+   写入槽的响应体与读取面都不带用户标识, 只能走一次往返取证:
+   用写入槽写一条带唯一 entity 的探测心跳 -> 用读取槽回读是否可见 -> 用写入槽删除它.
+   回读命中即为同一账号, 读得到但没有这条即为不同账号, 读写不可用则为未知 */
+export const SAME_ACCOUNT_PROBE_ENTITY_PREFIX = 'dsh-wakatime-slot-probe'
+/* 回读重试次数与退避: 服务端入库可能略滞后于 202 响应 */
+export const SAME_ACCOUNT_READ_RETRIES = 3
+export const SAME_ACCOUNT_READ_BACKOFF_MS = 800
+
 /* 云端同步:已配置凭证时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
 /* 云端同步结果缓存时长(毫秒):窗口内重复请求(切换标签页、刷新页面)直接复用,
@@ -160,8 +183,10 @@ export const WEB_RETRY_PATH = '/api/wakatime/retry'
 export const WEB_MIGRATE_PATH = '/api/wakatime/migrate'
 
 /* 环境变量 */
-/* OAuth 访问令牌环境变量(优先于配置文件) */
+/* 读取槽 OAuth 访问令牌环境变量(优先于配置文件) */
 export const ENV_OAUTH_TOKEN = 'WAKATIME_OAUTH_TOKEN'
+/* 写入槽 API Key 环境变量(优先于配置文件; 与令牌一样不落盘) */
+export const ENV_API_KEY = 'WAKATIME_API_KEY'
 export const ENV_DEBUG = 'WAKATIME_DEBUG'
 /* 覆盖凭证配置目录(测试与自托管场景使用) */
 export const ENV_CONFIG_DIR = 'WAKATIME_CONFIG_DIR'

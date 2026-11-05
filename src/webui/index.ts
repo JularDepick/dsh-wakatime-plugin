@@ -6,8 +6,8 @@
  * 前端只与本后端通信,敏感操作一律由本端代理:
  * - GET  /api/wakatime/status   认证状态(不含明文)+ 配置 + 战绩视图
  * - POST /api/wakatime/config   写入 Web 可编辑配置项
- * - POST /api/wakatime/credential        保存或更换凭证(验证后覆盖, 不回显)
- * - POST /api/wakatime/credential/clear  清除已保存凭证(本地数据保留)
+ * - POST /api/wakatime/credential        保存或更换某一槽的凭证(验证后覆盖, 不回显)
+ * - POST /api/wakatime/credential/clear  清除已保存凭证(带 slot 只清该槽, 缺省清两槽; 本地数据保留)
  * - GET  /api/wakatime/logs     上报记录(失败任务附可重试标识;含其它进程写入的记录)
  * - POST /api/wakatime/retry    手动重试一条失败推送任务
  * - GET  /api/wakatime/sync     云端 AI 聚合(写入本地数据,带缓存,强制刷新请求头跳过缓存)
@@ -29,7 +29,7 @@ import { resolveStatsView } from '../local-store'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
 import { validateConfigPatch } from '../runtime-config'
 import type { CloudSync } from '../sync'
-import type { WebConfigResponse, WebCredentialClearResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebMigrateResponse, WebRetryPayload, WebRetryResponse, WebStatusResponse, WebSyncResponse } from './types'
+import type { WebConfigResponse, WebCredentialClearPayload, WebCredentialClearResponse, WebCredentialPayload, WebCredentialResponse, WebLogEntry, WebMigrateResponse, WebRetryPayload, WebRetryResponse, WebSlotStatus, WebStatusResponse, WebSyncResponse } from './types'
 
 export interface WebUiDeps {
   runtimeConfig: RuntimeConfig
@@ -127,12 +127,19 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
   const config = deps.runtimeConfig.get()
   /* 检测到旧版数据时带上来源, 界面据此显示迁移提示 */
   const legacy = deps.store.legacyStatus()
+  const slotOf = (slot: typeof status.write): WebSlotStatus => ({
+    configured: slot.configured,
+    fromEnv: slot.fromEnv,
+    ...(slot.maskedSecret === undefined ? {} : { maskedSecret: slot.maskedSecret }),
+    ...(slot.updatedAt === undefined ? {} : { updatedAt: slot.updatedAt }),
+  })
   const body: WebStatusResponse = {
     configured: status.configured,
     fromEnv: status.fromEnv,
-    ...(status.maskedSecret === undefined ? {} : { maskedSecret: status.maskedSecret }),
+    write: slotOf(status.write),
+    read: slotOf(status.read),
+    sameAccount: status.sameAccount,
     ...(status.username === undefined ? {} : { username: status.username }),
-    ...(status.updatedAt === undefined ? {} : { credentialUpdatedAt: status.updatedAt }),
     ...(status.writeScope === undefined ? {} : { writeScope: status.writeScope }),
     config: {
       enabled: config.enabled,
@@ -193,16 +200,25 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
+  /* 槽位必须显式给出: 写入槽与读取槽接受的凭证类型不同, 不能靠猜 */
+  const slot = payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined
+  if (slot === undefined) {
+    writeJson(res, 400, { ok: false, error: 'slot is required' })
+    return
+  }
   try {
     const secret = typeof payload.secret === 'string' ? payload.secret : ''
-    const result = await deps.auth.setCredential(secret)
+    const result = await deps.auth.setCredential(slot, secret)
     const body: WebCredentialResponse = {
       ok: true,
+      slot: result.slot,
       maskedSecret: result.maskedSecret,
       credentialUpdatedAt: result.updatedAt,
       username: result.username ?? null,
       existed: result.existed,
       replaced: result.replaced,
+      sameAccount: result.sameAccount,
+      paired: result.paired,
       ...(result.writeScope === undefined ? {} : { writeScope: result.writeScope }),
     }
     writeJson(res, 200, body)
@@ -225,8 +241,18 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     return
   }
   if (!guardRequest(req, res)) return
+  /* 请求体可选: 带 slot 只清该槽, 不带(或空体)清两槽 */
+  let payload: WebCredentialClearPayload = {}
   try {
-    await deps.auth.clearCredential()
+    const raw = await readBody(req)
+    const parsed = raw.trim() === '' ? {} : JSON.parse(raw) as WebCredentialClearPayload
+    if (typeof parsed === 'object' && parsed !== null) payload = parsed
+  } catch {
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
+    return
+  }
+  try {
+    await deps.auth.clearCredential(payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined)
   } catch (error) {
     /* 环境变量凭证生效时配置文件里的凭证删了也不起作用, 明确拒绝而不是假装成功 */
     const reason = error instanceof CredentialInputError ? error.code : 'clear failed'

@@ -11,20 +11,34 @@ import type { LegacySource } from '../local-store'
 import type { DigitGrouping } from '../config'
 import type { TransmissionStatus } from '../heartbeat'
 
+/* 单槽凭证状态(0.5.0 双槽: write 用 API Key, read 用 OAuth 令牌) */
+export interface WebSlotStatus {
+  /* 该槽是否已配置 */
+  configured: boolean
+  /* 是否由环境变量提供(不落盘) */
+  fromEnv: boolean
+  /* 打码值(明文永不回传) */
+  maskedSecret?: string
+  /* 该槽凭证最后写入时刻(Unix 毫秒) */
+  updatedAt?: number
+}
+
 /* 状态接口响应:认证状态 + 生效配置 + 解析好的战绩视图 */
 export interface WebStatusResponse {
-  /* 是否已有可用凭证(明文永不回传) */
+  /* 两槽都已配置(上报与云端同步都可用) */
   configured: boolean
-  /* 凭证是否来自环境变量(不落盘) */
+  /* 任一块凭证来自环境变量(不落盘) */
   fromEnv: boolean
-  /* 已保存凭证的打码值(环境变量凭证也给出, 便于界面显示当前生效凭证) */
-  maskedSecret?: string
-  /* 账号名 */
+  /* 写入槽状态(心跳上报用 API Key) */
+  write: WebSlotStatus
+  /* 读取槽状态(账号资料与云端战绩用 OAuth 令牌) */
+  read: WebSlotStatus
+  /* 账号名(读取槽解析) */
   username?: string
-  /* 凭证最后写入时刻(Unix 毫秒) */
-  credentialUpdatedAt?: number
-  /* 最近一次保存时探测到的写权限(个人令牌只读, 缺 write_heartbeats 时无法上报) */
+  /* 写入槽最近一次探测到的写权限 */
   writeScope?: 'ok' | 'missing' | 'unknown'
+  /* 两槽是否同一账号; 任一槽变更后回到 unknown */
+  sameAccount: 'same' | 'different' | 'unknown'
   config: {
     enabled: boolean
     reportInterval: number
@@ -43,14 +57,17 @@ export interface WebStatusResponse {
   transmission: TransmissionStatus
 }
 
-/* 凭证保存请求:只提交原文, 类型固定为 OAuth 令牌(仅覆盖写入, 不提供查看) */
+/* 凭证保存请求: 只提交目标槽位与原文(仅覆盖写入, 不提供查看) */
 export interface WebCredentialPayload {
+  slot: 'write' | 'read'
   secret: string
 }
 
 /* 凭证保存响应 */
 export interface WebCredentialResponse {
   ok: boolean
+  /* 本次保存的槽位 */
+  slot?: 'write' | 'read'
   /* 打码凭证与写入时刻 */
   maskedSecret?: string
   credentialUpdatedAt?: number
@@ -58,10 +75,20 @@ export interface WebCredentialResponse {
   /* 与已保存的是同一份凭证; replaced 表示之前存的是另一份(本次为更换) */
   existed?: boolean
   replaced?: boolean
-  /* 写权限探测: 缺 write_heartbeats 时心跳会被服务端拒绝 */
+  /* 写入槽的写权限探测结果 */
   writeScope?: 'ok' | 'missing' | 'unknown'
-  /* 稳定错误码(empty / client_secret / api_key / unknown_format)或验证失败原因 */
+  /* 保存后两槽是否同一账号 */
+  sameAccount?: 'same' | 'different' | 'unknown'
+  /* 另一槽是否已配置(否则本次只保存了一半) */
+  paired?: boolean
+  /* 稳定错误码(empty / client_secret / api_key_format / oauth_format / wrong_slot /
+     env_locked / write_scope / network / different_account)或验证失败原因 */
   error?: string
+}
+
+/* 清除凭证请求: 给定槽位只清该槽, 缺省清两槽 */
+export interface WebCredentialClearPayload {
+  slot?: 'write' | 'read'
 }
 
 /* 清除凭证响应:失败时给出稳定错误码(如 env_locked) */

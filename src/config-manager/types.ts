@@ -2,20 +2,28 @@
  * 配置管理模块类型定义
  * 作者: JularDepick
  *
- * 本地只保存一份 OAuth 凭证(0.4.0 起): 更换凭证直接覆盖,
- * 本地数据与该凭证无关, 故不随凭证变化. 明文只在本文件与 host 进程内出现.
+ * 0.5.0 起本地保存两槽凭证(写入槽 API Key, 读取槽 OAuth 令牌), 每槽可独立更换与清除;
+ * 本地数据与凭证无关, 故清除凭证不影响战绩. 明文只在本文件与 host 进程内出现.
  */
 
 import { CONFIG_FILE_VERSION } from '../constants'
 
-/* 已保存的凭证(明文不回显) */
-export interface StoredCredential {
+/* 已保存的凭证(明文不回显): 每槽一份 */
+export interface StoredCredentialSlot {
   /* 凭证原文(仅本地保存) */
   secret: string
-  /* 凭证类型: 0.4.0 起只有 OAuth 访问令牌 */
-  type: 'oauth'
-  /* 该凭证最后一次写入时刻(Unix 毫秒): 多进程合并时取较新的一侧 */
+  /* 凭证类型: 写入槽固定 api_key, 读取槽固定 oauth */
+  type: 'api_key' | 'oauth'
+  /* 该槽凭证最后一次写入时刻(Unix 毫秒): 多进程合并时取较新的一侧 */
   updatedAt: number
+}
+
+/* 两槽同账号的取证结论; 记录取证时的两槽时间戳, 与当前槽位不符即视为失效 */
+export interface StoredSameAccount {
+  verdict: 'same' | 'different' | 'unknown'
+  writeUpdatedAt: number
+  readUpdatedAt: number
+  checkedAt: number
 }
 
 /* settings 块: 只记录用户在界面上显式改过的键(可缺省).
@@ -40,18 +48,24 @@ export interface StoredSettings {
 export interface StoredConfig {
   /* 结构版本(用于数据迁移判定, 当前为 CONFIG_FILE_VERSION) */
   version: number
-  /* 已保存的凭证(至多一份) */
-  credential?: StoredCredential
-  /* 凭证最后一次变更(写入或清除)时刻(Unix 毫秒): 多进程合并时按它取舍 */
-  credentialUpdatedAt?: number
+  /* 写入槽凭证(API Key, 心跳上报) */
+  writeCredential?: StoredCredentialSlot
+  /* 写入槽最后一次变更(写入或清除)时刻(Unix 毫秒) */
+  writeCredentialUpdatedAt?: number
+  /* 读取槽凭证(OAuth 令牌, 账号资料与云端战绩) */
+  readCredential?: StoredCredentialSlot
+  /* 读取槽最后一次变更(写入或清除)时刻(Unix 毫秒) */
+  readCredentialUpdatedAt?: number
   /* settings 最后一次变更时刻(Unix 毫秒) */
   settingsUpdatedAt?: number
-  /* 最近一次验证成功时的账号资料(缓存, 仅展示用) */
+  /* 最近一次验证成功时的账号资料(由读取槽解析, 缓存, 仅展示用) */
   userId?: string
   username?: string
   accountUpdatedAt?: number
-  /* 最近一次保存凭证时探测到的写权限: 个人令牌只读, 缺该权限时心跳会被服务端拒绝 */
+  /* 最近一次保存写入槽时探测到的写权限 */
   writeScope?: 'ok' | 'missing' | 'unknown'
+  /* 两槽同账号的取证结论(带取证时的槽位时间戳) */
+  sameAccount?: StoredSameAccount
   settings: StoredSettings
 }
 

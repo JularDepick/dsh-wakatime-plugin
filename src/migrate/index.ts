@@ -23,6 +23,7 @@ import {
   REPORT_LOG_LIMIT,
   STORE_FILE_VERSION,
 } from '../constants'
+import { normalizeSettings } from '../config-manager/merge'
 import type { StoredConfig, StoredSettings } from '../config-manager/types'
 import { detectCredentialType } from '../credential-format'
 import type { PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
@@ -71,15 +72,16 @@ interface LegacyToken {
   username?: string
 }
 
-/* 旧配置里挑出一份 OAuth 凭证: 激活项优先, 其次任一 OAuth 条目, 最后旧版单字段 */
-function pickLegacyToken(raw: Record<string, unknown>): LegacyToken | undefined {
+/* 旧配置里挑出一份指定类型的凭证: 激活项优先, 其次同类型的任一激活条目, 最后旧版单字段.
+   0.3.0 同时存在插件密钥(api_key)与 OAuth 令牌, 在 0.5.0 的双槽模型里正好分别落到写入槽与读取槽 */
+function pickLegacyByType(raw: Record<string, unknown>, type: 'oauth' | 'api_key'): LegacyToken | undefined {
   const records = Array.isArray(raw.credentials) ? raw.credentials : []
   const entries = records
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
     .map((item) => ({ record: item, type: item.type, secret: typeof item.secret === 'string' ? item.secret : '', updatedAt: numberOr(item.lastUsedAt) }))
   const activeId = typeof raw.activeCredentialId === 'string' ? raw.activeCredentialId : undefined
   const active = entries.find((entry) => entry.record.id === activeId) ?? entries[entries.length - 1]
-  const chosen = active?.type === 'oauth' ? active : entries.find((entry) => entry.type === 'oauth')
+  const chosen = active?.type === type ? active : entries.find((entry) => entry.type === type)
   if (chosen && chosen.secret !== '') {
     const userId = typeof chosen.record.userId === 'string' && chosen.record.userId !== '' ? chosen.record.userId : undefined
     const username = typeof chosen.record.username === 'string' && chosen.record.username !== '' ? chosen.record.username : undefined
@@ -90,32 +92,69 @@ function pickLegacyToken(raw: Record<string, unknown>): LegacyToken | undefined 
       ...(username === undefined ? {} : { username }),
     }
   }
-  const single = typeof raw.oauthToken === 'string' ? raw.oauthToken : ''
-  if (single !== '' && detectCredentialType(single).ok) return { secret: single.trim(), updatedAt: 0 }
-  return undefined
+  /* 更早版本把凭证写成顶层单字段: oauthToken / apiKey */
+  const singleField = type === 'oauth' ? raw.oauthToken : raw.apiKey
+  const single = typeof singleField === 'string' ? singleField.trim() : ''
+  if (single === '') return undefined
+  const detection = detectCredentialType(single)
+  if (!detection.ok || detection.type !== type) return undefined
+  return { secret: single.trim(), updatedAt: 0 }
+}
+
+/* 0.4.x 结构(version 3, 单份 OAuth 令牌) -> 0.5.0 结构(version 4, 双槽):
+   旧令牌是个人 OAuth 令牌, 只有读权限, 故落到读取槽; 写入槽留空等用户另填 API Key;
+   settings 只搬运显式改过的键(不补默认值, 否则会盖掉 cordis.yml 的同名项);
+   本地数据(战绩与待发送队列)与凭证无关, 不在此模块处理 */
+function migrateV3Config(record: Record<string, unknown>): StoredConfig | null {
+  if (record.version !== 3) return null
+  const raw = typeof record.credential === 'object' && record.credential !== null
+    ? record.credential as Record<string, unknown>
+    : {}
+  const secret = typeof raw.secret === 'string' ? raw.secret.trim() : ''
+  const updatedAt = numberOr(raw.updatedAt, numberOr(record.credentialUpdatedAt, Date.now()))
+  return {
+    version: CONFIG_FILE_VERSION,
+    settings: normalizeSettings(record.settings) ?? {},
+    ...(secret === '' ? {} : { readCredential: { secret, type: 'oauth' as const, updatedAt } }),
+    ...(secret === '' ? {} : { readCredentialUpdatedAt: updatedAt }),
+    writeCredentialUpdatedAt: 0,
+    ...(typeof record.settingsUpdatedAt === 'number' ? { settingsUpdatedAt: numberOr(record.settingsUpdatedAt, 0) } : {}),
+    ...(typeof record.userId === 'string' && record.userId !== '' ? { userId: record.userId } : {}),
+    ...(typeof record.username === 'string' && record.username !== '' ? { username: record.username } : {}),
+    ...(typeof record.accountUpdatedAt === 'number' ? { accountUpdatedAt: numberOr(record.accountUpdatedAt, 0) } : {}),
+  }
 }
 
 /* 旧配置迁移; 非旧结构返回 null */
 export function migrateStoredConfig(raw: unknown): StoredConfig | null {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
+  /* 0.4.x 的单令牌结构优先按版本号识别, 再回落到更早版本的字段特征 */
+  const v3 = migrateV3Config(record)
+  if (v3 !== null) return v3
   const isLegacy = Array.isArray(record.credentials) || typeof record.oauthToken === 'string' || typeof record.apiKey === 'string'
   if (!isLegacy) return null
   const settings = migrateSettings(record.settings)
-  const token = pickLegacyToken(record)
   const now = Date.now()
+  /* 0.3.0 的两类凭证在 0.5.0 的双槽里各有归宿: OAuth 令牌 -> 读取槽, 插件密钥 -> 写入槽 */
+  const read = pickLegacyByType(record, 'oauth')
+  const write = pickLegacyByType(record, 'api_key')
+  const readAt = read === undefined ? 0 : (read.updatedAt || now)
+  const writeAt = write === undefined ? 0 : (write.updatedAt || now)
   return {
     version: CONFIG_FILE_VERSION,
     settings,
-    ...(token === undefined ? {} : { credential: { secret: token.secret, type: 'oauth' as const, updatedAt: token.updatedAt || now } }),
-    credentialUpdatedAt: token === undefined ? undefined : (token.updatedAt || now),
+    ...(read === undefined ? {} : { readCredential: { secret: read.secret, type: 'oauth' as const, updatedAt: readAt } }),
+    readCredentialUpdatedAt: readAt,
+    ...(write === undefined ? {} : { writeCredential: { secret: write.secret, type: 'api_key' as const, updatedAt: writeAt } }),
+    writeCredentialUpdatedAt: writeAt,
     settingsUpdatedAt: numberOr(record.settingsUpdatedAt, now),
     ...(typeof record.userId === 'string' && record.userId !== ''
       ? { userId: record.userId }
-      : (token?.userId === undefined ? {} : { userId: token.userId })),
+      : (read?.userId === undefined ? {} : { userId: read.userId })),
     ...(typeof record.username === 'string' && record.username !== ''
       ? { username: record.username }
-      : (token?.username === undefined ? {} : { username: token.username })),
+      : (read?.username === undefined ? {} : { username: read.username })),
     accountUpdatedAt: numberOr(record.settingsUpdatedAt, now),
   }
 }

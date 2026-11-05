@@ -5,8 +5,9 @@
  * 将 DSH 的 AI 交互量化并上报至 WakaTime: 监听 session/event 采集
  * Token 用量、思考时长、工具调用与提示词字符, 心跳入待发送队列由定时器按批推送;
  * 本地只有一份数据, 与凭证无关(更换凭证不丢本地数据);
- * 凭证为单份 OAuth 访问令牌, 经小后端(config-manager + webui 路由)管理,
- * 只允许覆盖写入, 任何读取面不回显明文; 工具面提供 config/logout/status/stats.
+ * 凭证分两槽(写入槽 API Key 上报心跳, 读取槽 OAuth 令牌拉取账号与战绩), 经小后端
+ * (config-manager + webui 路由)管理, 只允许覆盖写入, 任何读取面不回显明文;
+ * 工具面提供 config/logout/status/stats.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -37,6 +38,8 @@ export { Config }
 
 /* 导出模块类: 便于复用与测试 */
 export { AuthManagerImpl, pickUsername } from './auth'
+/* 凭证格式识别(宿主与浏览器端共用)也在此导出, 便于回归脚本与外部工具复用同一口径 */
+export { detectCredentialType, detectSlotCredential, maskCredential } from './credential-format'
 export { LocalStore, emptyStore, normalizeStore } from './local-store'
 export type { LegacySource, StoreFile } from './local-store'
 export { resolveStatsView } from './local-store/resolve'
@@ -72,9 +75,9 @@ export function apply(ctx: Context, config: ConfigType) {
     warn: (message: string) => { logger.warn?.(message) },
     error: (message: string) => { logger.error?.(message) },
   }
-  const auth = new AuthManagerImpl(http, configManager)
+  const auth = new AuthManagerImpl(http, configManager, pluginLogger)
   const store = new LocalStore({ logger: pluginLogger })
-  const heartbeat = new HeartbeatEngineImpl(http, async () => auth.getAuthHeader(), {
+  const heartbeat = new HeartbeatEngineImpl(http, async () => auth.getWriteAuthHeader(), {
     enabled: config.enabled,
     includeTokens: config.includeTokens,
     includePrompts: config.includePrompts,

@@ -2,7 +2,7 @@
  * 云端同步模块
  * 作者: JularDepick
  *
- * 已配置凭证时(读取面首选 OAuth 令牌),拉取 WakaTime summaries 的 AI 聚合字段
+ * 已配置读取槽(OAuth 令牌)时,拉取 WakaTime summaries 的 AI 聚合字段
  * (最近 CLOUD_SUMMARY_RANGE),供前端战绩区同步展示云端最新数据;
  * 未配置凭证、网络异常或云端返回异常时静默返回 null,不阻塞插件。
  * 仅做读取式同步,不修改云端数据。
@@ -71,8 +71,8 @@ export class CloudSync {
     let header: AuthHeader
     let secret: string
     try {
-      header = await this.auth.getAuthHeader()
-      secret = (await this.auth.getSecret()) ?? ''
+      header = await this.auth.getReadAuthHeader()
+      secret = (await this.auth.getReadSecret()) ?? ''
     } catch {
       /* 未配置凭证:与网络/云端异常同等待遇,静默失败 */
       return null

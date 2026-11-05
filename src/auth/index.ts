@@ -2,30 +2,35 @@
  * 认证管理模块实现
  * 作者: JularDepick
  *
- * 0.4.0 起只支持一份 OAuth 访问令牌: 官方把插件密钥限定为写入专用,
- * 而战绩读取与云端同步都需要读取权限, 故统一使用个人 OAuth 令牌.
- * 本地只保存一份凭证, 更换凭证即覆盖; 明文只存在于 host 进程与配置文件(0600),
- * 任何读取面只下发打码值.
+ * 0.5.0 起凭证分两槽: 写入槽(API Key)负责心跳上报, 读取槽(个人 OAuth 令牌)负责账号资料与
+ * 云端战绩. 官方把 API Key 限定为写入专用、个人令牌限定为读取专用, 单凭证无法同时满足
+ * 「能写」与「能读」, 故两槽并存; 两槽缺一即视为未配置(上报暂停但队列保留),
+ * 且两槽必须指向同一个 WakaTime 用户(保存时取证, 见 same-account.ts).
+ * 明文只存在于 host 进程与配置文件(0600), 任何读取面只下发打码值.
  */
 
 import {
   ANONYMOUS_DISPLAY_NAME,
   CLOUD_SUMMARY_RANGE,
   CONFIG_FILE_VERSION,
-  HEARTBEATS_PATH,
+  ENV_API_KEY,
   ENV_OAUTH_TOKEN,
+  HEARTBEATS_PATH,
   SUMMARIES_PATH,
   USER_INFO_PATH,
   USER_PROFILE_FAILURE_TTL_MS,
   USER_PROFILE_STATUS_TIMEOUT_MS,
 } from '../constants'
-import type { ConfigManager, StoredConfig } from '../config-manager'
+import type { ConfigManager, StoredConfig, StoredCredentialSlot } from '../config-manager'
+import type { CredentialRejectReason, CredentialSlot } from '../credential-format'
+import { detectSlotCredential, maskCredential } from '../credential-format'
+import type { CredentialErrorCode } from '../errors'
 import { CredentialInputError, NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
-import { detectCredentialType, maskCredential } from '../credential-format'
-import { OauthCredential } from './credential'
-import type { AuthManager, AuthStatus, SetCredentialResult, UserProfile } from './types'
+import { ApiKeyCredential, OauthCredential, credentialOf } from './credential'
+import { probeSameAccount } from './same-account'
+import type { AuthManager, AuthStatus, SameAccountVerdict, SetCredentialResult, SlotStatus, UserProfile } from './types'
 
 /* /users/current 响应中用于解析账号名的字段(官方 username 与 full_name 均可为 null) */
 export interface ProfileFields {
@@ -34,6 +39,11 @@ export interface ProfileFields {
   display_name?: string | null
   full_name?: string | null
   email?: string | null
+}
+
+/* 日志出口(取证清理与账号解析留痕) */
+export interface AuthLogger {
+  warn?: (message: string) => void
 }
 
 /* 是否为匿名占位显示名(服务端在未设置用户名与姓名时返回的固定值) */
@@ -63,10 +73,15 @@ function withTimeout<T>(task: (signal: AbortSignal) => Promise<T>, ms: number): 
 }
 
 /* 首次落盘的配置骨架: settings 留空.
-   若在这里写入默认值, 用户仅仅保存一次凭证就会把 6 个上报相关配置项钉死,
-   之后修改 cordis.yml 的同名项静默失效(包括上报总开关与 Token 与提示词开关) */
+   若在这里写入默认值, 用户仅仅保存一次凭证就会把上报相关配置项钉死,
+   之后修改 cordis.yml 的同名项静默失效 */
 function emptyConfig(): StoredConfig {
   return { version: CONFIG_FILE_VERSION, settings: {} }
+}
+
+/* 识别失败原因 -> 稳定错误码(界面按码翻译): unknown 在旧口径里叫 unknown_format, 其余同名 */
+function rejectCode(reason: CredentialRejectReason): CredentialErrorCode {
+  return reason === 'unknown' ? 'unknown_format' : reason
 }
 
 export class AuthManagerImpl implements AuthManager {
@@ -77,11 +92,15 @@ export class AuthManagerImpl implements AuthManager {
   private loaded = false
   /* 凭证变更订阅者(作废云端快照等副作用由调用方处理) */
   private readonly listeners = new Set<() => void>()
+  private readonly logger?: AuthLogger
 
   constructor(
     private readonly http: HttpClient,
     private readonly configManager: ConfigManager,
-  ) {}
+    logger?: AuthLogger,
+  ) {
+    this.logger = logger
+  }
 
   /* 订阅凭证变更(保存/清除后触发);返回取消订阅函数 */
   onChange(listener: () => void): () => void {
@@ -89,66 +108,123 @@ export class AuthManagerImpl implements AuthManager {
     return () => { this.listeners.delete(listener) }
   }
 
-  /* 当前凭证原文;未配置时返回 null */
-  async getSecret(): Promise<string | null> {
-    const fromEnv = this.envToken()
-    if (fromEnv !== null) return fromEnv
-    const stored = await this.config()
-    return stored?.credential?.secret ?? null
+  /* 写入槽凭证原文;未配置时返回 null */
+  async getWriteSecret(): Promise<string | null> {
+    return this.slotSecret('write')
   }
 
-  /* 当前凭证的认证头;未配置时抛 NotAuthenticatedError */
-  async getAuthHeader(): Promise<AuthHeader> {
-    const secret = await this.getSecret()
+  /* 读取槽凭证原文;未配置时返回 null */
+  async getReadSecret(): Promise<string | null> {
+    return this.slotSecret('read')
+  }
+
+  /* 写入槽认证头;两槽缺一、两槽不同账号时抛 NotAuthenticatedError.
+     上报按「配置完整才推送」的口径: 只配好写入槽就推, 登录面会看起来正常却缺少账号与战绩,
+     两个状态来回跳, 故要求两槽齐备才推送(心跳留在队列, 补齐后自动续传) */
+  async getWriteAuthHeader(): Promise<AuthHeader> {
+    const secret = await this.slotSecret('write')
     if (secret === null) throw new NotAuthenticatedError()
+    if ((await this.slotSecret('read')) === null) throw new NotAuthenticatedError()
+    /* 两槽已确认不是同一个账号时拒绝写入: 否则心跳会进错账号的报表 */
+    if (this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
+    return new ApiKeyCredential(secret).authHeader()
+  }
+
+  /* 读取槽认证头;未配置时抛 NotAuthenticatedError */
+  async getReadAuthHeader(): Promise<AuthHeader> {
+    const secret = await this.slotSecret('read')
+    if (secret === null) throw new NotAuthenticatedError()
+    if (this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
     return new OauthCredential(secret).authHeader()
   }
 
-  /* 保存凭证:格式校验 -> 服务端验证 -> 覆盖落盘;验证失败不落盘.
-     环境变量凭证优先于配置文件, 此时保存不会生效, 直接拒绝并提示移除环境变量 */
-  async setCredential(input: string): Promise<SetCredentialResult> {
-    if (this.hasEnvCredential()) throw new CredentialInputError('env_locked')
-    const detection = detectCredentialType(input)
-    if (!detection.ok) throw new CredentialInputError(detection.reason === 'unknown' ? 'unknown_format' : detection.reason)
-    const credential = new OauthCredential(input.trim())
-    /* 验证失败(无效凭证或网络异常)不落盘 */
-    const profile = await this.validateCredential(credential)
-    /* 顺带探测写权限: 只有读权限的令牌能保存成功却永远推不上心跳, 必须当场告诉用户 */
-    const writeScope = await this.probeWriteScope(credential.secret)
+  /* 保存单槽凭证:格式校验 -> 服务端验证 -> 同账号取证 -> 覆盖落盘;验证失败不落盘.
+     该槽由环境变量提供时保存不会生效, 直接拒绝并提示移除环境变量 */
+  async setCredential(slot: CredentialSlot, input: string): Promise<SetCredentialResult> {
+    if (this.envSecret(slot) !== null) throw new CredentialInputError('env_locked')
+    const detection = detectSlotCredential(input, slot)
+    if (!detection.ok) throw new CredentialInputError(rejectCode(detection.reason))
+    const secret = input.trim()
     const stored = (await this.config()) ?? emptyConfig()
     const now = Date.now()
-    const existed = stored.credential?.secret === credential.secret
-    /* 换凭证时账号缓存必须整体替换: 解析不到新账号名就清空, 否则会一直显示上一个账号 */
-    const { userId: _oldUserId, username: _oldUsername, ...rest } = stored
+
+    /* 逐槽验证: 读取槽有读取面可校验身份, 写入槽只能靠一次空载荷写入探测 */
+    let profile: UserProfile = {}
+    let writeScope: 'ok' | 'missing' | 'unknown' | undefined
+    if (slot === 'write') {
+      writeScope = await this.probeWriteScope(secret)
+      if (writeScope === 'missing') throw new CredentialInputError('write_scope')
+      if (writeScope !== 'ok') throw new CredentialInputError('network')
+    } else {
+      profile = await this.validateReadSecret(secret)
+    }
+
+    /* 另一次取证的槽位凭证: 已存配置或环境变量 */
+    const writeSecret = slot === 'write' ? secret : await this.slotSecret('write')
+    const readSecret = slot === 'read' ? secret : await this.slotSecret('read')
+    const verdict = await this.checkSameAccount(writeSecret, readSecret)
+    /* 两槽不属于同一个用户: 拒绝保存, 让用户改填同一个账号的凭证 */
+    if (verdict === 'different') {
+      this.logger?.warn?.('[wakatime] rejected credential: the two slots belong to different accounts')
+      throw new CredentialInputError('different_account')
+    }
+
+    const previous = this.storedSlot(stored, slot)
+    const existed = previous?.secret === secret
+    const replaced = previous !== undefined && !existed
+    const record: StoredCredentialSlot = {
+      secret,
+      type: slot === 'write' ? 'api_key' : 'oauth',
+      updatedAt: now,
+    }
+    /* 换读取槽凭证时账号缓存必须整体替换: 解析不到新账号名就清空, 否则会一直显示上一个账号 */
+    const { userId: _oldUserId, username: _oldUsername, accountUpdatedAt: _oldAccountAt, ...rest } = stored
+    const writeUpdatedAt = slot === 'write' ? now : (stored.writeCredentialUpdatedAt ?? 0)
+    const readUpdatedAt = slot === 'read' ? now : (stored.readCredentialUpdatedAt ?? 0)
     const next: StoredConfig = {
       ...rest,
       version: CONFIG_FILE_VERSION,
-      credential: { secret: credential.secret, type: 'oauth', updatedAt: now },
-      credentialUpdatedAt: now,
-      ...(profile.userId === undefined ? {} : { userId: profile.userId }),
-      ...(profile.username === undefined ? {} : { username: profile.username }),
-      accountUpdatedAt: now,
-      writeScope,
+      ...(slot === 'write'
+        ? { writeCredential: record, writeCredentialUpdatedAt: now, writeScope }
+        : { readCredential: record, readCredentialUpdatedAt: now }),
+      /* 账号资料只由读取槽的验证结果推进 */
+      ...(slot === 'read'
+        ? {
+            ...(profile.userId === undefined ? {} : { userId: profile.userId }),
+            ...(profile.username === undefined ? {} : { username: profile.username }),
+            accountUpdatedAt: now,
+          }
+        : {
+            ...(stored.userId === undefined ? {} : { userId: stored.userId }),
+            ...(stored.username === undefined ? {} : { username: stored.username }),
+            ...(stored.accountUpdatedAt === undefined ? {} : { accountUpdatedAt: stored.accountUpdatedAt }),
+          }),
+      sameAccount: { verdict, writeUpdatedAt, readUpdatedAt, checkedAt: now },
     }
     await this.setStored(next)
+    const otherSlot: CredentialSlot = slot === 'write' ? 'read' : 'write'
     return {
-      maskedSecret: credential.maskedSecret,
+      slot,
+      maskedSecret: maskCredential(secret),
       ...(profile.username === undefined ? {} : { username: profile.username }),
       existed,
-      replaced: stored.credential !== undefined && !existed,
+      replaced,
       updatedAt: now,
-      writeScope,
+      ...(writeScope === undefined ? {} : { writeScope }),
+      sameAccount: verdict,
+      paired: (await this.slotSecret(otherSlot)) !== null,
     }
   }
 
-  /* 探测 write_heartbeats 权限: 发一条故意不合法的写入, 服务端先校验 scope 再校验载荷,
-     缺权限回 401/403(不写入任何数据), 有权限回 400/422; 网络异常返回 unknown 且不影响保存 */
+  /* 探测写入权限(同时是 API Key 唯一的有效性验证): 发一条故意不合法的写入,
+     服务端先校验凭证与 scope 再校验载荷, 缺权限回 401/403(不写入任何数据),
+     有权限回 400/422; 网络异常返回 unknown 且不被当成可用 */
   private async probeWriteScope(secret: string): Promise<'ok' | 'missing' | 'unknown'> {
     try {
       await this.http.request(HEARTBEATS_PATH, {
         method: 'POST',
         body: {},
-        auth: { scheme: 'Bearer', value: secret },
+        auth: new ApiKeyCredential(secret).authHeader(),
         noRetry: true,
         maxRetries: 0,
       })
@@ -162,44 +238,100 @@ export class AuthManagerImpl implements AuthManager {
     }
   }
 
-  /* 清除已保存凭证(本地数据保留);环境变量凭证生效时无法通过配置清除 */
-  async clearCredential(): Promise<void> {
-    if (this.hasEnvCredential()) throw new CredentialInputError('env_locked')
-    const stored = await this.config()
-    if (!stored || stored.credential === undefined) return
-    /* 写权限结论属于被清除的那份凭证, 一并丢弃, 否则新凭证会继承旧的只读判定 */
-    const { credential: _credential, userId: _userId, username: _username, writeScope: _writeScope, ...rest } = stored
-    const now = Date.now()
-    await this.setStored({ ...rest, credentialUpdatedAt: now, accountUpdatedAt: now })
+  /* 两槽同账号取证: 任一槽缺失时无法确认 */
+  private async checkSameAccount(writeSecret: string | null, readSecret: string | null): Promise<SameAccountVerdict> {
+    if (writeSecret === null || readSecret === null) return 'unknown'
+    return probeSameAccount(
+      this.http,
+      new ApiKeyCredential(writeSecret).authHeader(),
+      new OauthCredential(readSecret).authHeader(),
+      this.logger,
+    )
   }
 
-  /* 环境变量凭证是否生效(优先级高于配置文件) */
-  hasEnvCredential(): boolean {
-    return this.envToken() !== null
+  /* 清除凭证: 缺省清两槽(本地数据保留); 只清读取槽时账号缓存一并丢弃 */
+  async clearCredential(slot?: CredentialSlot): Promise<void> {
+    const targets: CredentialSlot[] = slot === undefined ? ['write', 'read'] : [slot]
+    for (const target of targets) {
+      if (this.envSecret(target) !== null) throw new CredentialInputError('env_locked')
+    }
+    const stored = await this.config()
+    if (!stored) return
+    const clearWrite = targets.includes('write')
+    const clearRead = targets.includes('read')
+    if (clearWrite && stored.writeCredential === undefined && clearRead && stored.readCredential === undefined) return
+    const now = Date.now()
+    const { writeCredential: _write, writeScope: _scope, readCredential: _read, userId: _userId, username: _username, accountUpdatedAt: _accountAt, sameAccount: _same, ...rest } = stored
+    await this.setStored({
+      ...rest,
+      version: CONFIG_FILE_VERSION,
+      ...(clearWrite
+        ? { writeCredentialUpdatedAt: now }
+        : {
+            ...(stored.writeCredential === undefined ? {} : { writeCredential: stored.writeCredential }),
+            writeCredentialUpdatedAt: stored.writeCredentialUpdatedAt ?? 0,
+            ...(stored.writeScope === undefined ? {} : { writeScope: stored.writeScope }),
+          }),
+      ...(clearRead
+        ? { readCredentialUpdatedAt: now, accountUpdatedAt: now }
+        : {
+            ...(stored.readCredential === undefined ? {} : { readCredential: stored.readCredential }),
+            readCredentialUpdatedAt: stored.readCredentialUpdatedAt ?? 0,
+            ...(stored.userId === undefined ? {} : { userId: stored.userId }),
+            ...(stored.username === undefined ? {} : { username: stored.username }),
+            ...(stored.accountUpdatedAt === undefined ? {} : { accountUpdatedAt: stored.accountUpdatedAt }),
+          }),
+    })
+  }
+
+  /* 环境变量是否提供该槽凭证(优先级高于配置文件) */
+  hasEnvCredential(slot?: CredentialSlot): boolean {
+    return slot === undefined
+      ? this.envSecret('write') !== null || this.envSecret('read') !== null
+      : this.envSecret(slot) !== null
   }
 
   async getStatus(): Promise<AuthStatus> {
     const stored = await this.config()
-    const fromEnv = this.envToken()
-    if (fromEnv !== null) return { configured: true, fromEnv: true, maskedSecret: maskCredential(fromEnv) }
-    if (!stored?.credential) return { configured: false, fromEnv: false }
+    const writeSecret = await this.slotSecret('write')
+    const readSecret = await this.slotSecret('read')
+    const write = this.slotStatus('write', stored, writeSecret)
+    const read = this.slotStatus('read', stored, readSecret)
+    const configured = writeSecret !== null && readSecret !== null
+    /* 环境变量提供的槽位没有落盘时间戳, 取证结论无法对齐, 一律按未知处理 */
+    const sameAccount: SameAccountVerdict = write.fromEnv || read.fromEnv ? 'unknown' : this.sameAccountOf(stored)
     const base: AuthStatus = {
-      configured: true,
-      fromEnv: false,
-      maskedSecret: maskCredential(stored.credential.secret),
-      updatedAt: stored.credential.updatedAt,
-      ...(stored.writeScope === undefined ? {} : { writeScope: stored.writeScope }),
+      configured,
+      fromEnv: write.fromEnv || read.fromEnv,
+      write,
+      read,
+      sameAccount,
+      ...(stored?.writeScope === undefined || write.fromEnv ? {} : { writeScope: stored.writeScope }),
     }
+    if (!configured) return base
     const username = await this.resolveUsername(stored)
     return username === undefined ? base : { ...base, username }
   }
 
-  /* 凭证有效性校验(官方把插件密钥限定为写入专用, 故这里只处理 OAuth 令牌):
-     - 先试账号资料接口(官方标注需 email scope):成功即有效, 并带回账号名;
-     - 被 401/403 拒绝时退战绩接口(需 read_summaries)确认, 战绩可用即视为有效;
-     - 网络异常一律拒绝, 避免把拼写错误当成可用凭证 */
-  private async validateCredential(credential: OauthCredential): Promise<UserProfile> {
-    const header = credential.authHeader()
+  /* 单槽状态(不含明文) */
+  private slotStatus(slot: CredentialSlot, stored: StoredConfig | null, secret: string | null): SlotStatus {
+    const fromEnv = this.envSecret(slot) !== null
+    if (secret === null) return { configured: false, fromEnv }
+    const record = this.storedSlot(stored, slot)
+    return {
+      configured: true,
+      fromEnv,
+      maskedSecret: maskCredential(secret),
+      ...(record === undefined ? {} : { updatedAt: record.updatedAt }),
+    }
+  }
+
+  /* 读取槽凭证校验:
+       - 先试账号资料接口(官方标注需 email scope):成功即有效, 并带回账号名;
+       - 被 401/403 拒绝时退战绩接口(需 read_summaries)确认, 战绩可用即视为有效;
+       - 网络异常一律拒绝, 避免把拼写错误当成可用凭证 */
+  private async validateReadSecret(secret: string): Promise<UserProfile> {
+    const header = new OauthCredential(secret).authHeader()
     try {
       return await this.fetchUserProfile(header)
     } catch (error) {
@@ -236,6 +368,28 @@ export class AuthManagerImpl implements AuthManager {
     return { userId: user.id, username: pickUsername(user) }
   }
 
+  /* 读取槽的某一槽凭证原文 */
+  private async slotSecret(slot: CredentialSlot): Promise<string | null> {
+    const fromEnv = this.envSecret(slot)
+    if (fromEnv !== null) return fromEnv
+    const stored = await this.config()
+    return this.storedSlot(stored, slot)?.secret ?? null
+  }
+
+  /* 从落盘配置里取某个槽的凭证记录 */
+  private storedSlot(stored: StoredConfig | null, slot: CredentialSlot): StoredCredentialSlot | undefined {
+    return slot === 'write' ? stored?.writeCredential : stored?.readCredential
+  }
+
+  /* 已落盘的取证结论是否仍然对应当前的两槽: 任一槽变更后结论失效 */
+  private sameAccountOf(stored: StoredConfig | null): SameAccountVerdict {
+    const record = stored?.sameAccount
+    if (record === undefined) return 'unknown'
+    if (record.writeUpdatedAt !== (stored?.writeCredentialUpdatedAt ?? 0)) return 'unknown'
+    if (record.readUpdatedAt !== (stored?.readCredentialUpdatedAt ?? 0)) return 'unknown'
+    return record.verdict
+  }
+
   /* 读取并缓存配置;首次读取时由 config-manager 完成旧结构迁移 */
   private async config(): Promise<StoredConfig | null> {
     if (!this.loaded) {
@@ -262,21 +416,21 @@ export class AuthManagerImpl implements AuthManager {
     this.loaded = true
   }
 
-  /* 环境变量注入的凭证(不落盘) */
-  private envToken(): string | null {
-    const token = process.env[ENV_OAUTH_TOKEN]?.trim()
+  /* 环境变量注入的凭证(不落盘): 写入槽用 WAKATIME_API_KEY, 读取槽用 WAKATIME_OAUTH_TOKEN */
+  private envSecret(slot: CredentialSlot): string | null {
+    const token = process.env[slot === 'write' ? ENV_API_KEY : ENV_OAUTH_TOKEN]?.trim()
     return token ? token : null
   }
 
-  /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时重新解析并回写,
+  /* 展示用账号名:缓存值可用时直接返回;缺失或仍是匿名占位时用读取槽重新解析并回写,
      解析失败返回 undefined(不展示匿名占位,也不阻塞状态查询) */
-  private async resolveUsername(stored: StoredConfig): Promise<string | undefined> {
-    const cached = typeof stored.username === 'string' ? stored.username.trim() : ''
+  private async resolveUsername(stored: StoredConfig | null): Promise<string | undefined> {
+    const cached = typeof stored?.username === 'string' ? stored.username.trim() : ''
     if (cached && !isAnonymousPlaceholder(cached)) return cached
     if (this.profileFailureAt > 0 && Date.now() - this.profileFailureAt < USER_PROFILE_FAILURE_TTL_MS) return undefined
     try {
-      const secret = stored.credential?.secret
-      if (secret === undefined) return undefined
+      const secret = await this.slotSecret('read')
+      if (secret === null || stored === null) return undefined
       const profile = await withTimeout(
         (signal) => this.fetchUserProfile(new OauthCredential(secret).authHeader(), signal),
         USER_PROFILE_STATUS_TIMEOUT_MS,
@@ -298,4 +452,5 @@ export class AuthManagerImpl implements AuthManager {
   }
 }
 
-export type { AuthManager, AuthStatus, SetCredentialResult, UserProfile } from './types'
+export { credentialOf }
+export type { AuthManager, AuthStatus, SameAccountVerdict, SetCredentialResult, SlotStatus, UserProfile } from './types'

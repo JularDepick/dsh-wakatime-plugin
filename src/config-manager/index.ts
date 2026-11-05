@@ -40,6 +40,14 @@ function configPath(): string {
   return join(resolveConfigDir(), CONFIG_FILE_NAME)
 }
 
+/* 旧配置文件的归档标签: 按结构版本号区分(0.4.x 单令牌结构为 3, 更早为 2) */
+function legacyArchiveLabel(value: unknown): string {
+  const version = typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>).version
+    : undefined
+  return version === 3 ? 'v3' : 'v2'
+}
+
 export class ConfigManagerImpl implements ConfigManager {
   /* 串行化本进程内的写操作 */
   private writeQueue: Promise<unknown> = Promise.resolve()
@@ -83,8 +91,9 @@ export class ConfigManagerImpl implements ConfigManager {
         if (disk === null) {
           const migrated = migrateStoredConfig(file.value)
           if (migrated !== null) {
-            /* 归档失败就不写: 否则旧凭证备份会被覆盖成新结构, 失去回滚余地 */
-            archivedPath = await archiveFileWithPath(path, 'v2')
+            /* 归档失败就不写: 否则旧凭证备份会被覆盖成新结构, 失去回滚余地;
+               归档标签按旧文件的结构版本号取(0.4.x 为 v3, 0.3.0 及更早为 v2), 便于回滚时辨认 */
+            archivedPath = await archiveFileWithPath(path, legacyArchiveLabel(file.value))
             if (archivedPath === null) throw new Error('failed to archive legacy config file')
             disk = migrated
           } else if (file.state !== 'missing') {
@@ -150,4 +159,4 @@ export async function hardenPathPermissions(dir: string, path: string): Promise<
   }
 }
 
-export type { ConfigManager, StoredConfig, StoredCredential, StoredSettings } from './types'
+export type { ConfigManager, StoredConfig, StoredCredentialSlot, StoredSameAccount, StoredSettings } from './types'
