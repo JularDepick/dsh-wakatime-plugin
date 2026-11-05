@@ -25,7 +25,7 @@ import {
   STORE_FILE_VERSION,
 } from '../constants'
 import { normalizeSettings } from '../config-manager/merge'
-import type { StoredConfig, StoredSettings } from '../config-manager/types'
+import type { StoredConfig } from '../config-manager/types'
 import { detectCredentialType } from '../credential-format'
 import type { PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
@@ -49,22 +49,6 @@ function numberOr(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-/* 旧 settings 迁移: 只保留当前仍存在的键(statsScope 随多凭证一起下线) */
-function migrateSettings(value: unknown): StoredSettings {
-  const raw = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-  return {
-    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
-    reportInterval: typeof raw.reportInterval === 'number' && raw.reportInterval >= 1 ? raw.reportInterval : 60,
-    reportEnabled: typeof raw.reportEnabled === 'boolean' ? raw.reportEnabled : true,
-    includeTokens: typeof raw.includeTokens === 'boolean' ? raw.includeTokens : true,
-    includePrompts: typeof raw.includePrompts === 'boolean' ? raw.includePrompts : true,
-    debug: typeof raw.debug === 'boolean' ? raw.debug : false,
-    ...(typeof raw.tableBorders === 'boolean' ? { tableBorders: raw.tableBorders } : {}),
-    ...(raw.digitGrouping === 'thousand' || raw.digitGrouping === 'myriad' ? { digitGrouping: raw.digitGrouping } : {}),
-    ...(typeof raw.locale === 'string' && raw.locale !== '' ? { locale: raw.locale } : {}),
-  }
-}
-
 /* 旧凭证条目里可复用的账号信息 */
 interface LegacyToken {
   secret: string
@@ -83,7 +67,10 @@ function pickLegacyByType(raw: Record<string, unknown>, type: 'oauth' | 'api_key
   const activeId = typeof raw.activeCredentialId === 'string' ? raw.activeCredentialId : undefined
   const active = entries.find((entry) => entry.record.id === activeId) ?? entries[entries.length - 1]
   const chosen = active?.type === type ? active : entries.find((entry) => entry.type === type)
-  if (chosen && chosen.secret !== '') {
+  /* 列表条目的 type 是旧版本自己写的, 不能直接采信: 形态不符的条目迁过去只会变成
+     "已配置但恒 401/403", 故与单字段分支同样过一遍识别 */
+  const chosenShape = chosen === undefined ? undefined : detectCredentialType(chosen.secret)
+  if (chosen && chosen.secret !== '' && chosenShape?.ok === true && chosenShape.type === type) {
     const userId = typeof chosen.record.userId === 'string' && chosen.record.userId !== '' ? chosen.record.userId : undefined
     const username = typeof chosen.record.username === 'string' && chosen.record.username !== '' ? chosen.record.username : undefined
     return {
@@ -135,7 +122,8 @@ export function migrateStoredConfig(raw: unknown): StoredConfig | null {
   if (v3 !== null) return v3
   const isLegacy = Array.isArray(record.credentials) || typeof record.oauthToken === 'string' || typeof record.apiKey === 'string'
   if (!isLegacy) return null
-  const settings = migrateSettings(record.settings)
+  /* settings 只搬运显式改过的键: 补默认值等于替用户做了"界面写入", 会把 cordis.yml 的同名项钉死 */
+  const settings = normalizeSettings(record.settings) ?? {}
   const now = Date.now()
   /* 0.3.0 的两类凭证在 0.5.0 的双槽里各有归宿: OAuth 令牌 -> 读取槽, 插件密钥 -> 写入槽 */
   const read = pickLegacyByType(record, 'oauth')

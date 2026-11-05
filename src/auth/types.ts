@@ -66,8 +66,6 @@ export interface AuthStatus {
   read: SlotStatus
   /* 账号名(读取槽解析) */
   username?: string
-  /* 账号标识(读取槽解析) */
-  userId?: string
   /* 写入槽最近一次探测到的写权限 */
   writeScope?: 'ok' | 'missing' | 'unknown'
   /* 两槽是否同一账号; 任一槽变更后回到 unknown */

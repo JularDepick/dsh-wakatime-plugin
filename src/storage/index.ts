@@ -184,7 +184,8 @@ export async function readJsonFileState(path: string): Promise<JsonFileState> {
     return { state: code === 'ENOENT' ? 'missing' : 'unreadable' }
   }
   try {
-    return { state: 'ok', value: JSON.parse(text) as unknown }
+    /* Windows 记事本另存会给 UTF-8 加 BOM: 直接 parse 会把整份配置判成损坏并触发归档重建 */
+    return { state: 'ok', value: JSON.parse(text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text) as unknown }
   } catch {
     return { state: 'corrupt' }
   }

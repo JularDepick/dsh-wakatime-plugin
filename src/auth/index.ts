@@ -94,6 +94,9 @@ export class AuthManagerImpl implements AuthManager {
   private loaded = false
   /* 凭证变更订阅者(作废云端快照等副作用由调用方处理) */
   private readonly listeners = new Set<() => void>()
+  /* 凭证写入串行化: 保存与清除都要联网取证, 并发时各写一条探测心跳且落盘结论可能互相作废,
+     故与配置管理器同样的思路, 本进程内一次只跑一个写操作 */
+  private writes: Promise<unknown> = Promise.resolve()
   private readonly logger?: AuthLogger
 
   constructor(
@@ -134,23 +137,36 @@ export class AuthManagerImpl implements AuthManager {
     return new ApiKeyCredential(secret).authHeader()
   }
 
-  /* 读取槽认证头;未配置时抛 NotAuthenticatedError */
+  /* 读取槽认证头;未配置时抛 NotAuthenticatedError.
+     与写入槽同口径: 任一槽来自环境变量时, 落盘的取证结论对不上当前生效的凭证, 故不据此拦停 */
   async getReadAuthHeader(): Promise<AuthHeader> {
     const secret = await this.slotSecret('read')
     if (secret === null) throw new NotAuthenticatedError()
-    if (this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
+    const envInvolved = this.envSecret('write') !== null || this.envSecret('read') !== null
+    if (!envInvolved && this.sameAccountOf(this.stored) === 'different') throw new NotAuthenticatedError()
     return new OauthCredential(secret).authHeader()
   }
 
   /* 保存单槽凭证:格式校验 -> 服务端验证 -> 同账号取证 -> 覆盖落盘;验证失败不落盘.
      该槽由环境变量提供时保存不会生效, 直接拒绝并提示移除环境变量 */
-  async setCredential(slot: CredentialSlot, input: string): Promise<SetCredentialResult> {
+  setCredential(slot: CredentialSlot, input: string): Promise<SetCredentialResult> {
+    return this.queueWrite(() => this.applyCredential(slot, input))
+  }
+
+  /* 串行执行一次写操作: 前一个失败不影响后一个 */
+  private queueWrite<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.writes.then(task, task)
+    this.writes = run.catch(() => {})
+    return run
+  }
+
+  /* 实际保存流程(在写队列内执行) */
+  private async applyCredential(slot: CredentialSlot, input: string): Promise<SetCredentialResult> {
     if (this.envSecret(slot) !== null) throw new CredentialInputError('env_locked')
     const detection = detectSlotCredential(input, slot)
     if (!detection.ok) throw new CredentialInputError(rejectCode(detection.reason))
     const secret = input.trim()
     const stored = (await this.config()) ?? emptyConfig()
-    const now = Date.now()
 
     /* 逐槽验证: 读取槽有读取面可校验身份, 写入槽只能靠一次空载荷写入探测 */
     let profile: UserProfile = {}
@@ -182,37 +198,40 @@ export class AuthManagerImpl implements AuthManager {
       throw new CredentialInputError('different_account')
     }
 
+    /* 落盘时刻在取证之后再取: 取证要联网, 这段时间里其它进程可能刚改过同一槽,
+       用取证前的时刻会让本次写入在合并时被当成"较旧"而静默丢弃 */
+    const stamp = Date.now()
     const previous = this.storedSlot(stored, slot)
     const existed = previous?.secret === secret
     const replaced = previous !== undefined && !existed
     const record: StoredCredentialSlot = {
       secret,
       type: slot === 'write' ? 'api_key' : 'oauth',
-      updatedAt: now,
+      updatedAt: stamp,
     }
     /* 换读取槽凭证时账号缓存必须整体替换: 解析不到新账号名就清空, 否则会一直显示上一个账号 */
     const { userId: _oldUserId, username: _oldUsername, accountUpdatedAt: _oldAccountAt, ...rest } = stored
-    const writeUpdatedAt = slot === 'write' ? now : (stored.writeCredentialUpdatedAt ?? 0)
-    const readUpdatedAt = slot === 'read' ? now : (stored.readCredentialUpdatedAt ?? 0)
+    const writeUpdatedAt = slot === 'write' ? stamp : (stored.writeCredentialUpdatedAt ?? 0)
+    const readUpdatedAt = slot === 'read' ? stamp : (stored.readCredentialUpdatedAt ?? 0)
     const next: StoredConfig = {
       ...rest,
       version: CONFIG_FILE_VERSION,
       ...(slot === 'write'
-        ? { writeCredential: record, writeCredentialUpdatedAt: now, writeScope }
-        : { readCredential: record, readCredentialUpdatedAt: now }),
+        ? { writeCredential: record, writeCredentialUpdatedAt: stamp, writeScope }
+        : { readCredential: record, readCredentialUpdatedAt: stamp }),
       /* 账号资料只由读取槽的验证结果推进 */
       ...(slot === 'read'
         ? {
             ...(profile.userId === undefined ? {} : { userId: profile.userId }),
             ...(profile.username === undefined ? {} : { username: profile.username }),
-            accountUpdatedAt: now,
+            accountUpdatedAt: stamp,
           }
         : {
             ...(stored.userId === undefined ? {} : { userId: stored.userId }),
             ...(stored.username === undefined ? {} : { username: stored.username }),
             ...(stored.accountUpdatedAt === undefined ? {} : { accountUpdatedAt: stored.accountUpdatedAt }),
           }),
-      sameAccount: { verdict, writeUpdatedAt, readUpdatedAt, checkedAt: now },
+      sameAccount: { verdict, writeUpdatedAt, readUpdatedAt, checkedAt: stamp },
     }
     await this.setStored(next)
     const otherSlot: CredentialSlot = slot === 'write' ? 'read' : 'write'
@@ -222,7 +241,7 @@ export class AuthManagerImpl implements AuthManager {
       ...(profile.username === undefined ? {} : { username: profile.username }),
       existed,
       replaced,
-      updatedAt: now,
+      updatedAt: stamp,
       ...(writeScope === undefined ? {} : { writeScope }),
       sameAccount: verdict,
       paired: (await this.slotSecret(otherSlot)) !== null,
@@ -265,7 +284,12 @@ export class AuthManagerImpl implements AuthManager {
   /* 清除凭证: 缺省清两槽(本地数据保留); 只清读取槽时账号缓存一并丢弃.
      由环境变量提供的槽位清不掉(配置改不动), 这些槽位不阻断另一槽的清除,
      直接跳过并作为返回值交给调用方提示; 两槽都被环境变量占用时才算失败 */
-  async clearCredential(slot?: CredentialSlot): Promise<CredentialSlot[]> {
+  clearCredential(slot?: CredentialSlot): Promise<CredentialSlot[]> {
+    return this.queueWrite(() => this.applyClearCredential(slot))
+  }
+
+  /* 实际清除流程(在写队列内执行) */
+  private async applyClearCredential(slot?: CredentialSlot): Promise<CredentialSlot[]> {
     const targets: CredentialSlot[] = slot === undefined ? ['write', 'read'] : [slot]
     const locked = targets.filter((target) => this.envSecret(target) !== null)
     if (locked.length === targets.length) throw new CredentialInputError('env_locked')
