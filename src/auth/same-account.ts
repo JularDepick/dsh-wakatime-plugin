@@ -9,34 +9,38 @@
  * 2. 用读取槽回读当日心跳, 能读到这条即两槽属于同一账号;
  * 3. 无论判定结果如何都用写入槽把它删掉, 不留可见数据.
  * 净残留只有账号上的 last_heartbeat_at 与插件统计元数据, 报表看不到数据点.
- * 判定不确定(写失败, 回读被拒, 响应形状异常, 网络异常)时一律返回 unknown 而不是 different,
- * 避免把网络波动或时区差异当成"两个账号", 让用户无法保存凭证.
+ *
+ * 判定口径(从严): 只有"读取面可用 + 拿到非空且未达截断阈值的当日列表 + 列表里没有本次探测心跳"
+ * 才判 different; 空列表, 列表达到截断阈值, 响应形状异常, 超预算, 网络异常一律 unknown.
+ * 理由: unknown 只是"未确认"(照常保存并在界面提示), different 会直接拒绝保存并挡住用户,
+ * 误判成本高得多 —— 保存失败时用户只会反复重试, 每次都再写一条探测心跳.
  *
  * 日期口径: 官方心跳列表与删除接口的 date 参数按账号时区的自然日划分
- * (文档原文 "12am until 11:59pm in user's timezone"), 而账号时区可能是 UTC 或与本机不同.
- * 因此日期必须在写入之后取, 并且回读时依次尝试本机日与前后各一天(时区偏移最多 ±1 天),
- * 删除按实际命中那一天执行 —— 否则本地 00:00 至 08:00 写入的探测心跳会被归到前一天,
- * 回读永远命中不到, 既误判成"两个账号", 又把探测心跳留在用户报表里.
+ * (文档原文 "12am until 11:59pm in user's timezone"), 而账号时区可能是 UTC 或与本机不同,
+ * 全球时区偏移跨度是 -12:00 至 +14:00(最多相差 26 小时), 故候选日期取本机日前后各两天并去重.
+ * 日期一律在写入之后取, 删除按实际命中那一天执行 —— 否则本地 00:00 至 08:00 写入的探测心跳
+ * 会被归到前一天, 回读永远命中不到, 既误判又把探测心跳留在用户报表里.
  *
  * 顺手清理: 回读时把同前缀的历史探测心跳(上次进程被杀或删除失败留下的)一并收集并按各自日期删除,
- * 这样残留会随下一次取证自愈, 不依赖那次调用是否成功.
+ * 判据是完整形态加 type/is_write 佐证, 避免误删用户自己的同名实体.
  */
 
 import {
   HEARTBEATS_BULK_PATH,
   HEARTBEATS_PATH,
+  SAME_ACCOUNT_CONFIRM_DELAY_MS,
+  SAME_ACCOUNT_LIST_TRUNCATE_HINT,
+  SAME_ACCOUNT_DATE_OFFSETS,
   SAME_ACCOUNT_PROBE_ENTITY_PREFIX,
   SAME_ACCOUNT_READ_BACKOFF_MS,
   SAME_ACCOUNT_READ_RETRIES,
+  SAME_ACCOUNT_TOTAL_BUDGET_MS,
 } from '../constants'
 import type { AuthHeader, HttpClient } from '../http'
 import type { SameAccountVerdict } from './types'
 
-/* 一天毫秒数(用于生成前后各一天的候选日期) */
-const DAY_MS = 24 * 60 * 60 * 1000
-
-/* 写入响应与列表响应的最小面(只关心 id 与 entity) */
-interface HeartbeatRecord { id?: string, entity?: string }
+/* 写入响应与列表响应的最小面(只关心 id, entity 与探测心跳的形态字段) */
+interface HeartbeatRecord { id?: string, entity?: string, type?: string, is_write?: boolean }
 interface HeartbeatWriteResponse { data?: HeartbeatRecord | null }
 interface HeartbeatListResponse { data?: Array<HeartbeatRecord | null> | null }
 
@@ -45,17 +49,24 @@ export interface ProbeLogger {
   warn?: (message: string) => void
 }
 
-/* 本地日期(yyyy-MM-dd): 候选日期按本机日历日生成, 时区差异由候选集合覆盖 */
+/* 本地日期(yyyy-MM-dd) */
 function localDate(timestamp: number): string {
   const date = new Date(timestamp)
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-/* 候选日期: 本机日, 前一天, 后一天(去重) */
+/* 按日历日偏移取日期字符串(加减天数用 setDate, 避免夏令时切换日出现 ±1 小时的错位) */
+function shiftedDate(timestamp: number, offsetDays: number): string {
+  const date = new Date(timestamp)
+  date.setDate(date.getDate() + offsetDays)
+  return localDate(date.getTime())
+}
+
+/* 候选日期: 本机日, 前后各一天, 前后各两天(按与本地日的接近程度排序, 去重);
+   跨度与顺序同 SAME_ACCOUNT_DATE_OFFSETS */
 function candidateDates(timestamp: number): string[] {
-  const dates = [localDate(timestamp), localDate(timestamp - DAY_MS), localDate(timestamp + DAY_MS)]
-  return [...new Set(dates)]
+  return [...new Set(SAME_ACCOUNT_DATE_OFFSETS.map((offset) => shiftedDate(timestamp, offset)))]
 }
 
 function sleep(ms: number): Promise<void> {
@@ -69,9 +80,15 @@ function probeMarker(): string {
   return `${SAME_ACCOUNT_PROBE_ENTITY_PREFIX}-${stamp}-${random}`
 }
 
-/* 是否为本插件的探测心跳(用于顺手清理历史残留) */
-function isProbeEntity(entity: string | undefined): boolean {
-  return typeof entity === 'string' && entity.startsWith(SAME_ACCOUNT_PROBE_ENTITY_PREFIX)
+/* 是否为本插件的历史探测心跳: 完整形态 + app 类型 + 非写入,
+   只按前缀判断会把用户自己恰好同前缀的实体一起删掉 */
+function isStaleProbe(item: HeartbeatRecord): boolean {
+  if (typeof item.entity !== 'string') return false
+  const shape = new RegExp('^' + SAME_ACCOUNT_PROBE_ENTITY_PREFIX + '-[a-z0-9]+-[a-z0-9]+$')
+  if (!shape.test(item.entity)) return false
+  if (item.type !== undefined && item.type !== 'app') return false
+  if (item.is_write === true) return false
+  return true
 }
 
 /* 按日期删除若干条探测心跳: 失败只记告警, 不影响判定结果 */
@@ -80,6 +97,7 @@ async function deleteProbes(
   header: AuthHeader,
   date: string,
   ids: readonly string[],
+  signal: AbortSignal,
   logger?: ProbeLogger,
 ): Promise<void> {
   if (ids.length === 0) return
@@ -89,11 +107,15 @@ async function deleteProbes(
       body: { date, ids: [...ids] },
       auth: header,
       noRetry: true,
+      signal,
     })
   } catch (error) {
     logger?.warn?.('[wakatime] failed to delete same-account probe heartbeat: ' + String(error))
   }
 }
+
+/* 单次回读结果: ok 表示形状正常(含命中与否与条数), unknown 表示无法据此判定 */
+type ReadResult = { kind: 'ok', hit: boolean, size: number } | { kind: 'unknown' }
 
 /*
  * 判定两槽是否同一账号.
@@ -101,6 +123,8 @@ async function deleteProbes(
  * @param writeHeader - 写入槽认证头(API Key).
  * @param readHeader - 读取槽认证头(OAuth 令牌).
  * @param logger - 告警出口(可选).
+ * @param budgetMs - 整段取证的总预算(毫秒); 缺省取 SAME_ACCOUNT_TOTAL_BUDGET_MS,
+ *     仅回归脚本用小值覆盖, 生产路径不传.
  * @returns same 同一账号 / different 不同账号 / unknown 无法确认.
  */
 export async function probeSameAccount(
@@ -108,10 +132,14 @@ export async function probeSameAccount(
   writeHeader: AuthHeader,
   readHeader: AuthHeader,
   logger?: ProbeLogger,
+  budgetMs: number = SAME_ACCOUNT_TOTAL_BUDGET_MS,
 ): Promise<SameAccountVerdict> {
   const marker = probeMarker()
   const now = Date.now()
-  /* 写入时间戳用 UTC 秒; 日期一律在写入之后再取, 避免跨零点时日期先于数据落库 */
+  /* 整段取证的硬预算: 慢响应时不让一次保存请求挂到数分钟 */
+  const budget = new AbortController()
+  const budgetTimer = setTimeout(() => { budget.abort() }, budgetMs)
+  budgetTimer.unref?.()
   let createdId = ''
   /* 待删除: 日期 -> 心跳 id 集合(含本次探测与顺手清理的历史残留) */
   const pending = new Map<string, Set<string>>()
@@ -119,6 +147,58 @@ export async function probeSameAccount(
     const bucket = pending.get(date) ?? new Set<string>()
     bucket.add(id)
     pending.set(date, bucket)
+  }
+  /* 最近一次"非空且未命中"的列表条数(用于最终判定) */
+  let lastMissSize = 0
+  /* 扫一遍候选日期: 即使已经命中也要扫完其余日期, 把跨天残留一并收集;
+     已经命中后, 其余日期的读失败/形状异常只影响清理, 不再把结论降级成 unknown */
+  const sweep = async (dates: readonly string[]): Promise<ReadResult> => {
+    let hit = false
+    for (const date of dates) {
+      let list: HeartbeatListResponse
+      try {
+        list = await http.request<HeartbeatListResponse>(`${HEARTBEATS_PATH}?date=${date}`, {
+          method: 'GET',
+          auth: readHeader,
+          noRetry: true,
+          signal: budget.signal,
+        })
+      } catch (error) {
+        if (hit) {
+          logger?.warn?.('[wakatime] failed to sweep probe residue: ' + String(error))
+          continue
+        }
+        throw error
+      }
+      /* 响应不是数组(网关包装页, 分页包装, data 为 null)无法据此判定账号 */
+      if (!Array.isArray(list?.data)) {
+        if (hit) continue
+        return { kind: 'unknown' }
+      }
+      for (const item of list.data) {
+        if (item === null || typeof item !== 'object') continue
+        const id = typeof item.id === 'string' ? item.id : ''
+        if (item.entity === marker || (id !== '' && id === createdId)) {
+          hit = true
+          /* 命中即用列表里的 id(与写入时返回的 id 一致才是常态, 不一致时按服务端的记录删) */
+          remember(date, id === '' ? createdId : id)
+          continue
+        }
+        /* 顺手收集历史残留: 同前缀形态但不是本次探测心跳 */
+        if (id !== '' && isStaleProbe(item)) remember(date, id)
+      }
+      /* 空列表说明"读取面看不到当天任何心跳", 不足以证明不是同一账号(账号当天可能本来就没活动,
+         也可能日期落在别的时区日) —— 只有非空列表才具备判定力 */
+      if (list.data.length === 0) continue
+      /* 列表达到截断阈值: 服务端可能分页/截断, 未命中不等于不存在 */
+      if (list.data.length >= SAME_ACCOUNT_LIST_TRUNCATE_HINT) {
+        if (hit) continue
+        return { kind: 'unknown' }
+      }
+      /* 非空且未命中: 记下来, 继续扫其它候选日期 */
+      lastMissSize = list.data.length
+    }
+    return { kind: 'ok', hit, size: lastMissSize }
   }
   try {
     const created = await http.request<HeartbeatWriteResponse>(HEARTBEATS_PATH, {
@@ -132,56 +212,59 @@ export async function probeSameAccount(
       },
       auth: writeHeader,
       noRetry: true,
+      signal: budget.signal,
     })
     createdId = typeof created?.data?.id === 'string' ? created.data.id : ''
-    /* 没有 id 就删不掉: 按无法确认处理(响应形状异常, 不是账号不同) */
-    if (createdId === '') return 'unknown'
-    const dates = candidateDates(now)
-    const primaryDate = localDate(Date.now())
+    if (createdId === '') {
+      /* 写入响应形状异常: 没有 id 无法直接删除, 但回读一次仍可能按 entity 把那条
+          探测心跳找出来, 让 finally 能删掉它; 结论只能是未知(形状异常不是账号不同) */
+      logger?.warn?.('[wakatime] probe heartbeat write returned no id, verdict unknown')
+      try {
+        await sweep(candidateDates(Date.now()))
+      } catch {
+        /* 回读失败: 没有 id 也无从删除, 只能等下次取证按 entity 自愈 */
+      }
+      return 'unknown'
+    }
+    /* 日期在写入之后取: 跨零点时数据可能落在第二天 */
+    const dates = candidateDates(Date.now())
     for (let attempt = 0; attempt <= SAME_ACCOUNT_READ_RETRIES; attempt += 1) {
       if (attempt > 0) await sleep(SAME_ACCOUNT_READ_BACKOFF_MS)
-      /* 先查写入时刻的当日, 没命中再扫前后一天(覆盖账号时区与本机时区不同的情况) */
-      const ordered = [primaryDate, ...dates.filter((date) => date !== primaryDate)]
-      for (const date of ordered) {
-        const list = await http.request<HeartbeatListResponse>(`${HEARTBEATS_PATH}?date=${date}`, {
-          method: 'GET',
-          auth: readHeader,
-          noRetry: true,
-        })
-        /* 响应不是数组(网关包装页, 分页包装, data 为 null)无法据此判定账号: 按未知处理 */
-        if (!Array.isArray(list?.data)) return 'unknown'
-        let hit = false
-        for (const item of list.data) {
-          if (item === null || typeof item !== 'object') continue
-          const id = typeof item.id === 'string' ? item.id : ''
-          if (id === createdId || item.entity === marker) {
-            hit = true
-            /* 命中即用列表里的 id(与写入时返回的 id 一致才是常态, 不一致时按服务端的记录删) */
-            remember(date, id === '' ? createdId : id)
-            continue
-          }
-          /* 顺手收集历史残留: 同前缀但不是本次探测心跳 */
-          if (id !== '' && isProbeEntity(item.entity)) remember(date, id)
-        }
-        if (hit) return 'same'
+      const result = await sweep(dates)
+      if (result.kind === 'unknown') return 'unknown'
+      if (result.hit) return 'same'
+    }
+    /* 落空后再等最后一次: 服务端入库滞后到最后一轮才可见时, 不至于误判成两个账号 */
+    if (!budget.signal.aborted) {
+      await sleep(SAME_ACCOUNT_CONFIRM_DELAY_MS)
+      if (!budget.signal.aborted) {
+        const confirm = await sweep(dates)
+        if (confirm.kind === 'unknown') return 'unknown'
+        if (confirm.hit) return 'same'
       }
     }
-    /* 读取面可用(数组形状正常)却找不到这条: 两侧不是同一个账号 */
-    return 'different'
+    /* 只有"确实拿到过非空列表且始终没有这条"才判不同账号;
+       但整段预算已经耗尽(含确认等待期间超时)时必须按未知处理:
+       超预算时结论只代表"没等到确认", 不代表两槽不同账号, 否则合法同账号双槽会被误挡 */
+    if (budget.signal.aborted) return 'unknown'
+    return lastMissSize > 0 ? 'different' : 'unknown'
   } catch (error) {
     logger?.warn?.('[wakatime] same-account probe failed: ' + String(error))
     return 'unknown'
   } finally {
+    clearTimeout(budgetTimer)
     /* 本次探测兜底删除: 即使判定失败或中途异常也要删掉, 避免残留.
-       回读可能在任何一天命中(账号时区与本机可能差一天), 故未命中记录时按三个候选日期都试一次 */
+       回读可能在任何一天命中(账号时区与本机可能差两天), 故未命中记录时按全部候选日期都试一次 */
     if (createdId !== '') {
       const known = [...pending.entries()].some(([, ids]) => ids.has(createdId))
       if (!known) {
         for (const date of candidateDates(Date.now())) remember(date, createdId)
       }
     }
+    /* 清理不受总预算影响: 预算用尽时用一个不设限的控制器, 否则残留永远删不掉 */
+    const cleanupSignal = new AbortController().signal
     for (const [date, ids] of pending) {
-      await deleteProbes(http, writeHeader, date, [...ids], logger)
+      await deleteProbes(http, writeHeader, date, [...ids], cleanupSignal, logger)
     }
   }
 }

@@ -40,6 +40,8 @@ export { Config }
 export { AuthManagerImpl, pickUsername } from './auth'
 /* 凭证格式识别(宿主与浏览器端共用)也在此导出, 便于回归脚本与外部工具复用同一口径 */
 export { detectCredentialType, detectSlotCredential, maskCredential } from './credential-format'
+/* 同账号取证: 便于回归脚本用小预算覆盖"预算耗尽一律 unknown"分支 */
+export { probeSameAccount } from './auth/same-account'
 export { LocalStore, emptyStore, normalizeStore } from './local-store'
 export type { LegacySource, StoreFile } from './local-store'
 export { resolveStatsView } from './local-store/resolve'
@@ -64,17 +66,20 @@ export function apply(ctx: Context, config: ConfigType) {
   const logger = ctx.logger as { info?: (m: string) => void; warn?: (m: string) => void; error?: (m: string) => void } | undefined
 
   /* 装配模块 */
-  /* 凭证与配置文件写入失败必须可见:归档失败会中止写入,若再静默就会变成"保存成功但重启丢失" */
-  const configManager = new ConfigManagerImpl((message) => { pluginLogger?.warn?.(message) })
   const http = new FetchHttpClient()
-  const runtimeConfig = new RuntimeConfig(config, configManager)
-  /* 调试开关(配置项或环境变量): info 级插件日志受它控制, warn/error 始终转发, 开关改动即时生效 */
-  const isDebug = (): boolean => runtimeConfig.get().debug || process.env[ENV_DEBUG] === '1'
+  /* 调试开关(配置项或环境变量): info 级插件日志受它控制, warn/error 始终转发, 开关改动即时生效.
+     转发器要在配置管理器之前建好(配置管理器构造时就要拿到告警闭包), 而开关判断依赖运行期配置,
+     故用一层可后置的引用打破这个环: 声明顺序固定, 取值时才读 */
+  let debugEnabled = (): boolean => false
   const pluginLogger = logger === undefined ? undefined : {
-    info: (message: string) => { if (isDebug()) logger.info?.(message) },
+    info: (message: string) => { if (debugEnabled()) logger.info?.(message) },
     warn: (message: string) => { logger.warn?.(message) },
     error: (message: string) => { logger.error?.(message) },
   }
+  /* 凭证与配置文件写入失败必须可见:归档失败会中止写入,若再静默就会变成"保存成功但重启丢失" */
+  const configManager = new ConfigManagerImpl((message) => { pluginLogger?.warn?.(message) })
+  const runtimeConfig = new RuntimeConfig(config, configManager)
+  debugEnabled = (): boolean => runtimeConfig.get().debug || process.env[ENV_DEBUG] === '1'
   const auth = new AuthManagerImpl(http, configManager, pluginLogger)
   const store = new LocalStore({ logger: pluginLogger })
   const heartbeat = new HeartbeatEngineImpl(http, async () => auth.getWriteAuthHeader(), {
@@ -104,6 +109,8 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 凭证变更: 云端快照属于账号, 换凭证后作废并自动重新同步; 本地数据保留 */
   const handleCredentialChange = async (): Promise<void> => {
     await storeReady
+    /* 凭证换过就把"被服务端拒绝"的运行态清掉: 否则队列为空时修好凭证后横幅会一直挂着 */
+    heartbeat.resetTransmissionState()
     store.setCloud(null)
     const data = await cloudSync.sync({ force: true })
     if (data !== null) {
@@ -201,9 +208,9 @@ export function apply(ctx: Context, config: ConfigType) {
     return true
   }
 
-  attachWebUi(ctx, { runtimeConfig, auth, heartbeat, sync: cloudSync, store, migrate: migrateLegacy, logger: pluginLogger })
+  attachWebUi(ctx, { runtimeConfig, configManager, auth, heartbeat, sync: cloudSync, store, migrate: migrateLegacy, logger: pluginLogger })
 
-  if (isDebug()) {
+  if (debugEnabled()) {
     logger?.info?.('[wakatime] plugin active')
   }
 }

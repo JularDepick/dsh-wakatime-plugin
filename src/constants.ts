@@ -93,9 +93,14 @@ export const CREDENTIAL_PREFIX_OAUTH = 'waka_tok_'
 export const CREDENTIAL_PREFIX_SECRET = 'waka_sec_'
 /* 可作为凭证接受的最短长度(前缀之外仍需足够长度) */
 export const CREDENTIAL_MIN_LENGTH = 20
+/* 凭证长度上限: OAuth 令牌实际远短于此, 设上限只为拦住误粘贴的超长文本 */
+export const CREDENTIAL_MAX_LENGTH = 4096
 
 /* API Key 的精确长度: waka_ 加 36 位 UUID 共 41 字符(官方固定形态, 长度不符即格式错误) */
 export const API_KEY_LENGTH = 41
+/* API Key 的完整形态: waka_ 加标准 UUID(8-4-4-4-12 十六进制).
+   只校验长度会把 41 位乱码当合法密钥放过, 服务端再以 401 拒绝, 用户只看到"密钥被拒"而看不到"粘错了" */
+export const API_KEY_PATTERN = /^waka_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 /* 双槽凭证(0.5.0 起): 写入槽负责心跳上报(API Key, Basic 认证),
    读取槽负责账号资料与云端战绩(个人 OAuth 访问令牌, Bearer 认证).
@@ -114,6 +119,16 @@ export const SAME_ACCOUNT_PROBE_ENTITY_PREFIX = 'dsh-wakatime-slot-probe'
 /* 回读重试次数与退避: 服务端入库可能略滞后于 202 响应 */
 export const SAME_ACCOUNT_READ_RETRIES = 3
 export const SAME_ACCOUNT_READ_BACKOFF_MS = 800
+/* 判定"不同账号"前的最后一次确认等待: 入库滞后到第一轮全部落空时, 再等这一下才下结论 */
+export const SAME_ACCOUNT_CONFIRM_DELAY_MS = 1500
+/* 取证总预算(毫秒): 整段(写入 + 多轮回读 + 清理)超过即按未知处理,
+   避免慢响应把一次保存请求挂到数分钟 */
+export const SAME_ACCOUNT_TOTAL_BUDGET_MS = 20000
+/* 单日回读条数达到该值时视为列表可能被截断/分页: 未命中一律按未知处理, 不判不同账号 */
+export const SAME_ACCOUNT_LIST_TRUNCATE_HINT = 100
+/* 回读候选日期的偏移(以本机日为 0, 前后各两天)与顺序: 官方按账号时区自然日划分,
+   全球时区偏移最多相差 26 小时, 只查本机日或只覆盖 ±1 天在跨零点写入时会命中不到 */
+export const SAME_ACCOUNT_DATE_OFFSETS = [0, -1, 1, -2, 2] as const
 
 /* 云端同步:已配置凭证时拉取 summaries 的 AI 聚合(最近 7 天) */
 export const CLOUD_SUMMARY_RANGE = 'last_7_days'
