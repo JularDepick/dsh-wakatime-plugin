@@ -20,7 +20,7 @@ AGENTS.md:436  # 版本号索引段的当前版本
 AGENTS.md:442  # 0.4.0 已定版条目
 AGENTS.md:443  # 0.4.1 已定版条目
 AGENTS.md:444  # 0.5.0 已定版条目
-AGENTS.md:445  # 0.5.1 进行中条目
+AGENTS.md:445  # 0.5.1 已定版条目
 AGENTS.md:472  # 项目启动段的当前版本
 AGENTS.md:369  # 目录结构段 src/migrate/ 的迁移标注
 AGENTS.md:411  # 设计细节段凭证与配置存放的版本语境
