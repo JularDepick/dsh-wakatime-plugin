@@ -123,6 +123,8 @@ export const SAME_ACCOUNT_READ_BACKOFF_MS = 800
 export const SAME_ACCOUNT_CONFIRM_DELAY_MS = 1500
 /* 取证总预算(毫秒): 整段(写入 + 多轮回读 + 清理)超过即按未知处理,
    避免慢响应把一次保存请求挂到数分钟 */
+/* 探测心跳清理阶段的独立上限(不共用取证总预算, 但也不允许无限挂住) */
+export const SAME_ACCOUNT_CLEANUP_BUDGET_MS = 45_000
 export const SAME_ACCOUNT_TOTAL_BUDGET_MS = 20000
 /* 单日回读条数达到该值时视为列表可能被截断/分页: 未命中一律按未知处理, 不判不同账号 */
 export const SAME_ACCOUNT_LIST_TRUNCATE_HINT = 100
@@ -183,6 +185,10 @@ export const PROMPT_TOKEN_ESTIMATE_DIVISOR = 1.5
    超限先按龄淘汰(超过保留时长仍无结算的步骤视为已中断), 再按上限淘汰最旧的 */
 export const STEP_TIMING_LIMIT = 512
 export const STEP_TIMING_MAX_AGE_MS = 30 * 60 * 1000
+
+/* 战绩会话表上限: 长驻宿主下会话只增不删会让累计量遍历线性变慢,
+   超限时把最旧的会话并入保留量(计数不丢)再移除 */
+export const SESSION_STATS_LIMIT = 512
 
 /* Web UI 路由路径(挂在 dsh host webserver 上,仅 web profile 存在) */
 export const WEB_STATUS_PATH = '/api/wakatime/status'

@@ -394,13 +394,19 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       body: JSON.stringify({ [key]: value }),
     })
       .then((response) => {
+        /* 只读运行态回 409 config_readonly: 单独识别, 不把裸状态码抛给界面 */
+        if (response.status === 409) throw new Error('config_readonly')
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         /* 服务端已按新配置重算战绩与展示项, 刷新状态使主视图同步 */
         pendingPatch.current.delete(key)
         setTick((value) => value + 1)
       })
       .catch((error: unknown) => {
-        setNotice({ kind: 'error', text: `${t('config.saveFailed')}: ${(error as Error).message}` })
+        const message = (error as Error).message
+        const text = message === 'config_readonly'
+          ? t('config.errReadonly')
+          : `${t('config.saveFailed')}: ${message}`
+        setNotice({ kind: 'error', text })
         /* 写入失败:重新拉取状态,使草稿回到服务端已生效的值 */
         pendingPatch.current.delete(key)
         setTick((value) => value + 1)
@@ -467,9 +473,15 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       <div className={css.column}>
         <div className={css.content}>
           {loadError !== undefined && data === null ? (
-            <p className={css.error} role="status">
-              {t('state.loadFailed')}: {loadError}
-            </p>
+            <div role="status">
+              <p className={css.error}>
+                {t('state.loadFailed')}: {loadError}
+              </p>
+              {/* 首屏失败时战绩区未渲染, 刷新入口必须在这里给, 否则只能切走标签页再回来 */}
+              <button type="button" className={compactButton} onClick={() => setTick((value) => value + 1)}>
+                {t('action.refresh')}
+              </button>
+            </div>
           ) : null}
 
           {data === null || draft === null ? (

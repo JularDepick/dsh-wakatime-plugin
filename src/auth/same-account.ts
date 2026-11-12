@@ -28,6 +28,7 @@
 import {
   HEARTBEATS_BULK_PATH,
   HEARTBEATS_PATH,
+  SAME_ACCOUNT_CLEANUP_BUDGET_MS,
   SAME_ACCOUNT_CONFIRM_DELAY_MS,
   SAME_ACCOUNT_LIST_TRUNCATE_HINT,
   SAME_ACCOUNT_DATE_OFFSETS,
@@ -261,10 +262,17 @@ export async function probeSameAccount(
         for (const date of candidateDates(Date.now())) remember(date, createdId)
       }
     }
-    /* 清理不受总预算影响: 预算用尽时用一个不设限的控制器, 否则残留永远删不掉 */
-    const cleanupSignal = new AbortController().signal
-    for (const [date, ids] of pending) {
-      await deleteProbes(http, writeHeader, date, [...ids], cleanupSignal, logger)
+    /* 清理不受取证总预算影响(预算用尽时也要把残留删掉), 但另设独立上限:
+       单次 DELETE 受 REQUEST_TIMEOUT_MS 约束, 最多 5 个候选日期串起来仍可能挂到两分钟以上 */
+    const cleanup = new AbortController()
+    const cleanupTimer = setTimeout(() => { cleanup.abort() }, SAME_ACCOUNT_CLEANUP_BUDGET_MS)
+    cleanupTimer.unref?.()
+    try {
+      for (const [date, ids] of pending) {
+        await deleteProbes(http, writeHeader, date, [...ids], cleanup.signal, logger)
+      }
+    } finally {
+      clearTimeout(cleanupTimer)
     }
   }
 }

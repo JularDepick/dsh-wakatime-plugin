@@ -133,6 +133,7 @@ export type WakatimeKey =
   | 'config.groupDisplay'
   | 'config.groupDiagnostics'
   | 'config.saveFailed'
+  | 'config.errReadonly'
   | 'action.refresh'
   | 'state.loading'
   | 'state.loadFailed'
@@ -265,6 +266,7 @@ export const zh: WakatimeDict = {
   'config.groupDisplay': '展示',
   'config.groupDiagnostics': '诊断',
   'config.saveFailed': '保存失败',
+  'config.errReadonly': '配置只读: 配置文件结构版本高于本插件支持版本, 暂不可修改',
   'action.refresh': '刷新',
   'state.loading': '加载中…',
   'state.loadFailed': '加载失败(Web 接口仅在 web profile 提供)',
@@ -396,6 +398,7 @@ export const en: WakatimeDict = {
   'config.groupDisplay': 'Display',
   'config.groupDiagnostics': 'Diagnostics',
   'config.saveFailed': 'Save failed',
+  'config.errReadonly': 'Config is read-only: the config file structure is newer than this plugin supports',
   'action.refresh': 'Refresh',
   'state.loading': 'Loading…',
   'state.loadFailed': 'Load failed (Web API is only available in the web profile)',

@@ -74,6 +74,16 @@ export class SessionEventCollector {
   }
 
   private handle(session: Session, event: SessionEvent): void {
+    /* 采集面不能把异常抛回宿主的 session/event 分发链:
+       旧格式恢复或第三方扩展事件都可能让读取器抛错, 一条坏事件不该中断其它监听者 */
+    try {
+      this.dispatch(session, event)
+    } catch (error) {
+      this.options.logger?.warn?.('[wakatime] failed to handle session event: ' + String(error))
+    }
+  }
+
+  private dispatch(session: Session, event: SessionEvent): void {
     switch (event.type) {
       case 'user/message': {
         /* 只统计真人提示词: user/message 同样承载 agent 注入的上下文(文件变更通知,

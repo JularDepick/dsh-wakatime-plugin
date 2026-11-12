@@ -133,14 +133,16 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.notifyPending()
   }
 
-  /* 从队尾向前找同身份的条目: 遇到时间戳不同的条目立即停止.
-     队列基本按时间追加, 同一秒的条目必然连续落在队尾附近, 回扫成本与同秒条目数同阶 */
+  /* 从队尾向前找同秒同身份的条目: 时间戳先做数值比较, 只有同秒候选才计算归并键.
+     队列在轮转后不再严格按时间有序, 故不能在中途停止, 否则同秒条目会漏合并 */
   private findSameIdentity(entry: PendingHeartbeatEntry): number {
     const key = heartbeatMergeKeyOf(entry)
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
       const candidate = this.queue[index]
       if (candidate === undefined) continue
-      if (candidate.heartbeat.time !== entry.heartbeat.time) break
+      /* 轮转会把旧心跳推到队尾, 队列不再严格按时间有序: 不能一见时间戳不同就停,
+         否则同秒同身份的心跳被漏合并, 服务端判为重复且 AI 计数被拆成两条 */
+      if (candidate.heartbeat.time !== entry.heartbeat.time) continue
       if (heartbeatMergeKeyOf(candidate) === key) return index
     }
     return -1

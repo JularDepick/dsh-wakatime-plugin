@@ -97,6 +97,8 @@ export interface UsageLike {
   reasoningTokens?: number
 }
 
+import { SESSION_STATS_LIMIT } from '../constants'
+
 export class StatsTracker {
   private readonly sessions = new Map<string, SessionStats>()
   /* 保留量:上次运行落盘的累计量,启动时经 seed() 恢复 */
@@ -119,8 +121,22 @@ export class StatsTracker {
         ...emptyTotals(),
       }
       this.sessions.set(sessionId, stats)
+      this.trimSessions()
     }
     return stats
+  }
+
+  /* 会话表超限: 把最旧会话的累计量并入保留量再移除, 计数不丢, 只失去该会话的实时对象 */
+  private trimSessions(): void {
+    while (this.sessions.size > SESSION_STATS_LIMIT) {
+      const oldest = this.sessions.keys().next().value
+      if (oldest === undefined) return
+      const stats = this.sessions.get(oldest)
+      if (stats !== undefined) {
+        for (const key of TOTAL_KEYS) this.carried[key] += stats[key]
+      }
+      this.sessions.delete(oldest)
+    }
   }
 
   /* 记录一次 assistant 心跳 */

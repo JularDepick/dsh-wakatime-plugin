@@ -91,7 +91,7 @@ export function apply(ctx: Context, config: ConfigType) {
   })
   const stats = new StatsTracker({ onChange: (totals) => { store.setStats(totals) } })
   const project = new ProjectDetector()
-  const collector = new SessionEventCollector({ heartbeat, stats, project })
+  const collector = new SessionEventCollector({ heartbeat, stats, project, logger: pluginLogger })
   const cloudSync = new CloudSync(http, auth)
   const resolveStats = () => resolveStatsView(store.snapshot())
   const tools = new WakatimeTools({
@@ -132,9 +132,12 @@ export function apply(ctx: Context, config: ConfigType) {
   /* 工具注册: inject 保证 tools 服务就绪 */
   tools.register(ctx)
 
-  /* 定时推送定时器(启动时一次 + 每 reportInterval 秒); 间隔变化时重建 */
+  /* 定时推送定时器(启动时一次 + 每 reportInterval 秒); 间隔变化时重建.
+     disposed 挡住卸载窗口内到达的配置写入: 否则会在清理之后新建一个永不清理的定时器 */
   let reportTimer: ReturnType<typeof setInterval> | undefined
+  let disposed = false
   const scheduleReport = (): void => {
+    if (disposed) return
     if (reportTimer !== undefined) clearInterval(reportTimer)
     /* 上下界都在消费点兜一次: 手工改 config.json 或 cordis 配置可能绕过写入通道的校验,
        超过 setInterval 可表示的毫秒上限会被 Node 当成 1ms, 退化成每毫秒推一轮 */
@@ -143,6 +146,8 @@ export function apply(ctx: Context, config: ConfigType) {
     const seconds = Number.isFinite(requested) ? Math.min(REPORT_INTERVAL_MAX_SECONDS, Math.max(1, requested)) : REPORT_INTERVAL_MAX_SECONDS
     const intervalMs = seconds * 1000
     reportTimer = setInterval(() => { void pushOnce() }, intervalMs)
+    /* 定时器不持有事件循环: 宿主退出时不因插件定时器而多等一轮 */
+    reportTimer.unref?.()
   }
 
   /* Web 配置变更即时生效(心跳选项/界面语言/上报定时器) */
@@ -183,7 +188,9 @@ export function apply(ctx: Context, config: ConfigType) {
     scheduleReport()
     void pushOnce()
     const offlineTimer = setInterval(() => { void pushOnce() }, OFFLINE_FLUSH_INTERVAL_MS)
+    offlineTimer.unref?.()
     return () => {
+      disposed = true
       if (reportTimer !== undefined) clearInterval(reportTimer)
       clearInterval(offlineTimer)
     }

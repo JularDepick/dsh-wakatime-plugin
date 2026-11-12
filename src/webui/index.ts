@@ -487,15 +487,23 @@ class PayloadTooLargeError extends Error {}
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = ''
+    let settled = false
+    const settle = (finish: () => void): void => {
+      if (settled) return
+      settled = true
+      finish()
+    }
     req.on('data', (chunk: Buffer) => {
       data += chunk.toString('utf8')
       if (data.length > BODY_LIMIT) {
         req.destroy()
-        reject(new PayloadTooLargeError('request body too large'))
+        settle(() => reject(new PayloadTooLargeError('request body too large')))
       }
     })
-    req.on('end', () => resolve(data))
-    req.on('error', reject)
+    req.on('end', () => settle(() => resolve(data)))
+    req.on('error', (error) => settle(() => reject(error)))
+    /* 客户端中途断开时不会再触发 end: 不监听 close 会让 handler 永远挂着 */
+    req.on('close', () => settle(() => reject(new Error('request closed'))))
   })
 }
 

@@ -78,24 +78,26 @@ export interface CompressResult {
   merged: number
 }
 
-/* 反复做一遍"相邻两条合并",直到不超过上限或无法继续 */
+/* 按队列位置做"相邻两条合并", 只合并到刚好不超过上限:
+   整轮折半会为腾出几条位置牺牲掉大量心跳的原始时间戳(编码时长分布变粗), 故只合并必要的条数 */
 export function compressPendingQueue(queue: readonly PendingHeartbeatEntry[], limit: number): CompressResult {
-  let current = [...queue]
+  if (queue.length <= limit) return { queue: [...queue], merged: 0 }
+  const need = queue.length - limit
+  const next: PendingHeartbeatEntry[] = []
   let merged = 0
-  while (current.length > limit && current.length > 1) {
-    const next: PendingHeartbeatEntry[] = []
-    for (let index = 0; index < current.length; index += 2) {
-      const first = current[index]
-      const second = current[index + 1]
-      if (first === undefined) break
-      if (second === undefined) {
-        next.push(first)
-        continue
-      }
+  let index = 0
+  while (index < queue.length) {
+    const first = queue[index]
+    if (first === undefined) break
+    const second = queue[index + 1]
+    if (merged < need && second !== undefined) {
       next.push(mergeAdjacentEntries(first, second))
       merged += 1
+      index += 2
+      continue
     }
-    current = next
+    next.push(first)
+    index += 1
   }
-  return { queue: current, merged }
+  return { queue: next, merged }
 }
