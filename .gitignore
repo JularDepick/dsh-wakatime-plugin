@@ -8,14 +8,11 @@ release/
 *.tgz
 
 # 临时与缓存(Agent 临时脚本/报告、npm 缓存重定向等)
-.agents/
 temp/
 
 # 版本文档(占用规则 v*-*.md,见 AGENTS.md 守则)
 v*-*.md
 
-# Agent Runtime
-.agent/
-.agents/
+# Agent Runtime(.agent*/ 已覆盖 .agent/ 与 .agents/)
 .skills/
 .agent*/
