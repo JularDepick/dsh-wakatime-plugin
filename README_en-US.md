@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.5.0-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.5.0)
+[![Version](https://img.shields.io/badge/Version-0.5.1-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.5.1)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
