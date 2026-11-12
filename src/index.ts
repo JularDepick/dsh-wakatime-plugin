@@ -138,7 +138,10 @@ export function apply(ctx: Context, config: ConfigType) {
     if (reportTimer !== undefined) clearInterval(reportTimer)
     /* 上下界都在消费点兜一次: 手工改 config.json 或 cordis 配置可能绕过写入通道的校验,
        超过 setInterval 可表示的毫秒上限会被 Node 当成 1ms, 退化成每毫秒推一轮 */
-    const intervalMs = Math.min(REPORT_INTERVAL_MAX_SECONDS, Math.max(1, runtimeConfig.get().reportInterval)) * 1000
+    const requested = runtimeConfig.get().reportInterval
+    /* NaN 会穿透 Math.min/Math.max 变成 NaN, setInterval(NaN) 退化成 1ms: 先按有限数判定再夹上下界 */
+    const seconds = Number.isFinite(requested) ? Math.min(REPORT_INTERVAL_MAX_SECONDS, Math.max(1, requested)) : REPORT_INTERVAL_MAX_SECONDS
+    const intervalMs = seconds * 1000
     reportTimer = setInterval(() => { void pushOnce() }, intervalMs)
   }
 

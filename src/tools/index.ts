@@ -124,6 +124,8 @@ export class WakatimeTools {
           if (error instanceof CredentialInputError && error.code === 'env_locked') {
             return translate('credential.errEnvLocked')
           }
+          /* 配置只读态下清不掉凭证: 与 setCredential 同口径映射, 不把英文异常直出给模型/用户 */
+          if (error instanceof ConfigReadOnlyError) return translate('credential.errConfigReadonly')
           throw error
         }
         /* 由环境变量提供的槽位清不掉: 其余槽位已清, 明确说明哪一槽仍生效 */
@@ -239,7 +241,7 @@ export class WakatimeTools {
     /* 两槽各报打码值: 只看一个 credential 字段无法判断缺的是写入槽还是读取槽 */
     const credential = (slot: typeof status.write): string => (slot.configured
       ? ((slot.fromEnv ? translate('credential.fromEnv') + ' ' : '') + (slot.maskedSecret ?? '')).trim()
-      : translate('status.notConfigured'))
+      : translate('status.slotMissing'))
     const lines = [
       'enabled=' + config.enabled,
       'locale=' + config.locale,

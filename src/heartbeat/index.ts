@@ -38,7 +38,7 @@ import {
 import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
-import { compressPendingQueue, mergeSameIdentity } from './compress'
+import { compressPendingQueue, mergeSameIdentity, trimReportLog } from './compress'
 import { heartbeatKeyOf, heartbeatMergeKeyOf } from './identity'
 import type {
   FailedPushTask,
@@ -622,7 +622,7 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
     }
   }
   if (Array.isArray(raw.report)) {
-    for (const item of raw.report.slice(-REPORT_LOG_LIMIT)) {
+    for (const item of raw.report) {
       if (typeof item !== 'object' || item === null) continue
       const candidate = item as Record<string, unknown>
       const kind = candidate.kind === 'task' ? 'task' : 'batch'
@@ -640,6 +640,8 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
       if (typeof candidate.taskId === 'string') entry.taskId = candidate.taskId
       state.report.push(entry)
     }
+    /* 任务行与批次行分别按自己的上限截断: 任务行排在数组头部, 统一截尾会先丢掉重试入口 */
+    state.report = trimReportLog(state.report)
   }
   return state
 }

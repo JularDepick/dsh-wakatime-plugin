@@ -9,7 +9,8 @@
  * 编码时长依据的心跳时间戳会因此变稀疏,故只在超限时触发,正常推送路径不做任何压缩。
  */
 
-import type { Heartbeat, PendingHeartbeatEntry } from './types'
+import { FAILED_TASK_LIMIT, REPORT_LOG_LIMIT } from '../constants'
+import type { Heartbeat, PendingHeartbeatEntry, ReportEntry } from './types'
 
 /* 两个可选计数相加:都为 undefined 时保持 undefined */
 function addCounter(left: number | undefined, right: number | undefined): number | undefined {
@@ -53,6 +54,22 @@ export function mergeAdjacentEntries(earlier: PendingHeartbeatEntry, later: Pend
 export function mergeSameIdentity(left: PendingHeartbeatEntry, right: PendingHeartbeatEntry): PendingHeartbeatEntry {
   const [earlier, later] = left.enqueuedAt <= right.enqueuedAt ? [left, right] : [right, left]
   return mergeEntries(earlier, later, Math.min)
+}
+
+/* 上报记录按类别分别截断: 任务行是失败任务在界面上唯一的重试入口,
+   与批次行共用一个上限会在积压场景下把它挤掉, 故任务行用失败列表的上限, 批次行用记录上限 */
+export function trimReportLog(
+  entries: readonly ReportEntry[],
+  taskLimit: number = FAILED_TASK_LIMIT,
+  batchLimit: number = REPORT_LOG_LIMIT,
+): ReportEntry[] {
+  const tasks: ReportEntry[] = []
+  const batches: ReportEntry[] = []
+  for (const entry of entries) {
+    if (entry.kind === 'task') tasks.push(entry)
+    else batches.push(entry)
+  }
+  return [...tasks.slice(-taskLimit), ...batches.slice(-batchLimit)]
 }
 
 /* 压缩结果:压缩后的队列与发生的合并次数 */

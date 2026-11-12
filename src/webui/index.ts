@@ -22,9 +22,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
 import type { ConfigManager } from '../config-manager'
-import { REPORT_LOG_LIMIT, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import { ConfigReadOnlyError, CredentialInputError } from '../errors'
 import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
+import { trimReportLog } from '../heartbeat/compress'
 import type { LocalStore } from '../local-store'
 import { resolveStatsView } from '../local-store'
 import type { RuntimeConfig, WebConfigPatch } from '../runtime-config'
@@ -308,7 +309,8 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
   const failed = new Map([...local.failed, ...disk.failed].map((task) => [task.id, task]))
   const merged = new Map<string, ReportEntry>()
   for (const entry of [...disk.report, ...deps.heartbeat.reportLog()]) merged.set(entry.id, entry)
-  const entries = [...merged.values()].sort((a, b) => b.time - a.time).slice(0, REPORT_LOG_LIMIT)
+  /* 任务行与批次行各按自己的上限截断后再按时间倒序: 任务行是界面上唯一的重试入口, 不能被批次行挤掉 */
+  const entries = trimReportLog([...merged.values()]).sort((a, b) => b.time - a.time)
   const body: WebLogEntry[] = entries.map((entry) => {
     const task = entry.taskId !== undefined ? failed.get(entry.taskId) : undefined
     /* 只有本进程持有的失败任务才可重试, 其它进程的只读展示 */

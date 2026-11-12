@@ -845,7 +845,8 @@ function WakatimePanels(props: PanelsProps) {
       {rejected === null ? null : (
         <div className={css.banner} role="status">
           <span className={css.bannerTitle}>{t('status.rejectedTitle')}</span>
-          <span>{t('status.rejectedDetail').replace('{reason}', rejected.message)}</span>
+          {/* 服务端原文只留作悬停提示: 中文界面里直出英文整句属缺陷, 正文走与上报记录同源的分类文案 */}
+          <span title={rejected.message}>{t('status.rejectedDetail').replace('{reason}', describeLogError(rejected.message))}</span>
           <span>{t('status.queuedDetail').replace('{n}', String(data.transmission?.queued ?? 0))}</span>
         </div>
       )}

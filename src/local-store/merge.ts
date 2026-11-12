@@ -11,8 +11,8 @@
  * - 更新时间: 取最大值.
  */
 
-import { FAILED_TASK_LIMIT, PENDING_QUEUE_LIMIT, REPORT_LOG_LIMIT, STORE_FILE_VERSION } from '../constants'
-import { compressPendingQueue, mergeSameIdentity } from '../heartbeat/compress'
+import { FAILED_TASK_LIMIT, PENDING_QUEUE_LIMIT, STORE_FILE_VERSION } from '../constants'
+import { compressPendingQueue, mergeSameIdentity, trimReportLog } from '../heartbeat/compress'
 import type { PendingHeartbeatEntry } from '../heartbeat'
 import type { StatsTotals } from '../stats'
 import { heartbeatKeyOf } from '../heartbeat/identity'
@@ -122,6 +122,11 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
   const queueDrop = (count: number) => onDrop?.('queue', count)
   const failedDrop = (count: number) => onDrop?.('failed', count)
   const reportDrop = (count: number) => onDrop?.('report', count)
+  /* 上报记录: 任务行与批次行各按自己的上限截断(任务行是重试入口, 不能被批次行挤掉),
+     先按 id 合并再分类截断, 被丢弃的条数仍按原有口径通知出去 */
+  const reportMerged = mergeList(disk.pending.report, memory.pending.report, baseline.pending.report, (item) => item.id)
+  const report = trimReportLog(reportMerged)
+  if (report.length < reportMerged.length) reportDrop(reportMerged.length - report.length)
   return {
     version: STORE_FILE_VERSION,
     updatedAt: Math.max(disk.updatedAt, memory.updatedAt),
@@ -138,10 +143,7 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
         limit: FAILED_TASK_LIMIT,
         onDrop: failedDrop,
       }),
-      report: mergeList(disk.pending.report, memory.pending.report, baseline.pending.report, (item) => item.id, {
-        limit: REPORT_LOG_LIMIT,
-        onDrop: reportDrop,
-      }),
+      report,
     },
   }
 }
