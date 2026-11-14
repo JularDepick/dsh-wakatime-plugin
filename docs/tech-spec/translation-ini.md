@@ -31,6 +31,8 @@
 - `src/translation/.example_zh-CN.ini` 是翻译文件的基准模板,内容即简体中文版,与 `zh-CN.ini` 保持一致.
 - 版本迭代时直接维护该基准模板(补充,调整 `[translation]` 键值),并保持 `zh-CN.ini` 与基准模板一致.
 - 模板更新后,其余语言版本(如 `en-US.ini`)从模板翻译更新,保持各语言键集一致.
+- 新增语言时必须同步 `tsdown.config.ts` 的 ini 复制清单(当前只复制 `zh-CN.ini` 与 `en-US.ini`): 漏加会让产物缺该语言文件, 宿主文案整体退化为键名.
+- 基准模板 `.example_zh-CN.ini` 只留在仓库内供翻译使用, 不随产物发布.
 
 ## 语言切换机制
 

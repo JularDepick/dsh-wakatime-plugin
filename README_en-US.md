@@ -2,7 +2,7 @@
 
 # dsh-wakatime-plugin
 
-[![Version](https://img.shields.io/badge/Version-0.5.1-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.5.1)
+[![Version](https://img.shields.io/badge/Version-0.5.2-green)](https://github.com/JularDepick/dsh-wakatime-plugin/tree/v0.5.2)
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
@@ -42,7 +42,7 @@ dsh plugin --profile <name> add dsh-wakatime-plugin
 dsh plugin --profile <name> add github:JularDepick/dsh-wakatime-plugin
 
 # Or install from the released tarball locally (prebuilt, no build required)
-dsh plugin --profile <name> add dsh-wakatime-plugin-<version>.tgz
+dsh plugin --profile <name> add ./dsh-wakatime-plugin-<version>.tgz
 ```
 
 > Installing from the GitHub source fetches source code rather than build artifacts, and pnpm runs the package's `prepare` build script on install. pnpm 10+ refuses to run git dependencies' build scripts until explicitly allowed, so the first `add` will fail: add the package key printed by pnpm (like `dsh-wakatime-plugin`) to that profile's `pnpm-workspace.yaml`, then re-run:
@@ -57,10 +57,11 @@ dsh plugin --profile <name> add dsh-wakatime-plugin-<version>.tgz
 
 ## Compatibility
 
-- dsh versions: supports the tested range `>=0.2.1-rc.1 <=0.2.2-rc.2`; all share one artifact, so no per-version install is needed. dsh 0.2.2-rc.x hosts themselves require Node.js `>=24.9.0`, which prevails when running on that version.
+- dsh versions: supports the tested range `>=0.2.1-rc.1 <=0.2.2-rc.3`; all share one artifact, so no per-version install is needed. dsh 0.2.2-rc.x hosts themselves require Node.js `>=24.9.0`, which prevails when running on that version.
 - Node.js version: the plugin itself requires Node.js `>=22` (24.x in practice alongside a dsh host), which is the floor when running the artifact or scripts standalone.
-- Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.2-rc.2` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
-- Later versions: any dsh version above 0.2.2-rc.2 (including the 0.2.2 release and 0.3.x) is rejected by this plugin until it is tested and the upper bound is raised.
+- Install check: the manifest declares the tested version range `>=0.2.1-rc.1 <=0.2.2-rc.3` in `engines.dsh` and in the peer ranges of the host packages; if installation or startup reports the plugin as incompatible with the running dsh version, that dsh version has not been tested and is outside the range.
+- Later versions: any dsh version above 0.2.2-rc.3 (including the 0.2.2 release and 0.3.x) is rejected by this plugin until it is tested and the upper bound is raised.
+- Read-only runs: when the config file uses a newer structure than this plugin supports the plugin runs read-only (a banner appears and credentials and settings are disabled); when the data file is newer or currently unreadable this run never writes to disk (a "local data is read-only" banner appears) and stats plus the pending queue are lost on exit, so check the data directory or upgrade the plugin and restart.
 - Upgrading from 0.3.0: the credential migrates automatically on the first start (the saved credential list is converted into the two slots: a plugin API key goes to the write slot and an OAuth token goes to the read slot, so a user who only saved an API key still needs a personal OAuth token in the read slot). The local dataset is migrated only after you confirm it in the Web UI: when 0.3.0 data is detected the plugin runs read-only (the old file is never overwritten) and shows a red line reading "Legacy data found, click to migrate" right below the report log title; clicking it merges the per-credential datasets into one (stats summed item by item, pending queue merged by heartbeat identity with counters summed (same-millisecond duplicates no longer lose one side), newest cloud snapshot kept; the 0.3.0 failed-task list is not inherited and comes out empty, keeping only batch-level report entries), merges the older `stats.json` and `heartbeats.json` in when the data file is missing, and the red line disappears once it succeeds. Until you confirm the migration, this run keeps new stats in memory only, so they are lost on restart; click the red line as soon as you see it. After the migration the local dataset is decoupled from the credential, so later credential changes no longer affect stats. The `statsScope` config field and the `WAKATIME_API_KEY` environment variable were removed in 0.4.0 (that variable is back since 0.5.0 as a temporary write-slot API key, see Usage below); leftover entries in an existing `cordis.yml` are not rejected but no longer read, and other defaults are unchanged (`tableBorders` on, `digitGrouping` `thousand`).
 - Upgrading from 0.4.x: the saved OAuth token migrates automatically into the **read slot** (it is a personal token and only has read permission) and the write slot starts empty, so reporting pauses after the upgrade (heartbeats keep queueing and none are lost); generate an API key at https://wakatime.com/settings/api-key, put it in the write slot, and the backlog resumes on its own. The config file structure version goes from 3 to 4 and the old file is archived as `config.json.v3.<timestamp>.bak`; the local data file keeps its structure, so stats and the pending queue carry over. The `WAKATIME_API_KEY` environment variable removed in 0.4.0 is back in 0.5.0 with a new meaning: a temporary write-slot API key
 - Back up `~/.dsh/plugins/wakatime` before upgrading. 0.3.0 and 0.4.0 must not share the same data directory (the older build rewrites the new structure as empty legacy data and loses stats), and do not downgrade after upgrading; restore from the backup if you must. 0.4.x and 0.5.0 must not run side by side either: 0.5.0 raises the config structure version to 4, while 0.4.x has no structure-version gate and treats a v4 config as corrupt, archiving it as `config.json.corrupt.<timestamp>.bak` and rebuilding an empty config, which silently clears the credentials. Every dsh profile of the same user shares this directory (see Platforms & Paths), so as long as one profile still runs 0.4.x it can overwrite the config upgraded by another; upgrade all profiles together rather than just one. The migration you confirm in the Web UI archives the legacy data file as `buckets.json.v2.<timestamp>.bak`, the even older `stats.json` and `heartbeats.json` are merged in when the data file is missing and are then archived as `*.legacy.*.bak`, and a corrupt or unrecognized file is likewise archived as `*.corrupt.*.bak` or `*.unknown.*.bak` before being rebuilt. The API key has no read surface, so saving probes it with one empty-payload heartbeat (a valid key answers 400/422, which counts as writable; 401/403 marks the key as rejected and blocks the save; the probe itself writes no data). While the write slot is rejected by the server, or the two slots are confirmed to be different accounts, heartbeats stay queued instead of being dropped, and the main view shows the reason plus the backlog count.
@@ -155,9 +156,11 @@ Artifacts and purposes:
 
 | Artifact | Purpose |
 |:---:|:---:|
-| `dsh-wakatime-plugin-<version>.tgz` | Local/offline install: `dsh plugin --profile <name> add <tgz path>`; also serves as material for publishing to the npm registry (future `npm publish`) |
+| `dsh-wakatime-plugin-<version>.tgz` | Local/offline install: `dsh plugin --profile <name> add ./<tgz path>`; also serves as material for publishing to the npm registry (future `npm publish`) |
+| `dsh-wakatime-plugin-latest.tgz` | Alias of the above, always pointing at the newest packed artifact so scripts can install from a fixed path |
 
 > The artifact is prebuilt, so installation requires no build permission. Installing from the GitHub source relies on the `prepare` build, while installing from the tarball works offline.
+> Tag and Release naming rules live in [docs/repo-spec/tag-release-spec.md](docs/repo-spec/tag-release-spec.md).
 
 
 ## Related Links

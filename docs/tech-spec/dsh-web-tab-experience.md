@@ -2,7 +2,7 @@
 
 > 面向 dsh 插件开发者: 总结外部插件为 dsh Web GUI 贡献 UI(尤其是新增 tab 页)的完整机制与落地要点.
 > 以会话区域「对话/轨迹」视图标签栏新增 tab 为实例,同样适用于「设置-插件」页等其他挂载点.
-> 机制基于官方仓库源码(见文末索引)与 0.2.0-rc.2, 0.2.1-rc.1, 0.2.1-rc.3, 0.2.1-rc.4, 0.2.1-rc.5, 0.2.2-rc.1, 0.2.2-rc.2 七个发布包核对;rc.4 与 rc.5 的声明层改动只落在本插件未使用的面(详见 AGENTS.md 开发经验「版本对齐」);本经验为静态总结,换版本时以对应发布包类型声明为准.
+> 机制基于官方仓库源码(见文末索引)与 0.2.0-rc.2, 0.2.1-rc.1, 0.2.1-rc.3, 0.2.1-rc.4, 0.2.1-rc.5, 0.2.2-rc.1, 0.2.2-rc.2, 0.2.2-rc.3 八个发布包核对;rc.4 与 rc.5 的声明层改动只落在本插件未使用的面(详见 AGENTS.md 开发经验「版本对齐」);本经验为静态总结,换版本时以对应发布包类型声明为准.
 
 ## 一 总体流程(五个步骤)
 
@@ -89,6 +89,8 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
 > 0.2.2-rc.1 的增量(清单比对 + 指向新版 `.d.ts` 的类型探针, 0 错误): 平台模块表与 `/client` 子路径契约未变(本插件 client 产物只 require `react` 与 `react/jsx-runtime`);八个宿主包把 `cordis` peer 由 `~4.0.5` 抬到 `~4.1.0`,`dsh-tools`/`dsh-llm`/`dsh-client-locale`/`dsh-client-ui-conversation` 与 `@deepseek-ai/dsh` 五处把 `schemastery` 依赖由 `~3.18.5` 抬到 `~3.19.0`(`dsh-session`/`ui-renderer`/`ui-slots` 两版都没有该字段);四个 client 包的 `exports` 键与值逐字节未变;`dsh-tools` 删除 `./types` 导出并新增 `./pipeline`,`@deepseek-ai/dsh` 新增 `engines.node >=24.9.0`. 结论来自 npm 清单与 `exports` 表比对, 换版本时仍应以该版本发布包的类型声明复核.
 
 > 0.2.2-rc.2 的增量(清单比对 + 以 rc.2 类型闭包替换 `node_modules` 后对本插件 `src/` 跑 `tsc --noEmit`, 0 错误): 四个 client 包的 `exports` 键与值, `engines` 字段与 rc.1 逐字节相同; 声明层新增 `ui-slots` 的 `hoc` 槽种类(`SlotKind` 增列, 连带 `HocKeysOf`/`HocRenderOpts`/`HocShare`), `conversation.hero.frame`(hoc)槽与 `ComposerBarOwnerProps.occurrence`(改为必填), `conversation.view` 槽声明逐行未变, 本插件不消费 composer/hero 面故不受影响; `ui-settings` 的 `openSettings` 加可选 `sectionId`; `dsh-client-locale` 的声明层零改动(仅 `lib/client.js` 与清单变化); 打包面新增 `src/` 与 sourcemap 发布(`@deepseek-ai/dsh` 另把整个 `docs/` 打进包), 不影响 import 面. 平台模块表未重新测量(前端 bundle 不随 npm 包发布), 但 rc.2 官方 client 产物仍以 `react`/`react/jsx-runtime` 为外部依赖, 本插件 client 面的 external 无需变化.
+
+> 0.2.2-rc.3 的增量(逐文件 SHA-256 比对, 无影响): 七个宿主包与 `@deepseek-ai/dsh` 除 `package.json` 外逐字节相同, 声明层的 `exports`/`engines`/peer 与 `lib/types` 零改动; 唯一实质增量是启动器清单新增实验包 `@deepseek-ai/dsh-deepseek-chat-import` 依赖与其 `ctx.deepseekChatImport` 服务(`capability-seams`/`config-catalog`/`subsystems/persistence` 三份生成文档同步), 本插件不消费该面. rc.3 属纯版本对齐, 平台模块表与 `/client` 子路径契约无需重新测量, 追加支持只改包清单.
 
 ### 2. 跨插件协作纪律(构建期 purity 门强制)
 
