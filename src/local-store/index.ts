@@ -103,7 +103,9 @@ export class LocalStore {
     if (removedTemps > 0) {
       this.options.logger?.warn?.(`[wakatime] removed ${removedTemps} stale temp files from data directory`)
     }
-    let data = normalizeStore(file.value)
+    let data = normalizeStore(file.value, (scope, count) => {
+      this.options.logger?.warn?.(`[wakatime] data file ${scope} over limit on load, ${count} entries dropped`)
+    })
     let needsRewrite = false
     /* 数据文件版本高于本插件支持的版本(降级并存或未来版本):不认识而非损坏,
        一律只读运行并禁止写盘, 绝不归档重建, 否则旧数据会被直接抹掉 */
@@ -178,6 +180,8 @@ export class LocalStore {
     /* 只更新读取侧视图, 不动内存态与基线: 若把合并结果写回内存, 其它进程的累计量会被当成
        本进程的增量再累加一次; 若把基线抬到磁盘内容, 本进程自己的增量会在下次合并时被裁成 0 */
     this.diskView = disk
+    /* 磁盘内容回到当前结构: 解除只读标记, 与配置侧同口径(不粘死) */
+    this.writeBlocked = false
     return true
   }
 
@@ -233,6 +237,12 @@ export class LocalStore {
     return this.legacy
   }
 
+  /* 数据侧是否只读运行(结构版本更高/读不出/待迁移时禁止写盘): 界面据此提示,
+     否则"数字照常增长但退出即丢"对用户完全不可见 */
+  isWriteBlocked(): boolean {
+    return this.writeBlocked
+  }
+
   /* 执行旧版数据迁移(界面确认后调用): 持锁把旧结构转换为当前结构, 并入本进程运行期增量后写盘,
      原文件按来源归档为 *.v2.*.bak / *.legacy.*.bak;
      成功返回旧数据的战绩与待发送状态(供调用方回灌 StatsTracker 与推送引擎), 失败或无事可做返回 null.
@@ -263,6 +273,13 @@ export class LocalStore {
           this.options.logger?.warn?.('[wakatime] data file is not readable, migration aborted')
           return null
         }
+        /* 结构版本高于本插件: 与 flushOnce 同口径, 只读且绝不覆盖.
+           缺这道闸门时, 旧快照迁移会把另一个更新版本进程写下的文件无备份覆盖成当前结构 */
+        if (isFutureVersion(file.value)) {
+          this.writeBlocked = true
+          this.options.logger?.warn?.('[wakatime] data file is newer than supported, migration aborted')
+          return null
+        }
         /* 磁盘已是当前结构(其它进程先迁移过): 直接并入内存, 不再转换、也不再归档 */
         const current = normalizeStore(file.value)
         const converted = current === null ? migrateStoreFile(file.value) : null
@@ -274,12 +291,14 @@ export class LocalStore {
         }
         /* 旧数据为基底, 叠加本进程运行期的增量(迁移前采集的心跳不丢) */
         const merged = mergeStore(legacy, this.data, this.baseline)
-        /* 只有磁盘确实还是旧结构时才归档: 已归档表示旧文件被挪走, 调用方据此回滚 */
+        /* 目标路径上确实有文件且不是当前结构时先归档: 旧结构标 v2, 无法识别的标 unknown.
+           旧快照迁移同样要归档 —— 只按来源分支判断会把现有文件无备份覆盖掉;
+           已归档表示旧文件被挪走, 调用方据此回滚 */
         let archivedPath: string | null = null
-        if (current === null && !fromSnapshots) {
-          archivedPath = await archiveFileWithPath(path, 'v2')
+        if (current === null && file.state !== 'missing') {
+          archivedPath = await archiveFileWithPath(path, converted === null ? 'unknown' : 'v2')
           if (archivedPath === null) {
-            this.options.logger?.warn?.('[wakatime] failed to archive legacy data file, migration aborted')
+            this.options.logger?.warn?.('[wakatime] failed to archive existing data file, migration aborted')
             return null
           }
         }
@@ -339,6 +358,9 @@ export class LocalStore {
           this.options.logger?.warn?.('[wakatime] data file is newer than supported, skip writing')
           return false
         }
+        /* 文件已回到可识别状态(或已被删除): 解除上次的只读标记.
+           只置位不复位时, 一次瞬时读失败(占用/ACL)会让本进程终身不落盘, 界面数字照涨, 退出即丢 */
+        this.writeBlocked = false
         let disk = normalizeStore(file.value)
         let archivedPath: string | null = null
         if (disk === null) {

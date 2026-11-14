@@ -21,6 +21,8 @@ export type WakatimeKey =
   | 'status.sameAccountEnvDetail'
   | 'status.readOnlyTitle'
   | 'status.readOnlyDetail'
+  | 'status.dataReadOnlyTitle'
+  | 'status.dataReadOnlyDetail'
   | 'status.writeSlotMissingTitle'
   | 'status.writeSlotMissingDetail'
   | 'status.sameAccountDifferentTitle'
@@ -152,6 +154,8 @@ export const zh: WakatimeDict = {
   'status.sameAccountTitle': '两槽尚未确认是同一个账号',
   'status.sameAccountDetail': '写入槽与读取槽必须属于同一个 WakaTime 用户; 重新保存任一槽时会再次取证',
   'status.sameAccountEnvDetail': '由环境变量提供的槽位无法在界面里取证; 移除对应的环境变量并重启后重新保存该槽即可取证',
+  'status.dataReadOnlyTitle': '本地数据只读',
+  'status.dataReadOnlyDetail': '数据文件结构版本高于本插件或当前读不出, 本次运行不会写盘: 战绩与待发送队列在退出时丢失, 请检查数据目录或升级插件后重启',
   'status.readOnlyTitle': '配置文件为更高版本, 当前只读运行',
   'status.readOnlyDetail': '本插件支持的结构版本低于磁盘上的配置文件, 为避免破坏新版本数据, 已禁止写入凭证与设置; 请改用匹配该配置文件的插件版本, 或先手工备份该文件再替换成本插件可读的结构',
   'status.writeSlotMissingTitle': '读取槽已就绪, 还差写入槽的 API Key',
@@ -284,6 +288,8 @@ export const en: WakatimeDict = {
   'status.sameAccountTitle': 'The two slots are not confirmed as the same account',
   'status.sameAccountDetail': 'The write slot and the read slot must belong to the same WakaTime user; saving either slot verifies it again',
   'status.sameAccountEnvDetail': 'A slot supplied by an environment variable cannot be verified in the UI; remove that variable, restart dsh and save the slot again to verify',
+  'status.dataReadOnlyTitle': 'Local data is read-only',
+  'status.dataReadOnlyDetail': 'The data file uses a newer structure than this plugin supports, or cannot be read right now, so this run never writes to disk: stats and the pending queue are lost on exit. Check the data directory or upgrade the plugin, then restart',
   'status.readOnlyTitle': 'The config file is from a newer version, running read-only',
   'status.readOnlyDetail': 'The config file on disk uses a newer structure than this plugin supports. Writes to credentials and settings are disabled to protect it; use a plugin version that matches this config file, or back up the file manually before replacing it with a structure this plugin can read',
   'status.writeSlotMissingTitle': 'The read slot is ready, the write slot API key is still missing',

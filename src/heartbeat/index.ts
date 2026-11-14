@@ -39,7 +39,7 @@ import { NotAuthenticatedError } from '../errors'
 import type { AuthHeader, HttpClient } from '../http'
 import { WakaTimeError } from '../http'
 import { compressPendingQueue, mergeSameIdentity, trimReportLog } from './compress'
-import { heartbeatKeyOf, heartbeatMergeKeyOf } from './identity'
+import { heartbeatMergeKeyOf } from './identity'
 import type {
   FailedPushTask,
   Heartbeat,
@@ -249,6 +249,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     for (const entry of this.tasks) {
       if (entry.taskId === id && entry.state === 'failed') entry.state = 'retried'
     }
+    /* 上报总开关关闭时这条会一直留在队列里: 明确说明, 免得用户以为重试失败 */
+    if (!this.options.enabled) this.log('warn', '[wakatime] reporting is disabled, the retried task stays queued until it is enabled')
     this.log('info', `[wakatime] failed task ${id} requeued for retry`)
     this.notifyPending()
     return true
@@ -260,14 +262,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   restorePending(state: PendingHeartbeatState): void {
     const restoredByKey = new Map<string, PendingHeartbeatEntry>()
     for (const entry of state.queue) {
-      const key = heartbeatKeyOf(entry)
+      const key = heartbeatMergeKeyOf(entry)
       const existing = restoredByKey.get(key)
       restoredByKey.set(key, existing === undefined ? { ...entry } : mergeSameIdentity(existing, entry))
     }
     /* 内存侧同身份只取第一条: 本进程队列不应出现同身份重复, 出现时以靠前者为合并基底 */
     const memoryIndex = new Map<string, number>()
     this.queue.forEach((entry, index) => {
-      const key = heartbeatKeyOf(entry)
+      const key = heartbeatMergeKeyOf(entry)
       if (!memoryIndex.has(key)) memoryIndex.set(key, index)
     })
     const appended: PendingHeartbeatEntry[] = []
@@ -287,9 +289,16 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const restoredBatches = state.report.filter((entry) => entry.kind !== 'task' && !batchIds.has(entry.id))
     const restoredTasks = state.report.filter((entry) => entry.kind === 'task' && !taskIds.has(entry.id))
     this.queue = [...appended, ...this.queue]
-    this.failed = [...restoredFailed.map((task) => ({ ...task })), ...this.failed].slice(-FAILED_TASK_LIMIT)
-    this.batches = [...restoredBatches.map((entry) => ({ ...entry })), ...this.batches].slice(-REPORT_LOG_LIMIT)
-    this.tasks = [...restoredTasks.map((entry) => ({ ...entry })), ...this.tasks].slice(-FAILED_TASK_LIMIT)
+    const failedAll = [...restoredFailed.map((task) => ({ ...task })), ...this.failed]
+    const batchesAll = [...restoredBatches.map((entry) => ({ ...entry })), ...this.batches]
+    const tasksAll = [...restoredTasks.map((entry) => ({ ...entry })), ...this.tasks]
+    this.failed = failedAll.slice(-FAILED_TASK_LIMIT)
+    this.batches = batchesAll.slice(-REPORT_LOG_LIMIT)
+    this.tasks = tasksAll.slice(-FAILED_TASK_LIMIT)
+    /* 载入期截断与运行期截断同口径: 都必须留痕, 否则用户只看到"数字少了" */
+    if (failedAll.length > this.failed.length) this.log('warn', `[wakatime] restored failed tasks over limit, dropped ${failedAll.length - this.failed.length}`)
+    if (batchesAll.length > this.batches.length) this.log('warn', `[wakatime] restored batch reports over limit, dropped ${batchesAll.length - this.batches.length}`)
+    if (tasksAll.length > this.tasks.length) this.log('warn', `[wakatime] restored task reports over limit, dropped ${tasksAll.length - this.tasks.length}`)
     this.compressIfNeeded()
     this.notifyPending()
   }
@@ -581,14 +590,17 @@ function nonNegative(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
-/* 待发送状态归一化:丢弃无效条目,队列与失败列表按上限只保留最新一批 */
-export function normalizePendingState(value: unknown): PendingHeartbeatState {
+/* 待发送状态归一化:丢弃无效条目,队列与失败列表按上限只保留最新一批.
+   onDrop 把载入期因上限被丢弃的条数交给调用方告警(截断不能静默) */
+export function normalizePendingState(value: unknown, onDrop?: (scope: string, count: number) => void): PendingHeartbeatState {
   const state: PendingHeartbeatState = { queue: [], failed: [], report: [] }
   if (typeof value !== 'object' || value === null) return state
   const raw = value as { queue?: unknown, buffer?: unknown, failed?: unknown, report?: unknown }
   /* buffer 为旧版字段(单缓冲模型),按队列条目迁移 */
   const legacyBuffer = Array.isArray(raw.buffer) ? raw.buffer : []
-  const queueRaw = [...legacyBuffer, ...(Array.isArray(raw.queue) ? raw.queue : [])].slice(-PENDING_QUEUE_LIMIT)
+  const queueAll = [...legacyBuffer, ...(Array.isArray(raw.queue) ? raw.queue : [])]
+  const queueRaw = queueAll.slice(-PENDING_QUEUE_LIMIT)
+  if (queueAll.length > queueRaw.length) onDrop?.('queue', queueAll.length - queueRaw.length)
   /* 同身份条目归并计数: 旧版本写下的同毫秒重复心跳各带自己的 Token 计数,
      按集合去重会整条丢一条, 按身份合并才不丢量 */
   const queueByKey = new Map<string, PendingHeartbeatEntry>()
@@ -603,13 +615,15 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
       enqueuedAt: nonNegative(candidate?.enqueuedAt, 0),
       attempts: nonNegative(candidate?.attempts, 0),
     }
-    const key = heartbeatKeyOf(entry)
+    const key = heartbeatMergeKeyOf(entry)
     const existing = queueByKey.get(key)
     queueByKey.set(key, existing === undefined ? entry : mergeSameIdentity(existing, entry))
   }
   state.queue = [...queueByKey.values()]
   if (Array.isArray(raw.failed)) {
-    for (const item of raw.failed.slice(-FAILED_TASK_LIMIT)) {
+    const failedRaw = raw.failed.slice(-FAILED_TASK_LIMIT)
+    if (raw.failed.length > failedRaw.length) onDrop?.('failed', raw.failed.length - failedRaw.length)
+    for (const item of failedRaw) {
       if (typeof item !== 'object' || item === null) continue
       const candidate = item as { id?: unknown, heartbeat?: unknown, attempts?: unknown, enqueuedAt?: unknown, failedAt?: unknown }
       const heartbeat = normalizeHeartbeat(candidate.heartbeat)
@@ -643,7 +657,9 @@ export function normalizePendingState(value: unknown): PendingHeartbeatState {
       state.report.push(entry)
     }
     /* 任务行与批次行分别按自己的上限截断: 任务行排在数组头部, 统一截尾会先丢掉重试入口 */
+    const reportBefore = state.report.length
     state.report = trimReportLog(state.report)
+    if (reportBefore > state.report.length) onDrop?.('report', reportBefore - state.report.length)
   }
   return state
 }

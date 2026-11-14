@@ -870,6 +870,14 @@ function WakatimePanels(props: PanelsProps) {
         </div>
       ) : null}
 
+      {/* 数据侧只读同样要可见: 否则数字照常增长, 退出即丢, 用户完全无从察觉 */}
+      {data.dataReadOnly ? (
+        <div className={css.banner} role="status">
+          <span className={css.bannerTitle}>{t('status.dataReadOnlyTitle')}</span>
+          <span>{t('status.dataReadOnlyDetail')}</span>
+        </div>
+      ) : null}
+
       {rejected === null && data.read.configured && !data.write.configured ? (
         <div className={css.banner} role="status">
           <span className={css.bannerTitle}>{t('status.writeSlotMissingTitle')}</span>

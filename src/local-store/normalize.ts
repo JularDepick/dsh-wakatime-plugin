@@ -43,8 +43,9 @@ export function normalizeCloud(value: unknown): CloudSummary | null {
   }
 }
 
-/* 当前结构版本归一化;版本不符返回 null(交给迁移模块或按空数据处理) */
-export function normalizeStore(value: unknown): StoreFile | null {
+/* 当前结构版本归一化;版本不符返回 null(交给迁移模块或按空数据处理).
+   onDrop 用于把载入期因上限被丢弃的条数交给调用方告警(截断不能静默) */
+export function normalizeStore(value: unknown, onDrop?: (scope: string, count: number) => void): StoreFile | null {
   if (typeof value !== 'object' || value === null) return null
   const raw = value as Record<string, unknown>
   if (raw.version !== STORE_FILE_VERSION) return null
@@ -54,6 +55,6 @@ export function normalizeStore(value: unknown): StoreFile | null {
     updatedAt,
     stats: normalizeTotals(raw.stats),
     cloud: normalizeCloud(raw.cloud),
-    pending: normalizePendingState(raw.pending),
+    pending: normalizePendingState(raw.pending, onDrop),
   }
 }

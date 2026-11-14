@@ -33,6 +33,14 @@ export interface WakatimeToolsOptions {
   transmission?: () => TransmissionStatus
 }
 
+/* 凭证被拒原因归类: 服务端英文原文只进日志, 工具面按类别给本地化文案,
+   与 Web 界面 describeLogError 同口径(同一信息两侧不能一个中文一个英文) */
+function describeRejection(message: string): string {
+  if (/scope|permission|forbidden|unauthor|credential|api key|token/i.test(message)) return translate('status.rejectedCredential')
+  if (/network|fetch|timeout|ECONN|ENOTFOUND|EAI_AGAIN|socket/i.test(message)) return translate('status.rejectedNetwork')
+  return translate('status.rejectedOther')
+}
+
 /* 本地时区时间戳: yyyy-MM-dd HH:mm:ss+HH:mm(与界面日期格式一致) */
 function formatTimestamp(ms: number): string {
   const date = new Date(ms)
@@ -180,7 +188,7 @@ export class WakatimeTools {
             ? translate('status.neverSuccess')
             : translate('status.lastSuccess') + ': ' + formatTimestamp(transmission.lastSuccessAt))
           if (transmission.rejected !== null) {
-            lines.push(translate('status.rejected') + ': ' + transmission.rejected.message)
+            lines.push(translate('status.rejected') + ': ' + describeRejection(transmission.rejected.message))
           }
         }
         return lines.join('\n')

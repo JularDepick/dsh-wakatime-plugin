@@ -155,6 +155,8 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     ...(status.writeScope === undefined ? {} : { writeScope: status.writeScope }),
     /* 配置文件处于只读运行态(结构版本更高或不可写): 界面据此提示并禁用保存 */
     ...(deps.configManager.isReadOnly() ? { readOnly: true } : {}),
+    /* 数据侧只读(结构版本更高/读不出/待迁移): 本进程不写盘, 界面必须提示, 否则退出即丢 */
+    ...(deps.store.isWriteBlocked() ? { dataReadOnly: true } : {}),
     config: {
       enabled: config.enabled,
       reportInterval: config.reportInterval,
@@ -202,7 +204,10 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
       writeJson(res, 409, { ok: false, error: 'config_readonly' })
       return
     }
-    throw error
+    /* 落盘失败与凭证路由同口径: 回稳定错误码, 而不是让兜底处理器回 internal error */
+    deps.logger?.warn?.('[wakatime] failed to persist config: ' + String(error))
+    writeJson(res, 500, { ok: false, error: 'persist_failed' })
+    return
   }
   const body: WebConfigResponse = { ok: true }
   writeJson(res, 200, body)
@@ -306,7 +311,9 @@ async function handleLogs(req: IncomingMessage, res: ServerResponse, deps: WebUi
   const local = deps.heartbeat.pendingState()
   const disk = deps.store.pending()
   const localFailedIds = new Set(local.failed.map((task) => task.id))
-  const failed = new Map([...local.failed, ...disk.failed].map((task) => [task.id, task]))
+  /* 同 id 以本进程内存为准: 本进程刚重试掉的失败任务不该被磁盘视图顶回 failed,
+     否则该行会显示为不可重试并卡到下一次落盘 */
+  const failed = new Map([...disk.failed, ...local.failed].map((task) => [task.id, task]))
   const merged = new Map<string, ReportEntry>()
   for (const entry of [...disk.report, ...deps.heartbeat.reportLog()]) merged.set(entry.id, entry)
   /* 任务行与批次行各按自己的上限截断后再按时间倒序: 任务行是界面上唯一的重试入口, 不能被批次行挤掉 */

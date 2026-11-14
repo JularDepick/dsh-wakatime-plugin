@@ -7,7 +7,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { DEFAULT_LANGUAGE, FALLBACK_LANGUAGE } from '../constants'
+import { DEFAULT_LANGUAGE, FALLBACK_LANGUAGE, SUPPORTED_LANGUAGES } from '../constants'
 
 /* 当前激活的语言 */
 let currentLanguage = DEFAULT_LANGUAGE
@@ -65,9 +65,12 @@ export function translate(key: string, locale: string = currentLanguage): string
   return key
 }
 
-/* 语言切换入口,返回切换后的语言 */
+/* 语言切换入口,返回切换后的语言.
+   白名单校验放在加载器自身: locale 会被拼进 ini 文件名, 上游三处(配置 schema, 运行期配置, 持久化合并)
+   都已校验, 但任何新增调用点漏校验就会读不到文件(静默回退中文)甚至越出产物目录 */
 export function setLanguage(locale: string): string {
-  currentLanguage = locale
+  const allowed = (SUPPORTED_LANGUAGES as readonly string[]).includes(locale)
+  currentLanguage = allowed ? locale : DEFAULT_LANGUAGE
   return currentLanguage
 }
 

@@ -15,7 +15,7 @@ import { FAILED_TASK_LIMIT, PENDING_QUEUE_LIMIT, STORE_FILE_VERSION } from '../c
 import { compressPendingQueue, mergeSameIdentity, trimReportLog } from '../heartbeat/compress'
 import type { PendingHeartbeatEntry } from '../heartbeat'
 import type { StatsTotals } from '../stats'
-import { heartbeatKeyOf } from '../heartbeat/identity'
+import { heartbeatMergeKeyOf } from '../heartbeat/identity'
 import type { StoreFile } from './types'
 
 /* 累计量字段键(与 StatsTotals 一致) */
@@ -133,7 +133,8 @@ export function mergeStore(disk: StoreFile, memory: StoreFile, baseline: StoreFi
     stats: mergeStats(disk.stats, memory.stats, baseline.stats),
     cloud: mergeCloud(disk.cloud, memory.cloud, baseline.cloud),
     pending: {
-      queue: mergeList(disk.pending.queue, memory.pending.queue, baseline.pending.queue, heartbeatKeyOf, {
+      /* 与入队归并共用同一套键(身份 + 项目 + 分支): 用更宽的身份键会把跨项目/分支的同秒工具心跳并成一条 */
+      queue: mergeList(disk.pending.queue, memory.pending.queue, baseline.pending.queue, heartbeatMergeKeyOf, {
         limit: PENDING_QUEUE_LIMIT,
         compress: (items) => compressPendingQueue(items, PENDING_QUEUE_LIMIT).queue,
         onDrop: queueDrop,

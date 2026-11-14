@@ -23,9 +23,12 @@ function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500
 }
 
-/* 按指数退避等待 */
+/* 按指数退避等待: 定时器不持有事件循环, 否则退避期间(最长 RETRY_MAX_DELAY_MS)会拖住宿主退出 */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
 }
 
 /* 本次尝试的取消信号:单次请求超时与调用方取消合二为一,任一触发即中止 fetch */

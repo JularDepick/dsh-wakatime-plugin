@@ -41,6 +41,8 @@ export interface WebStatusResponse {
   sameAccount: 'same' | 'different' | 'unknown'
   /* 配置文件处于只读运行态(结构版本高于本插件支持版本): 界面据此提示并禁用写入 */
   readOnly?: boolean
+  /* 数据文件侧只读(结构版本更高/暂时读不出/待迁移): 本次运行不写盘, 界面据此提示 */
+  dataReadOnly?: boolean
   config: {
     enabled: boolean
     reportInterval: number

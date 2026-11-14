@@ -31,7 +31,7 @@ import type { PendingHeartbeatEntry, ReportEntry } from '../heartbeat'
 import { normalizePendingState } from '../heartbeat'
 import { emptyStore, normalizeCloud } from '../local-store/normalize'
 import { mergeSameIdentity } from '../heartbeat/compress'
-import { heartbeatKeyOf } from '../heartbeat/identity'
+import { heartbeatMergeKeyOf } from '../heartbeat/identity'
 import type { StoreFile } from '../local-store/types'
 import { archiveFile } from '../storage'
 import { emptyTotals, normalizeTotals } from '../stats'
@@ -160,7 +160,8 @@ function dedupeBy<T>(items: readonly T[], keyOf: (item: T) => string, limit: num
 function mergeQueue(items: readonly PendingHeartbeatEntry[], limit: number): PendingHeartbeatEntry[] {
   const map = new Map<string, PendingHeartbeatEntry>()
   for (const item of items) {
-    const key = heartbeatKeyOf(item)
+    /* 与入队/落盘同一套键(身份 + 项目 + 分支): 迁移时也不该把跨项目的同秒工具心跳并成一条 */
+    const key = heartbeatMergeKeyOf(item)
     const existing = map.get(key)
     map.set(key, existing === undefined ? item : mergeSameIdentity(existing, item))
   }
