@@ -43,7 +43,7 @@ AGENTS.md:294,296,297    # 技术栈表的三行区间
 AGENTS.md:429            # 设计细节「dsh 版本兼容声明」(区间策略与两处判定的语义差)
 AGENTS.md:431            # 设计细节「dsh 0.2.2-rc.3 追加支持的依据」
 AGENTS.md:449            # 版本号索引段当前版本条目里的区间
-AGENTS.md:492            # 开发经验「版本对齐」里的上界结论
+AGENTS.md:492-493        # 开发经验「版本对齐」与 rc.3 版本对齐结论里的上界口径
 docs/repo-spec/tag-release-spec.md:15,19,23  # Release 名里的 dsh 上界与区间示例
 docs/tech-spec/dsh-web-tab-experience.md:5   # 已核对过的发布包清单
 
