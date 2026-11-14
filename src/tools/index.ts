@@ -31,12 +31,16 @@ export interface WakatimeToolsOptions {
   refresh?: () => Promise<boolean>
   /* 上报运行态(积压/最近成功/凭证是否被拒), 缺省时不输出该段 */
   transmission?: () => TransmissionStatus
+  /* 数据侧是否只读运行(结构版本更高/读不出): 缺省时不输出该行 */
+  dataReadOnly?: () => boolean
 }
 
 /* 凭证被拒原因归类: 服务端英文原文只进日志, 工具面按类别给本地化文案,
    与 Web 界面 describeLogError 同口径(同一信息两侧不能一个中文一个英文) */
 function describeRejection(message: string): string {
-  if (/scope|permission|forbidden|unauthor|credential|api key|token/i.test(message)) return translate('status.rejectedCredential')
+  /* 401/403 与浏览器端 describeLogError 同判据: 服务端错误体为空时原文只有状态码, 少了这两个数字
+     同一句话会在工具面落"其它错误"、在界面落"凭证不可用" */
+  if (/scope|permission|forbidden|unauthor|credential|api key|token|401|403/i.test(message)) return translate('status.rejectedCredential')
   if (/network|fetch|timeout|ECONN|ENOTFOUND|EAI_AGAIN|socket/i.test(message)) return translate('status.rejectedNetwork')
   return translate('status.rejectedOther')
 }
@@ -191,6 +195,10 @@ export class WakatimeTools {
             lines.push(translate('status.rejected') + ': ' + describeRejection(transmission.rejected.message))
           }
         }
+        /* 数据侧只读: 本进程不写盘, 战绩与待发送队列退出即丢, 工具面必须让 Agent 看到 */
+        if (this.options.dataReadOnly?.() === true) {
+          lines.push(translate('status.dataReadOnlyTitle') + ': ' + translate('status.dataReadOnlyDetail'))
+        }
         return lines.join('\n')
       },
     }))
@@ -327,7 +335,8 @@ export class WakatimeTools {
       }
       /* 只读运行与落盘失败不再折叠成"凭证无效": 界面已按 409/500 区分, 工具面同口径 */
       if (error instanceof ConfigReadOnlyError) return translate('credential.errConfigReadonly')
-      return translate('credential.errPersistFailed')
+      /* 兜底改为中性文案: 归档失败, 读不出等异常都走到这里, 统一说成"落盘失败"会误导排查方向 */
+      return translate('credential.errUnknownFailure')
     }
   }
 }

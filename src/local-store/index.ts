@@ -158,7 +158,18 @@ export class LocalStore {
   private async reloadOnce(): Promise<boolean> {
     const path = this.path()
     const mtime = await fileMtime(path)
-    if (mtime === null || mtime === this.mtime) return false
+    if (mtime === null) {
+      /* 文件被删除(手工清理或重装): 只读标记与待迁移状态一并复位, 让下一次落盘重建文件,
+         与配置侧"文件被删即复位"同口径 */
+      if (this.mtime !== null) {
+        this.writeBlocked = false
+        this.legacy = null
+        this.mtime = null
+        this.scheduleSave()
+      }
+      return false
+    }
+    if (mtime === this.mtime) return false
     const file = await readJsonFileState(path)
     this.mtime = mtime
     if (file.state === 'unreadable') return false
@@ -180,8 +191,10 @@ export class LocalStore {
     /* 只更新读取侧视图, 不动内存态与基线: 若把合并结果写回内存, 其它进程的累计量会被当成
        本进程的增量再累加一次; 若把基线抬到磁盘内容, 本进程自己的增量会在下次合并时被裁成 0 */
     this.diskView = disk
-    /* 磁盘内容回到当前结构: 解除只读标记, 与配置侧同口径(不粘死) */
+    /* 磁盘内容回到当前结构: 解除只读标记与待迁移状态(其它进程可能已迁移过),
+       否则 writeBlocked=false 而 legacy 仍在会让防抖落盘一直被跳过 */
     this.writeBlocked = false
+    this.legacy = null
     return true
   }
 
@@ -306,7 +319,10 @@ export class LocalStore {
           await writeFileAtomic(path, JSON.stringify(merged, null, 2))
         } catch (error) {
           /* 写盘失败时把归档的旧文件改回去: 否则原路径不存在, 下次启动按空数据起步, 迁移入口也不再出现 */
-          if (archivedPath !== null) await rename(archivedPath, path).catch(() => {})
+          if (archivedPath !== null) {
+            const restored = await rename(archivedPath, path).then(() => true, () => false)
+            if (!restored) this.options.logger?.warn?.('[wakatime] failed to restore archived data file, original bytes remain in the .bak file')
+          }
           throw error
         }
         if (fromSnapshots) await archiveLegacySnapshots(dir)
@@ -340,7 +356,9 @@ export class LocalStore {
 
   /* flush 的执行体(持锁读-改-写) */
   private async flushOnce(): Promise<boolean> {
-    if (!this.ready || this.writeBlocked) return false
+    /* 只短路"尚未载入": 不能在入口按 writeBlocked 短路, 否则锁内的"回到可识别结构即复位"
+       永远执行不到, 一次瞬时读失败就会让本进程终身只读 */
+    if (!this.ready) return false
     const dir = resolveConfigDir()
     const path = this.path()
     try {

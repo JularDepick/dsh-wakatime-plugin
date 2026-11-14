@@ -156,7 +156,8 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     /* 配置文件处于只读运行态(结构版本更高或不可写): 界面据此提示并禁用保存 */
     ...(deps.configManager.isReadOnly() ? { readOnly: true } : {}),
     /* 数据侧只读(结构版本更高/读不出/待迁移): 本进程不写盘, 界面必须提示, 否则退出即丢 */
-    ...(deps.store.isWriteBlocked() ? { dataReadOnly: true } : {}),
+    /* 待迁移态的只读由迁移入口与红字提示表达, 不重复出只读横幅(两者并存会自相矛盾) */
+    ...(deps.store.isWriteBlocked() && deps.store.legacyStatus() === null ? { dataReadOnly: true } : {}),
     config: {
       enabled: config.enabled,
       reportInterval: config.reportInterval,
@@ -283,6 +284,12 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
+  /* 槽位字段出现但不在枚举内时明确拒绝: 静默按"清两槽"处理会让一次字段拼错
+     不可恢复地清掉两份凭证 */
+  if (payload.slot !== undefined && payload.slot !== 'write' && payload.slot !== 'read') {
+    writeJson(res, 400, { ok: false, error: 'invalid slot' } satisfies WebCredentialClearResponse)
+    return
+  }
   let skipped: ('write' | 'read')[] = []
   try {
     skipped = await deps.auth.clearCredential(payload.slot === 'write' || payload.slot === 'read' ? payload.slot : undefined)
@@ -292,8 +299,13 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
       writeJson(res, 409, { ok: false, error: 'config_readonly' } satisfies WebCredentialClearResponse)
       return
     }
-    const reason = error instanceof CredentialInputError ? error.code : 'clear failed'
-    writeJson(res, 409, { ok: false, error: reason } satisfies WebCredentialClearResponse)
+    /* 凭证类失败(如 env_locked)回 409; 落盘失败与内部异常回 500, 与保存/配置路由同口径 */
+    if (error instanceof CredentialInputError) {
+      writeJson(res, 409, { ok: false, error: error.code } satisfies WebCredentialClearResponse)
+      return
+    }
+    deps.logger?.warn?.('[wakatime] failed to clear credential: ' + String(error))
+    writeJson(res, 500, { ok: false, error: 'persist_failed' } satisfies WebCredentialClearResponse)
     return
   }
   const body: WebCredentialClearResponse = { ok: true, ...(skipped.length === 0 ? {} : { skipped }) }

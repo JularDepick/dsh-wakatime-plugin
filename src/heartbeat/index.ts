@@ -186,13 +186,36 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     const batch = this.queue.splice(0, size)
     this.inFlightBatch = batch
     try {
-      await this.deliver(batch.map((entry) => entry.heartbeat))
-      /* 推送成功即视为凭证可用, 下一次被拒重新记一条 */
+      /* 逐条结算: 被拒的按单条分类, 其余视为已送达(不回队, 避免整批重复上报) */
+      const results = await this.deliver(batch.map((entry) => entry.heartbeat))
+      /* 请求到达服务端即说明凭证可用, 下一次被拒重新记一条 */
       this.lastRejectLoggedAt = 0
       this.credentialRejected = null
-      this.lastSuccessAt = Date.now()
-      this.appendBatchReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
-      this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
+      const failures: { entry: PendingHeartbeatEntry, error: WakaTimeError }[] = []
+      for (let index = 0; index < batch.length; index += 1) {
+        const error = results[index]
+        const entry = batch[index]
+        if (error !== undefined && entry !== undefined) failures.push({ entry, error })
+      }
+      if (failures.length === 0) {
+        this.lastSuccessAt = Date.now()
+        this.appendBatchReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
+        this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
+        return
+      }
+      /* 部分成功: 只有被拒的那几条按单条分类结算, 否则一条坏心跳会连坐整批,
+         界面上一次冒出成串需要逐条手动重试的入口 */
+      for (const { entry, error } of failures) {
+        const attempts = entry.attempts + 1
+        if (isTerminalError(error) || attempts >= PUSH_TASK_MAX_ATTEMPTS) {
+          this.appendFailedTask({ ...entry, attempts }, error.message)
+        } else {
+          this.queue.push({ ...entry, attempts })
+        }
+      }
+      const reason = failures[0]?.error.message ?? 'unknown'
+      this.appendBatchReport({ kind: 'batch', count: failures.length, ok: false, error: reason, ...detailOf(failures.map((item) => item.entry)) })
+      this.log('warn', `[wakatime] push partially failed: ${failures.length}/${batch.length} heartbeats rejected: ${reason}`)
     } catch (error) {
       /* 凭证不可用(两槽未齐备, 或两槽被判定不是同一账号):不丢失、不计尝试次数,整批移到队尾轮转.
          放回队首会让同一批最旧的心跳被反复取走, 队尾新心跳永远轮不到(长期不可用时等于停摆);
@@ -389,8 +412,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     this.appendTaskReport({ kind: 'task', count: 1, ok: false, state: 'failed', error, taskId: task.id, ...detailOf([entry]) })
   }
 
-  /* 上报一批:单条走 heartbeats,多条走 bulk */
-  private async deliver(heartbeats: Heartbeat[]): Promise<void> {
+  /* 上报一批:单条走 heartbeats,多条走 bulk;返回逐条结果(undefined 表示已送达).
+     批次级的凭证与网络失败仍以抛错表达, 由调用方按整批轮转处理 */
+  private async deliver(heartbeats: Heartbeat[]): Promise<(WakaTimeError | undefined)[]> {
     const auth = await this.tokenProvider()
     if (heartbeats.length === 1) {
       await this.http.request(HEARTBEATS_PATH, {
@@ -399,8 +423,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         auth,
         maxRetries: HEARTBEAT_MAX_RETRIES,
       })
-      return
+      return [undefined]
     }
+    const results: (WakaTimeError | undefined)[] = new Array(heartbeats.length).fill(undefined)
     for (let index = 0; index < heartbeats.length; index += BULK_HEARTBEAT_LIMIT) {
       const chunk = heartbeats.slice(index, index + BULK_HEARTBEAT_LIMIT)
       const response = await this.http.request<unknown>(HEARTBEATS_BULK_PATH, {
@@ -409,19 +434,26 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         auth,
         maxRetries: HEARTBEAT_MAX_RETRIES,
       })
-      this.assertBulkAccepted(response)
+      const chunkResults = this.bulkResults(response, chunk.length)
+      for (let offset = 0; offset < chunkResults.length; offset += 1) results[index + offset] = chunkResults[offset]
     }
+    return results
   }
 
-  /* bulk 响应逐条检查: 整批 2xx 也可能有单条被拒, 丢弃响应会把被拒的心跳当成已送达, 既不重试也不留记录 */
-  private assertBulkAccepted(response: unknown): void {
+  /* bulk 逐条结果: 无响应体视为整批已送达(官方 2xx 可以没有体);
+     有体但形状不认识时整批按失败返回 —— 当成成功会把被拒的心跳静默丢掉, 既不重试也不留记录 */
+  private bulkResults(response: unknown, expected: number): (WakaTimeError | undefined)[] {
+    const delivered: (WakaTimeError | undefined)[] = new Array(expected).fill(undefined)
+    if (response === undefined || response === null) return delivered
     const entries = this.bulkResponseEntries(response)
-    if (entries === null) return
-    for (const entry of entries) {
-      const failure = this.bulkEntryFailure(entry)
-      if (failure === null) continue
-      throw new WakaTimeError(failure.status, `bulk heartbeat rejected: ${failure.detail}`)
+    if (entries === null || entries.length !== expected) {
+      const error = new WakaTimeError(0, 'bulk heartbeat response shape not recognized')
+      return new Array(expected).fill(error)
     }
+    return entries.map((entry) => {
+      const failure = this.bulkEntryFailure(entry)
+      return failure === null ? undefined : new WakaTimeError(failure.status, `bulk heartbeat rejected: ${failure.detail}`)
+    })
   }
 
   /* bulk 结果列表: 官方响应形如 {"responses":[[<响应体>,<状态码>], ...]}
@@ -439,7 +471,9 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private bulkEntryFailure(entry: unknown): { status: number, detail: string } | null {
     if (Array.isArray(entry)) {
       const body = entry[0]
-      const status = typeof entry[1] === 'number' ? entry[1] : 0
+      /* 缺状态码的元组形状不认识: 按失败返回, 不静默当成成功(否则被拒的心跳直接被丢掉) */
+      const status = typeof entry[1] === 'number' ? entry[1] : Number.NaN
+      if (!Number.isFinite(status)) return { status: 0, detail: 'bulk response entry without a status code' }
       if (status < 400) return null
       const detail = typeof body === 'object' && body !== null
         ? String((body as { error?: unknown }).error ?? (body as { message?: unknown }).message ?? JSON.stringify(body))

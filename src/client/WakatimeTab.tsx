@@ -264,7 +264,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .catch((error: unknown) => {
         /* 网络层失败只有技术原文, 这里补本地化前缀, 细节留在冒号后便于排查 */
-        setNotice({ kind: 'error', text: `${t('logs.retryFailed')}: ${(error as Error).message}` })
+        setNotice({ kind: 'error', text: t('logs.retryFailed') + transportSuffix((error as Error).message) })
       })
       .finally(() => { setRetryingId(undefined) })
   }
@@ -373,6 +373,13 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     return t('logs.errUnknown')
   }
 
+  /* 传输层失败只保留语言中立的 HTTP 状态码: "Failed to fetch" 与 "unexpected status payload"
+     这类英文技术原文不再拼进中文句子, 需要原文时看宿主日志 */
+  const transportSuffix = (message: string): string => {
+    const matched = /^HTTP (\d{3})$/.exec(message.trim())
+    return matched === null ? '' : ` (HTTP ${matched[1]})`
+  }
+
   /* 提示停留后自动消失(与官方 Toast 的 3000ms 停留 + 1000ms 淡出一致) */
   useEffect(() => {
     if (!notice) return
@@ -463,7 +470,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
       })
       .catch((error: unknown) => {
         const message = (error as Error).message
-        setNotice({ kind: 'error', text: localized ? message : `${t('credential.saveFailed')}: ${message}` })
+        setNotice({ kind: 'error', text: localized ? message : t('credential.saveFailed') + transportSuffix(message) })
       })
       .finally(() => { setSavingSlot(undefined) })
   }
@@ -475,7 +482,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
           {loadError !== undefined && data === null ? (
             <div role="status">
               <p className={css.error}>
-                {t('state.loadFailed')}: {loadError}
+                {t('state.loadFailed')}
+                {transportSuffix(loadError ?? '')}
               </p>
               {/* 首屏失败时战绩区未渲染, 刷新入口必须在这里给, 否则只能切走标签页再回来 */}
               <button type="button" className={compactButton} onClick={() => setTick((value) => value + 1)}>
@@ -858,7 +866,7 @@ function WakatimePanels(props: PanelsProps) {
         <div className={css.banner} role="status">
           <span className={css.bannerTitle}>{t('status.rejectedTitle')}</span>
           {/* 服务端原文只留作悬停提示: 中文界面里直出英文整句属缺陷, 正文走与上报记录同源的分类文案 */}
-          <span title={rejected.message}>{t('status.rejectedDetail').replace('{reason}', describeLogError(rejected.message))}</span>
+          <span title={describeLogError(rejected.message)}>{t('status.rejectedDetail').replace('{reason}', describeLogError(rejected.message))}</span>
           <span>{t('status.queuedDetail').replace('{n}', String(data.transmission?.queued ?? 0))}</span>
         </div>
       )}

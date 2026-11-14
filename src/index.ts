@@ -100,6 +100,7 @@ export function apply(ctx: Context, config: ConfigType) {
     resolveStats,
     refresh: () => store.reloadIfChanged(),
     transmission: () => heartbeat.transmissionStatus(),
+    dataReadOnly: () => store.isWriteBlocked(),
   })
 
   /* 启动载入完成信号: 载入完成前不推送, 避免与初始载入互相覆盖丢数 */

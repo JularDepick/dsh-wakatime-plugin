@@ -12,11 +12,25 @@ import type { ConfigManager, StoredConfig } from './config-manager'
 import { CONFIG_FILE_VERSION, REPORT_INTERVAL_MAX_SECONDS, SUPPORTED_LANGUAGES } from './constants'
 
 /* Web 可编辑的配置子集(不含凭证;语言跟随 dsh web,不提供配置项) */
-/* 配置值范围校验:返回不合法的键名, 合法时返回 null(Web 与工具两条写入通道共用) */
+/* 配置值类型与范围校验:返回第一个不合法的键名, 全部合法时返回 null.
+   Web 写入通道, 工具通道与启动时合并持久化设置共用这一份判定: 三处各写一份时,
+   新增键漏改任一通道就会被放行(例如布尔项被写成字符串, 真值判定下静默生效) */
+const BOOLEAN_KEYS = ['enabled', 'reportEnabled', 'includeTokens', 'includePrompts', 'debug', 'tableBorders'] as const
+const ENUM_VALUES: Partial<Record<keyof WebConfigPatch, readonly string[]>> = {
+  digitGrouping: ['thousand', 'myriad'],
+}
 export function validateConfigPatch(patch: WebConfigPatch): string | null {
+  for (const key of BOOLEAN_KEYS) {
+    const value = patch[key]
+    if (value !== undefined && typeof value !== 'boolean') return key
+  }
   const interval = patch.reportInterval
   /* 秒级整数, 且不许超过上限: 超过 setInterval 可表示的毫秒上限会被当成 1ms, 退化成每毫秒推一轮 */
   if (interval !== undefined && (!Number.isInteger(interval) || interval < 1 || interval > REPORT_INTERVAL_MAX_SECONDS)) return 'reportInterval'
+  for (const [key, allowed] of Object.entries(ENUM_VALUES) as [keyof WebConfigPatch, readonly string[]][]) {
+    const value = patch[key]
+    if (value !== undefined && !allowed.includes(String(value))) return String(key)
+  }
   return null
 }
 
@@ -60,9 +74,13 @@ export class RuntimeConfig {
       const value = settings[key]
       if (value !== undefined) patch[key] = value as never
     }
-    /* 从磁盘恢复的 settings 也要过一遍范围校验: 手工改文件写进越界值时不能直接生效 */
-    const invalid = validateConfigPatch(patch)
-    if (invalid !== null) delete patch[invalid as keyof WebConfigPatch]
+    /* 从磁盘恢复的 settings 也要过一遍类型与范围校验: 手工改文件写进越界值或类型错误时不能直接生效.
+       逐个剔除, 而不是只剔第一个 —— 否则一处越界会把其余非法键一起放行 */
+    for (;;) {
+      const invalid = validateConfigPatch(patch)
+      if (invalid === null) break
+      delete patch[invalid as keyof WebConfigPatch]
+    }
     /* 语言只接受白名单值: 持久化文件里的非法值不能生效, 否则翻译加载失败并静默回退中文 */
     const stored = patch as { locale?: unknown }
     if (stored.locale !== undefined
