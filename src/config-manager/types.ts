@@ -79,6 +79,8 @@ export interface ConfigManager {
   refresh(): Promise<StoredConfig | null>
   /* 当前是否只读运行(磁盘结构版本高于本插件支持版本时禁止写盘): 供状态接口与界面提示 */
   isReadOnly(): boolean
+  /* 最近一次读取是否因权限/占用失败(文件可能存在且带凭证) */
+  isUnreadable(): boolean
 }
 
 export { CONFIG_FILE_VERSION }

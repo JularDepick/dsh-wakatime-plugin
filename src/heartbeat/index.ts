@@ -194,6 +194,10 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         const entry = batch[index]
         if (error !== undefined && entry !== undefined) failures.push({ entry, error })
       }
+      if (failures.length > 0 && failures.length < batch.length) {
+        /* 部分成功: 服务端确实收到了一部分, 状态面的"最近成功时刻"要跟着更新 */
+        this.lastSuccessAt = Date.now()
+      }
       if (failures.length === 0) {
         /* 全部送达才说明凭证可用: 下一次被拒重新记一条 */
         this.lastRejectLoggedAt = 0
@@ -207,7 +211,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
          这些与整批被拒同等待遇: 回队尾轮转、不计尝试次数, 否则 3 轮后进失败列表,
          凭证修好也不会自动续传 */
       const rejected = failures.filter((item) => isCredentialRejected(item.error))
-      const retryable = failures.filter((item) => !isCredentialRejected(item.error))
+      const rateLimited = failures.filter((item) => !isCredentialRejected(item.error) && isRateLimited(item.error))
+      const retryable = failures.filter((item) => !isCredentialRejected(item.error) && !isRateLimited(item.error))
       if (rejected.length === 0) {
         this.lastRejectLoggedAt = 0
         this.credentialRejected = null
@@ -224,6 +229,15 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         const reason = retryable[0]?.error.message ?? 'unknown'
         this.appendBatchReport({ kind: 'batch', count: retryable.length, ok: false, error: reason, ...detailOf(retryable.map((item) => item.entry)) })
         this.log('warn', `[wakatime] push partially failed: ${retryable.length}/${batch.length} heartbeats rejected: ${reason}`)
+      }
+      if (rateLimited.length > 0) {
+        this.queue.push(...rateLimited.map((item) => item.entry))
+        const now = Date.now()
+        if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
+          this.lastRejectLoggedAt = now
+          this.appendBatchReport({ kind: 'batch', count: rateLimited.length, ok: false, error: 'rate limited', ...detailOf(rateLimited.map((item) => item.entry)) })
+          this.log('warn', `[wakatime] rate limited for ${rateLimited.length} heartbeat(s), kept in queue`)
+        }
       }
       if (rejected.length > 0) {
         this.queue.push(...rejected.map((item) => item.entry))
@@ -252,6 +266,19 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         return
       }
       const message = (error as Error).message
+      /* 429 限流不是心跳本身的问题: 与凭证不可用同样整批轮转且不计尝试次数,
+         否则持续限流时整条积压会被逐轮推进失败列表, 恢复后也回不来 */
+      if (error instanceof WakaTimeError && error.status === 429) {
+        this.queue.push(...batch)
+        const now = Date.now()
+        if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
+          this.lastRejectLoggedAt = now
+          /* 限流要能在上报记录里看到, 否则界面只看到队列在涨而没有任何原因 */
+          this.appendBatchReport({ kind: 'batch', count: batch.length, ok: false, error: message, ...detailOf(batch) })
+          this.log('warn', `[wakatime] rate limited by the server, heartbeats stay queued: ${message}`)
+        }
+        return
+      }
       /* 凭证不可用(令牌过期/被撤销/权限不足):与未配置凭证同等待遇,
          整批移到队尾轮转、不计尝试次数, 避免把积压烧进失败列表后按上限丢弃,
          同时避免队首那一批被反复重取导致队尾新心跳永久饥饿 */
@@ -604,17 +631,22 @@ function isCredentialRejected(error: unknown): boolean {
   return /scope|permission|forbidden|unauthor|credential|api key|token/.test(text)
 }
 
+/* 限流判定: 429 与心跳本身无关, 回队尾轮转且不计尝试次数 */
+function isRateLimited(error: unknown): boolean {
+  return error instanceof WakaTimeError && error.status === 429
+}
+
 /* 终态失败判定:载荷类错误重试无意义,直接进失败列表(429 与 5xx 仍可重试) */
 function isTerminalError(error: unknown): boolean {
   if (!(error instanceof WakaTimeError)) return false
-  return error.status === 400 || error.status === 404 || error.status === 422
+  return error.status === 400 || error.status === 404 || error.status === 413 || error.status === 422
 }
 
 /* 心跳实体类型与分类的合法取值(恢复快照时的白名单) */
 const ENTITY_TYPES: readonly HeartbeatEntityType[] = ['file', 'app', 'domain', 'url']
 const CATEGORIES: readonly HeartbeatCategory[] = ['coding', 'debugging', 'researching', 'ai coding', 'learning']
 /* 快照中的字符串字段与数值字段白名单(其余字段一律丢弃) */
-const STRING_FIELDS = ['project', 'branch', 'ai_session', 'machine_name', 'language'] as const
+const STRING_FIELDS = ['project', 'branch', 'ai_session', 'machine_name', 'language', 'user_agent'] as const
 const NUMBER_FIELDS = ['ai_input_tokens', 'ai_output_tokens', 'ai_prompt_length', 'ai_line_changes', 'ai_cached_input_tokens', 'lines'] as const
 
 /* 单条心跳归一化:只接受白名单字段与合法类型,损坏或被篡改的文件内容不会进入上报载荷 */

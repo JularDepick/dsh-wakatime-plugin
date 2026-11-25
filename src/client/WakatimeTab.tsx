@@ -317,7 +317,7 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
     const seq = reloadSeq.current + 1
     reloadSeq.current = seq
     setLoadError(undefined)
-    fetch(STATUS_PATH, { cache: 'no-store' })
+    fetch(STATUS_PATH, { cache: 'no-store', headers: { [SYNC_CLIENT_HEADER]: '1' } })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<WebStatusResponse>

@@ -118,7 +118,11 @@ export function mergeConfig(disk: StoredConfig | null, desired: StoredConfig): S
     : diskSame === undefined
       ? desiredSame
       : (desiredSame.checkedAt >= diskSame.checkedAt ? desiredSame : diskSame)
-  const settings = laterThan(desired.settingsUpdatedAt ?? 0, disk.settingsUpdatedAt ?? 0) ? desired.settings : disk.settings
+  /* settings 按键合并: 整块按时间戳取胜时, 两个 profile 并发改不同键会整键丢失.
+     冲突键以较新一侧为准(settingsUpdatedAt 大的一方), 只在一侧出现的键都保留 */
+  const settings = laterThan(desired.settingsUpdatedAt ?? 0, disk.settingsUpdatedAt ?? 0)
+    ? { ...(disk.settings ?? {}), ...(desired.settings ?? {}) }
+    : { ...(desired.settings ?? {}), ...(disk.settings ?? {}) }
   const useDesiredAccount = laterThan(desired.accountUpdatedAt ?? 0, disk.accountUpdatedAt ?? 0)
   const account = useDesiredAccount ? desired : disk
   return {

@@ -327,7 +327,7 @@ export const en: WakatimeDict = {
   'credential.errConfigReadonly': 'The config file uses a newer structure than this plugin supports, running read-only: the credential cannot be saved',
   'credential.errPersistFailed': 'Failed to write the credential to disk, please check the config directory permissions and retry',
   'credential.saveFailed': 'Failed to save the credential',
-  'stats.title': 'Agent collaboration battle stats',
+  'stats.title': 'Agent collaboration stats',
   'stats.promptChars': 'Prompt characters',
   'stats.promptEstimate': '≈ {n} tokens',
   'stats.tokenPerSecond': '{n} token/s',

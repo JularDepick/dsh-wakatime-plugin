@@ -301,6 +301,8 @@ export class AuthManagerImpl implements AuthManager {
       /* 读不到配置不等于"没有凭证": 文件可能刚变成未来版本(只读), 这时回 200 等于谎报已清除.
          复查只读标记, 与保存/配置写入路由保持同样的 409 语义 */
       if (this.configManager.isReadOnly()) throw new ConfigReadOnlyError()
+      /* 配置存在但读不出(权限/占用): 磁盘凭证还在, 不能回 200, 交给上层按落盘失败处理 */
+      if (this.configManager.isUnreadable()) throw new Error('config file is not readable')
       return locked
     }
     const clearWrite = targets.includes('write') && !locked.includes('write')
@@ -497,7 +499,8 @@ export class AuthManagerImpl implements AuthManager {
           accountUpdatedAt: Date.now(),
         })
       }
-      this.profileFailureAt = 0
+      /* 成功但拿不到可用用户名(仍是匿名占位): 也记一次冷却, 否则每次状态查询都会外呼 */
+      this.profileFailureAt = profile.username === undefined ? Date.now() : 0
       return profile.username
     } catch {
       this.profileFailureAt = Date.now()

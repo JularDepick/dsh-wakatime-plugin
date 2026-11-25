@@ -73,10 +73,17 @@ export class ConfigManagerImpl implements ConfigManager {
   private onError?: (message: string) => void
   /* 只读运行标记: 磁盘结构版本高于本插件支持版本时置位, 期间禁止写盘且不归档 */
   private readOnly = false
+  /* 最近一次读取是否因权限/占用失败(与"文件不存在"区分: 后者意味着确实没有凭证) */
+  private unreadable = false
 
   /* 当前是否只读运行:供状态接口与界面提示 */
   isReadOnly(): boolean {
     return this.readOnly
+  }
+
+  /* 最近一次读取是否因权限/占用而失败: 与"文件不存在"不同, 此时磁盘上可能仍有凭证 */
+  isUnreadable(): boolean {
+    return this.unreadable
   }
 
   async load(): Promise<StoredConfig | null> {
@@ -91,11 +98,20 @@ export class ConfigManagerImpl implements ConfigManager {
       this.mtime = await fileMtime(path)
       return null
     }
+    if (file.state === 'unreadable') {
+      /* 读不出时不能记 mtime: 否则 refresh 认为"文件没变"而跳过重读, 本进程会终生当作未配置 */
+      this.unreadable = true
+      this.lastKnown = null
+      this.mtime = null
+      this.onError?.('[wakatime] config file is not readable, will retry on next read')
+      return null
+    }
+    this.unreadable = false
     const current = normalizeStoredConfig(file.value)
     /* 结构又回到本插件能识别的版本(例如用户把未来的文件换掉): 解除只读, 不必等到重启 */
-    if (current !== null) this.readOnly = false
-    /* 文件被删除同样解除只读: 否则删掉未来版本文件后, 本进程要到重启才恢复写盘 */
-    if (current === null && file.state === 'missing') this.readOnly = false
+    /* 走到这里说明文件可读且不是未来版本: 无论旧结构、损坏还是缺失都由写入路径负责归档重建,
+       只读标记一律复位, 否则文件从未来版本变成损坏后会一直误报只读 */
+    this.readOnly = false
     if (current === null) {
       /* 旧结构交给写入路径在锁内归档并迁移; 损坏或结构未知同样由写入路径归档 */
       const migrated = migrateStoredConfig(file.value)
@@ -180,7 +196,11 @@ export class ConfigManagerImpl implements ConfigManager {
     }
     if (mtime === this.mtime) return null
     const file = await readJsonFileState(path)
-    if (file.state === 'unreadable') return null
+    if (file.state === 'unreadable') {
+      this.unreadable = true
+      return null
+    }
+    this.unreadable = false
     if (isFutureConfigVersion(file.value)) {
       /* 纯读路径同样不归档: 归档会改文件名, 等于替新版本进程做了破坏性操作 */
       if (!this.readOnly) this.onError?.('[wakatime] config file structure version is newer than this plugin supports, running read-only')

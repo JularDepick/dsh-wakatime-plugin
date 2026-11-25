@@ -110,11 +110,18 @@ export class LocalStore {
       this.options.logger?.warn?.(`[wakatime] data file ${scope} over limit on load, ${count} entries dropped`)
     })
     let needsRewrite = false
+    /* 未来版本的文件仍可用于只读展示: 字段形状兼容时把磁盘内容放进 diskView,
+       否则界面把"有数据"显示成全 0, 容易被误认为数据被抹掉 */
+    let futureView: ReturnType<typeof normalizeStore> = null
     /* 数据文件版本高于本插件支持的版本(降级并存或未来版本):不认识而非损坏,
        一律只读运行并禁止写盘, 绝不归档重建, 否则旧数据会被直接抹掉 */
     const futureVersion = isFutureVersion(file.value)
     if (data === null && futureVersion) {
       this.writeBlocked = true
+      try {
+        const shim = { ...(file.value as Record<string, unknown>), version: STORE_FILE_VERSION }
+        futureView = normalizeStore(shim)
+      } catch { /* 形状不认识时保持空视图 */ }
       this.options.logger?.warn?.(
         `[wakatime] data file version is newer than supported ${STORE_FILE_VERSION}, persistence disabled this run`,
       )
@@ -142,7 +149,7 @@ export class LocalStore {
     if (data === null) data = emptyStore()
     this.data = data
     this.baseline = cloneStore(data)
-    this.diskView = cloneStore(data)
+    this.diskView = futureView ?? cloneStore(data)
     this.mtime = await fileMtime(path)
     this.ready = true
     /* 无法识别的文件立即归档重建(不等防抖窗口);其余按防抖写回 */
@@ -366,6 +373,9 @@ export class LocalStore {
     /* 只短路"尚未载入": 不能在入口按 writeBlocked 短路, 否则锁内的"回到可识别结构即复位"
        永远执行不到, 一次瞬时读失败就会让本进程终身只读 */
     if (!this.ready) return false
+    /* 待迁移状态下一律不写盘: 迁移入口只靠"没有当前结构的数据文件"来发现旧数据,
+       这里写出空的 v3 文件会让红字提示永久消失, 旧快照再也并进来 */
+    if (this.legacy !== null) return false
     const dir = resolveConfigDir()
     const path = this.path()
     try {

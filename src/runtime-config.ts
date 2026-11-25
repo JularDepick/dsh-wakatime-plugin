@@ -50,6 +50,8 @@ export class RuntimeConfig {
      并发调用会各自基于同一份旧内容计算, 后完成者把先完成者的键整块覆盖,
      内存与磁盘同时丢掉那一项(重启也回不来) */
   private writeChain: Promise<void> = Promise.resolve()
+  /* 启动窗口内已经被 Web/工具改过的键: mergeStored 恢复旧盘值时不能把它们盖回去 */
+  private readonly updatedKeys = new Set<keyof WebConfigPatch>()
 
   constructor(initial: Config, private readonly configManager: ConfigManager) {
     this.current = { ...initial }
@@ -63,6 +65,7 @@ export class RuntimeConfig {
   /* 应用 Web 写入:更新内存、持久化 settings 块并通知订阅者.
      多次写入排队执行: 后一次在前一次落盘后的磁盘内容上叠加, 不会互相覆盖 */
   update(patch: WebConfigPatch): Promise<Config> {
+    for (const key of Object.keys(patch) as (keyof WebConfigPatch)[]) this.updatedKeys.add(key)
     const run = this.writeChain.then(async () => {
       const next = { ...this.current, ...patch }
       /* 先落盘再改内存: 落盘失败时内存配置与订阅者仍与磁盘一致, 不会出现"界面显示已改、重启回退" */
@@ -75,9 +78,11 @@ export class RuntimeConfig {
     return run.then(() => this.current)
   }
 
-  /* 启动时合并持久化的 Web 覆盖(异步调用,失败静默保留 cordis 配置) */
-  async mergeStored(settings: StoredSettings | undefined): Promise<void> {
-    if (!settings) return
+  /* 启动时合并持久化的 Web 覆盖(异步调用,失败静默保留 cordis 配置).
+     与 update 共用写队列: 否则启动窗口内先到的 Web 写入会被随后的磁盘旧值覆盖回内存 */
+  mergeStored(settings: StoredSettings | undefined): Promise<void> {
+    const run = this.writeChain.then(async () => {
+      if (!settings) return
     const patch: WebConfigPatch = {}
     for (const key of Object.keys(settings) as (keyof WebConfigPatch)[]) {
       const value = settings[key]
@@ -96,9 +101,13 @@ export class RuntimeConfig {
       && (typeof stored.locale !== 'string' || !(SUPPORTED_LANGUAGES as readonly string[]).includes(stored.locale))) {
       delete stored.locale
     }
-    if (Object.keys(patch).length === 0) return
-    this.current = { ...this.current, ...patch }
-    this.notify()
+      for (const key of this.updatedKeys) delete patch[key]
+      if (Object.keys(patch).length === 0) return
+      this.current = { ...this.current, ...patch }
+      this.notify()
+    })
+    this.writeChain = run.then(() => undefined, () => undefined)
+    return run
   }
 
   /* 订阅配置变更;返回取消订阅函数 */

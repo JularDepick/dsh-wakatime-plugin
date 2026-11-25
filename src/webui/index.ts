@@ -143,6 +143,12 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, deps: Web
     methodNotAllowed(res)
     return
   }
+  /* 状态查询会解析账号名(可能写回配置并外呼): 与同步接口一样要求客户端标识头,
+     跨站 img/script 带不了自定义头, 只能停在预检 */
+  if (req.headers[SYNC_CLIENT_HEADER] !== '1') {
+    writeJson(res, 403, { ok: false, error: 'client header required' })
+    return
+  }
   /* 其它 profile 进程可能刚写过数据:先按 mtime 并入, 界面立即看到对方增量 */
   await deps.store.reloadIfChanged()
   const status = await deps.auth.getStatus()
@@ -194,7 +200,14 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
   let payload: unknown
   try {
     payload = JSON.parse(await readBody(req))
-  } catch {
+  } catch (error) {
+    /* 超限是独立的 413, 不能被宽 catch 吞成"JSON 非法" */
+    if (error instanceof PayloadTooLargeError) {
+      writeJson(res, 413, { ok: false, error: 'payload too large' })
+      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
+      req.destroy()
+      return
+    }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
@@ -234,7 +247,17 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
   let payload: WebCredentialPayload
   try {
     payload = JSON.parse(await readBody(req)) as WebCredentialPayload
-  } catch {
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      writeJson(res, 413, { ok: false, error: 'payload too large' })
+      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
+      req.destroy()
+      return
+    }
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
+    return
+  }
+  if (typeof payload !== 'object' || payload === null) {
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
@@ -290,7 +313,13 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
     const raw = await readBody(req)
     const parsed = raw.trim() === '' ? {} : JSON.parse(raw) as WebCredentialClearPayload
     if (typeof parsed === 'object' && parsed !== null) payload = parsed
-  } catch {
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      writeJson(res, 413, { ok: false, error: 'payload too large' })
+      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
+      req.destroy()
+      return
+    }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
@@ -371,7 +400,17 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
   let payload: WebRetryPayload
   try {
     payload = JSON.parse(await readBody(req)) as WebRetryPayload
-  } catch {
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      writeJson(res, 413, { ok: false, error: 'payload too large' })
+      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
+      req.destroy()
+      return
+    }
+    writeJson(res, 400, { ok: false, error: 'invalid json body' })
+    return
+  }
+  if (typeof payload !== 'object' || payload === null) {
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
     return
   }
@@ -531,7 +570,8 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('data', (chunk: Buffer) => {
       data += chunk.toString('utf8')
       if (data.length > BODY_LIMIT) {
-        req.destroy()
+        /* 先暂停而不是销毁: 销毁 socket 会让 413 响应写不回去; 回完响应后由调用方断开 */
+        req.pause()
         settle(() => reject(new PayloadTooLargeError('request body too large')))
       }
     })
