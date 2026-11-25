@@ -46,6 +46,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "pack": "node scripts/pack.mjs",
     "postpack": "node scripts/pack.mjs --move-only",
     "prepublishOnly": "pnpm typecheck",

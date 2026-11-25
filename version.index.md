@@ -16,7 +16,7 @@ src/translation/.example_zh-CN.ini:2
 README.md:5
 README_en-US.md:5
 # README.md:45 与 README_en-US.md:45 的安装示例改用各自语言的版本占位符(<版本> / <version>), 不再含具体版本号, 故不在同步清单内
-AGENTS.md:439  # 版本号索引段的当前版本
+AGENTS.md:441  # 版本号索引段的当前版本
 AGENTS.md:447  # 0.4.0 已定版条目
 AGENTS.md:448  # 0.4.1 已定版条目
 AGENTS.md:449  # 0.5.0 已定版条目
@@ -44,9 +44,9 @@ AGENTS.md:294,296,297    # 技术栈表的三行区间
 AGENTS.md:429            # 设计细节「dsh 版本兼容声明」(区间策略与两种写法的语义差)
 AGENTS.md:431            # 设计细节「dsh 0.2.2-rc.3 追加支持的依据」(含区间化写法结论)
 AGENTS.md:433            # 设计细节「dsh 0.2.2-rc.4 与 0.2.2-rc.5 追加支持的依据」
-AGENTS.md:451            # 版本号索引段当前版本条目里的区间
-AGENTS.md:494-496        # 开发经验「版本对齐」与 rc.3 / rc.5 版本对齐结论里的上界口径
-docs/repo-spec/tag-release-spec.md:15,17,19,21,23  # Release 名里的 dsh 版本、区间与拒绝边界
+AGENTS.md:452            # 版本号索引段当前版本条目里的区间
+AGENTS.md:495-497        # 开发经验「版本对齐」与 rc.3 / rc.5 版本对齐结论里的上界口径
+docs/repo-spec/tag-release-spec.md:15,17,19,21,23  # Release 名里的 dsh 版本与区间与拒绝边界
 docs/tech-spec/dsh-web-tab-experience.md:5   # 已核对过的发布包清单
 
 <!-- 允许Agent继续新增需要被同步更新版本号的地方(只登记被git追踪的文件) -->
