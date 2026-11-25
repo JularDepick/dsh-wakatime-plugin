@@ -224,3 +224,6 @@ export const IDLE_WAIT_TIMEOUT_MS = 5_000
 /* 手动同步(强制刷新)的自定请求头:强制刷新会驱动 host 向 WakaTime 外呼,
    无 Origin 的子资源请求(如 <img>)带不上自定头,故用它拦住跨站触发 */
 export const SYNC_FORCE_HEADER = 'x-dsh-wakatime-force'
+/* 同步接口要求客户端标识头: 跨站 <img>/<script> 不带 Origin 也带不了自定义头,
+   要求它能把这类"无来源"的副作用请求挡在预检阶段 */
+export const SYNC_CLIENT_HEADER = 'x-dsh-wakatime-client'

@@ -34,6 +34,7 @@ import {
   WEB_RETRY_PATH,
   WEB_STATUS_PATH,
   WEB_SYNC_PATH,
+  SYNC_CLIENT_HEADER,
   SYNC_FORCE_HEADER,
 } from '../constants'
 import type { DigitGrouping } from '../config'
@@ -218,7 +219,8 @@ export function WakatimeTab({ t }: WakatimeTabProps) {
        而浏览器对跨源子资源请求不带 Origin, 小后端会一律拒绝 */
     fetch(SYNC_PATH, {
       cache: 'no-store',
-      ...(force ? { headers: { [SYNC_FORCE_HEADER]: '1' } } : {}),
+      /* 标识头是服务端要求: 跨站子资源请求带不了自定义头, 这条同步才能只被本界面触发 */
+      headers: { [SYNC_CLIENT_HEADER]: '1', ...(force ? { [SYNC_FORCE_HEADER]: '1' } : {}) },
     })
       .then((response) => response.json() as Promise<WebSyncResponse>)
       .then((result) => {

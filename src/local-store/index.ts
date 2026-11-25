@@ -74,6 +74,9 @@ export class LocalStore {
   private mtime: number | null = null
   /* 数据文件读不出(权限/占用)时禁止写盘, 本进程只做统计与上报 */
   private writeBlocked = false
+  /* 只读是否由"暂时读不出"引起: 这种只读可以靠重试自愈, 需要继续排落盘重试;
+     未来版本与待迁移则是终态, 重试也不会成功 */
+  private blockedTransient = false
   /* 检测到旧版数据(0.3.0 的分凭证数据桶或更早的独立快照): 不自动转换, 等界面确认后迁移 */
   private legacy: LegacySource | null = null
   /* 在途迁移: 同一进程内并发点击复用同一次, 避免第二次把已转换的文件再归档一遍 */
@@ -128,6 +131,7 @@ export class LocalStore {
         )
       } else if (file.state === 'unreadable') {
         this.writeBlocked = true
+        this.blockedTransient = true
         this.options.logger?.warn?.('[wakatime] data file is not readable, persistence disabled this run')
       } else if (file.state !== 'missing') {
         this.options.logger?.warn?.('[wakatime] data file not recognized, will be archived and recreated')
@@ -163,6 +167,7 @@ export class LocalStore {
          与配置侧"文件被删即复位"同口径 */
       if (this.mtime !== null) {
         this.writeBlocked = false
+        this.blockedTransient = false
         this.legacy = null
         this.mtime = null
         this.scheduleSave()
@@ -194,6 +199,7 @@ export class LocalStore {
     /* 磁盘内容回到当前结构: 解除只读标记与待迁移状态(其它进程可能已迁移过),
        否则 writeBlocked=false 而 legacy 仍在会让防抖落盘一直被跳过 */
     this.writeBlocked = false
+    this.blockedTransient = false
     this.legacy = null
     return true
   }
@@ -332,6 +338,7 @@ export class LocalStore {
         this.mtime = await fileMtime(path)
         this.legacy = null
         this.writeBlocked = false
+        this.blockedTransient = false
         this.options.logger?.warn?.(`[wakatime] legacy data migrated (${merged.stats.heartbeats} heartbeats, ${merged.pending.queue.length} queued)` )
         return legacy
       })
@@ -366,8 +373,13 @@ export class LocalStore {
       const written = await withFileLock(join(dir, BUCKET_LOCK_FILE_NAME), LOCK_OPTIONS, async () => {
         const file = await readJsonFileState(path)
         if (file.state === 'unreadable') {
-          /* 读不出就不能写: 否则 rename 会把读不出的内容覆盖成空 */
+          /* 读不出就不能写: 否则 rename 会把读不出的内容覆盖成空.
+             同时标记为"暂时只读并重试": 界面据此提示, 安静期里也会自己再试,
+             否则这期间的数据只留在内存, 退出即丢 */
+          this.writeBlocked = true
+          this.blockedTransient = true
           this.options.logger?.warn?.('[wakatime] data file is not readable, skip writing')
+          this.schedulePersistRetry()
           return false
         }
         if (isFutureVersion(file.value)) {
@@ -379,6 +391,7 @@ export class LocalStore {
         /* 文件已回到可识别状态(或已被删除): 解除上次的只读标记.
            只置位不复位时, 一次瞬时读失败(占用/ACL)会让本进程终身不落盘, 界面数字照涨, 退出即丢 */
         this.writeBlocked = false
+        this.blockedTransient = false
         let disk = normalizeStore(file.value)
         let archivedPath: string | null = null
         if (disk === null) {
@@ -396,6 +409,9 @@ export class LocalStore {
             const tag = file.state === 'corrupt' ? 'corrupt' : 'unknown'
             archivedPath = await archiveFileWithPath(path, tag)
             if (archivedPath === null) {
+              this.writeBlocked = true
+              this.blockedTransient = true
+              this.schedulePersistRetry()
               this.options.logger?.warn?.(`[wakatime] failed to archive unrecognized data file as *.${tag}.*.bak, skip writing`)
               return false
             }
@@ -450,7 +466,7 @@ export class LocalStore {
       ? PERSIST_RETRY_BASE_MS
       : Math.min(this.persistRetryDelay * 2, PERSIST_RETRY_MAX_MS)
     if (this.timer !== undefined) return
-    if (this.legacy !== null || this.writeBlocked) return
+    if (this.legacy !== null || (this.writeBlocked && !this.blockedTransient)) return
     this.timer = setTimeout(() => { void this.flush() }, this.persistRetryDelay)
     this.timer.unref?.()
   }

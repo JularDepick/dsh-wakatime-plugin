@@ -120,12 +120,34 @@ export async function withFileLock<T>(lockPath: string, options: LockOptions, ru
 export async function writeFileAtomic(path: string, text: string, mode = 0o600): Promise<void> {
   const temp = `${path}.${process.pid}.${Date.now()}.${randomUUID().slice(0, 8)}.tmp`
   try {
-    await writeFile(temp, text, { mode })
+    /* 先 fsync 再改名: rename 只保证"名字"原子, 不保证内容已经落盘,
+       断电后可能留下路径存在但内容为空或被截断的文件 */
+    const handle = await open(temp, 'w', mode)
+    try {
+      await handle.writeFile(text, 'utf-8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
     await rename(temp, path)
+    /* 改名本身也要落盘, 否则目录项可能回退到旧名字; Windows 不支持目录 fsync, 失败忽略 */
+    await syncDirectory(dirname(path))
   } catch (error) {
     await unlink(temp).catch(() => {})
     throw error
   }
+}
+
+/* 同步目录项: 平台不支持(Windows)或权限不足时静默跳过, 不作为写入失败 */
+async function syncDirectory(dir: string): Promise<void> {
+  try {
+    const handle = await open(dir, 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  } catch { /* 忽略: 目录 fsync 属于尽力而为 */ }
 }
 
 /* 清理原子写残留: 进程被杀会在数据目录留下 "<文件名>.<pid>.<时间戳>.<随机>.tmp",

@@ -297,7 +297,12 @@ export class AuthManagerImpl implements AuthManager {
        让脚本调用方以为已经清掉了(实际磁盘一点没动) */
     if (this.configManager.isReadOnly()) throw new ConfigReadOnlyError()
     const stored = await this.config()
-    if (!stored) return locked
+    if (!stored) {
+      /* 读不到配置不等于"没有凭证": 文件可能刚变成未来版本(只读), 这时回 200 等于谎报已清除.
+         复查只读标记, 与保存/配置写入路由保持同样的 409 语义 */
+      if (this.configManager.isReadOnly()) throw new ConfigReadOnlyError()
+      return locked
+    }
     const clearWrite = targets.includes('write') && !locked.includes('write')
     const clearRead = targets.includes('read') && !locked.includes('read')
     /* 只有待清的槽位本来都是空时才无事可做: 否则即使目标槽为空也要推进该槽的变更时刻,

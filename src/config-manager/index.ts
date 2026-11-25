@@ -94,6 +94,8 @@ export class ConfigManagerImpl implements ConfigManager {
     const current = normalizeStoredConfig(file.value)
     /* 结构又回到本插件能识别的版本(例如用户把未来的文件换掉): 解除只读, 不必等到重启 */
     if (current !== null) this.readOnly = false
+    /* 文件被删除同样解除只读: 否则删掉未来版本文件后, 本进程要到重启才恢复写盘 */
+    if (current === null && file.state === 'missing') this.readOnly = false
     if (current === null) {
       /* 旧结构交给写入路径在锁内归档并迁移; 损坏或结构未知同样由写入路径归档 */
       const migrated = migrateStoredConfig(file.value)

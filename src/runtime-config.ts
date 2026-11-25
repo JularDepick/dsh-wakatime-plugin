@@ -46,6 +46,10 @@ export type StoredSettings = StoredConfig['settings']
 export class RuntimeConfig {
   private current: Config
   private readonly listeners = new Set<(config: Config) => void>()
+  /* 写入串行化: 每次 update 都是"读盘 settings -> 叠加本次补丁 -> 落盘",
+     并发调用会各自基于同一份旧内容计算, 后完成者把先完成者的键整块覆盖,
+     内存与磁盘同时丢掉那一项(重启也回不来) */
+  private writeChain: Promise<void> = Promise.resolve()
 
   constructor(initial: Config, private readonly configManager: ConfigManager) {
     this.current = { ...initial }
@@ -56,14 +60,19 @@ export class RuntimeConfig {
     return this.current
   }
 
-  /* 应用 Web 写入:更新内存、持久化 settings 块并通知订阅者 */
-  async update(patch: WebConfigPatch): Promise<Config> {
-    const next = { ...this.current, ...patch }
-    /* 先落盘再改内存: 落盘失败时内存配置与订阅者仍与磁盘一致, 不会出现"界面显示已改、重启回退" */
-    await this.persist(patch)
-    this.current = next
-    this.notify()
-    return this.current
+  /* 应用 Web 写入:更新内存、持久化 settings 块并通知订阅者.
+     多次写入排队执行: 后一次在前一次落盘后的磁盘内容上叠加, 不会互相覆盖 */
+  update(patch: WebConfigPatch): Promise<Config> {
+    const run = this.writeChain.then(async () => {
+      const next = { ...this.current, ...patch }
+      /* 先落盘再改内存: 落盘失败时内存配置与订阅者仍与磁盘一致, 不会出现"界面显示已改、重启回退" */
+      await this.persist(patch)
+      this.current = next
+      this.notify()
+    })
+    /* 链上只保留"已完成"语义: 一次失败不能卡住后续写入, 失败仍原样抛给调用方 */
+    this.writeChain = run.then(() => undefined, () => undefined)
+    return run.then(() => this.current)
   }
 
   /* 启动时合并持久化的 Web 覆盖(异步调用,失败静默保留 cordis 配置) */

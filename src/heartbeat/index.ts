@@ -188,9 +188,6 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
     try {
       /* 逐条结算: 被拒的按单条分类, 其余视为已送达(不回队, 避免整批重复上报) */
       const results = await this.deliver(batch.map((entry) => entry.heartbeat))
-      /* 请求到达服务端即说明凭证可用, 下一次被拒重新记一条 */
-      this.lastRejectLoggedAt = 0
-      this.credentialRejected = null
       const failures: { entry: PendingHeartbeatEntry, error: WakaTimeError }[] = []
       for (let index = 0; index < batch.length; index += 1) {
         const error = results[index]
@@ -198,14 +195,24 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         if (error !== undefined && entry !== undefined) failures.push({ entry, error })
       }
       if (failures.length === 0) {
+        /* 全部送达才说明凭证可用: 下一次被拒重新记一条 */
+        this.lastRejectLoggedAt = 0
+        this.credentialRejected = null
         this.lastSuccessAt = Date.now()
         this.appendBatchReport({ kind: 'batch', count: batch.length, ok: true, ...detailOf(batch) })
         this.log('info', `[wakatime] pushed ${batch.length} heartbeats`)
         return
       }
-      /* 部分成功: 只有被拒的那几条按单条分类结算, 否则一条坏心跳会连坐整批,
-         界面上一次冒出成串需要逐条手动重试的入口 */
-      for (const { entry, error } of failures) {
+      /* 部分成功: 逐条结算. 单条里也可能出现 401/权限类 403(整批 2xx 但该条被拒),
+         这些与整批被拒同等待遇: 回队尾轮转、不计尝试次数, 否则 3 轮后进失败列表,
+         凭证修好也不会自动续传 */
+      const rejected = failures.filter((item) => isCredentialRejected(item.error))
+      const retryable = failures.filter((item) => !isCredentialRejected(item.error))
+      if (rejected.length === 0) {
+        this.lastRejectLoggedAt = 0
+        this.credentialRejected = null
+      }
+      for (const { entry, error } of retryable) {
         const attempts = entry.attempts + 1
         if (isTerminalError(error) || attempts >= PUSH_TASK_MAX_ATTEMPTS) {
           this.appendFailedTask({ ...entry, attempts }, error.message)
@@ -213,17 +220,35 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
           this.queue.push({ ...entry, attempts })
         }
       }
-      const reason = failures[0]?.error.message ?? 'unknown'
-      this.appendBatchReport({ kind: 'batch', count: failures.length, ok: false, error: reason, ...detailOf(failures.map((item) => item.entry)) })
-      this.log('warn', `[wakatime] push partially failed: ${failures.length}/${batch.length} heartbeats rejected: ${reason}`)
+      if (retryable.length > 0) {
+        const reason = retryable[0]?.error.message ?? 'unknown'
+        this.appendBatchReport({ kind: 'batch', count: retryable.length, ok: false, error: reason, ...detailOf(retryable.map((item) => item.entry)) })
+        this.log('warn', `[wakatime] push partially failed: ${retryable.length}/${batch.length} heartbeats rejected: ${reason}`)
+      }
+      if (rejected.length > 0) {
+        this.queue.push(...rejected.map((item) => item.entry))
+        const message = rejected[0]?.error.message ?? 'credential rejected'
+        this.credentialRejected = { message, at: Date.now() }
+        const now = Date.now()
+        if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
+          this.lastRejectLoggedAt = now
+          this.appendBatchReport({ kind: 'batch', count: rejected.length, ok: false, error: message, ...detailOf(rejected.map((item) => item.entry)) })
+        }
+        this.log('warn', `[wakatime] credential rejected for ${rejected.length} heartbeat(s), kept in queue: ${message}`)
+      }
     } catch (error) {
       /* 凭证不可用(两槽未齐备, 或两槽被判定不是同一账号):不丢失、不计尝试次数,整批移到队尾轮转.
          放回队首会让同一批最旧的心跳被反复取走, 队尾新心跳永远轮不到(长期不可用时等于停摆);
          移到队尾后每轮从不同位置取批, 整条队列都能轮到. 心跳自带时间戳, 发送顺序不影响上报结果 */
       if (error instanceof NotAuthenticatedError) {
         this.queue.push(...batch)
-        /* 这是"上报停摆"而不是普通信息: 默认 info 被 debug 开关抑制时这条路径将完全无痕 */
-        this.log('warn', '[wakatime] credential slots incomplete or unusable, heartbeats stay queued')
+        /* 这是"上报停摆"而不是普通信息: 默认 info 被 debug 开关抑制时这条路径将完全无痕.
+           长期未配置凭证时每轮(含 30s 补推)都会命中, 按同一间隔节流, 免得刷满日志 */
+        const now = Date.now()
+        if (now - this.lastRejectLoggedAt >= CREDENTIAL_REJECT_LOG_INTERVAL_MS) {
+          this.lastRejectLoggedAt = now
+          this.log('warn', '[wakatime] credential slots incomplete or unusable, heartbeats stay queued')
+        }
         return
       }
       const message = (error as Error).message

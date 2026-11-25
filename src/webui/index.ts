@@ -22,7 +22,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthManager } from '../auth'
 import type { ConfigManager } from '../config-manager'
-import { SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
+import { SYNC_CLIENT_HEADER, SYNC_FORCE_HEADER, WEB_CONFIG_PATH, WEB_CREDENTIAL_CLEAR_PATH, WEB_CREDENTIAL_PATH, WEB_LOGS_PATH, WEB_MIGRATE_PATH, WEB_RETRY_PATH, WEB_STATUS_PATH, WEB_SYNC_PATH } from '../constants'
 import { ConfigReadOnlyError, CredentialInputError } from '../errors'
 import type { HeartbeatEngine, ReportEntry } from '../heartbeat'
 import { trimReportLog } from '../heartbeat/compress'
@@ -104,16 +104,26 @@ export function attachWebUi(ctx: Context, deps: WebUiDeps): void {
           writeJson(res, 500, { ok: false, error: 'internal error' })
         })
       }
-    const disposers = [
-      webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: safe((req, res) => handleStatus(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: safe((req, res) => handleConfig(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_PATH, handler: safe((req, res) => handleCredential(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_CLEAR_PATH, handler: safe((req, res) => handleCredentialClear(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: safe((req, res) => handleSync(req, res, deps)) }),
-      webServer.register({ kind: 'exact', path: WEB_MIGRATE_PATH, handler: safe((req, res) => handleMigrate(req, res, deps)) }),
-    ]
+    /* 注册失败(宿主拒绝重复路径等)时回滚已注册的处理器并留痕:
+       直接抛出会把异常送到事件分发链上, 而已注册的路由还留着 */
+    const disposers: (() => void)[] = []
+    try {
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_STATUS_PATH, handler: safe((req, res) => handleStatus(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_CONFIG_PATH, handler: safe((req, res) => handleConfig(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_PATH, handler: safe((req, res) => handleCredential(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_CREDENTIAL_CLEAR_PATH, handler: safe((req, res) => handleCredentialClear(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_LOGS_PATH, handler: safe((req, res) => handleLogs(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_RETRY_PATH, handler: safe((req, res) => handleRetry(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_SYNC_PATH, handler: safe((req, res) => handleSync(req, res, deps)) }))
+      disposers.push(webServer.register({ kind: 'exact', path: WEB_MIGRATE_PATH, handler: safe((req, res) => handleMigrate(req, res, deps)) }))
+    } catch (error) {
+      for (const dispose of disposers) {
+        try { dispose() } catch { /* 回滚失败不能掩盖原始错误 */ }
+      }
+      const reason = error instanceof Error ? error.message : String(error)
+      deps.logger?.warn?.('[wakatime] failed to register web routes: ' + reason)
+      return
+    }
     disposeRoutes = () => { for (const dispose of disposers) dispose() }
   }
 
@@ -397,6 +407,12 @@ async function handleSync(req: IncomingMessage, res: ServerResponse, deps: WebUi
   }
   /* 同步会写云端快照, 属有副作用操作: 带 Origin 时要求同源 */
   if (!guardOrigin(req, res)) return
+  /* 仅校验 Origin 挡不住跨站 <img>/<script>(它们不带 Origin): 再要求客户端标识头,
+     跨站要带自定义头必须先过预检, 而本路由不响应预检, 浏览器会直接拦下 */
+  if (req.headers[SYNC_CLIENT_HEADER] !== '1') {
+    writeJson(res, 403, { ok: false, error: 'client header required' })
+    return
+  }
   await deps.store.reloadIfChanged()
   const force = isForceRequest(req)
   const data = await deps.sync.sync({ force })

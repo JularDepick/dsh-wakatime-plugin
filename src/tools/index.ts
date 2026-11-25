@@ -307,14 +307,14 @@ export class WakatimeTools {
   private async setCredential(slot: 'write' | 'read', secret: string): Promise<string> {
     try {
       const result = await this.options.auth.setCredential(slot, secret)
-      const typeName = slot === 'write' ? translate('credential.typeApiKey') : translate('credential.typeOauth')
       const slotName = slot === 'write' ? translate('status.slotWrite') : translate('status.slotRead')
       const suffix = result.username === undefined ? '' : ': ' + result.username
       /* existed 表示与已保存内容相同(重复保存), replaced 表示换成了另一份凭证 */
       const prefix = result.existed
         ? translate('credential.unchanged')
         : result.replaced ? translate('credential.replaced') : translate('credential.added')
-      const head = prefix + ' [' + slotName + '] ' + typeName + suffix
+      /* 槽名本身已含凭证类型(写入槽(API Key)), 不再重复拼一次类型 */
+      const head = prefix + ' [' + slotName + ']' + suffix
       /* 另一槽还空着时上报仍暂停, 必须说清楚, 否则用户以为已经修好了 */
       return result.paired ? head : head + '\n' + translate('credential.partial')
     } catch (error) {
