@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
 [English](./README_en-US.md)
-| [简体中文]
+| **简体中文**
 
 </div>
 
@@ -21,7 +21,7 @@
 - 自动追踪,量化并上报 DSH 中的 AI Agent 工作数据至 WakaTime 平台
 - 凭证(双槽): 写入槽用 WakaTime API Key(`waka_` 开头上报心跳),读取槽用个人 OAuth 访问令牌(`waka_tok_` 开头读取账号与云端战绩),两槽缺一即视为未配置且必须属于同一个 WakaTime 用户(保存时自动取证);每槽可单独保存或更换,清除凭证清两槽,更换凭证不影响本地战绩;凭证由 host 侧配置模块落盘保管(`plugins/wakatime/config.json`), 小后端只代理路由, 前端永不接触明文, 任何读取面只回显首尾各 8 个字符(中间固定 8 个星号, 不超过 16 字符的串整体打码)
 - 定时批量上报: 启动时推送一轮,之后按可配置间隔(默认 60 秒)循环;积压达到 20 条时按积压量的十分之一合并成一次批量请求(单批不超过 WakaTime 的 25 条上限),每条心跳保留自己的时间戳
-- 推送队列与重试: 未发送的心跳落盘保留,重启不丢(检测到旧版数据, 等待确认迁移期间除外,那时插件只读运行);失败自动回到队尾重试,单条最多 3 次,耗尽或遇到 400/404/422 等载荷错误即进入上报记录,可在界面上点击该失败行重新排队重试;批量上报逐条结算:只有被服务端拒绝的那几条回队重试或进入上报记录,其余照常视为已送达,一条坏心跳不会连累整批;凭证失效(401, 以及提示权限不足的 403)不会丢心跳,整批移到队尾轮转等待凭证恢复,其余 403 按可重试失败计数;每条记录都带详情(本次上报的类别与项目/分支,失败时附失败原因)
+- 推送队列与重试: 未发送的心跳落盘保留,重启不丢(检测到旧版数据, 等待确认迁移期间除外,那时插件只读运行);失败自动回到队尾重试,单条最多 3 次,耗尽或遇到 400/404/422 等载荷错误即进入上报记录,可在界面上点击该失败行重新排队重试;批量上报逐条结算:只有被服务端拒绝的那几条回队重试或进入上报记录,其余照常视为已送达,一条坏心跳不会连累整批;凭证失效(401, 以及提示权限不足的 403)不会丢心跳,整批移到队尾轮转等待凭证恢复,其余 403 按可重试失败计数;429 限流按整批轮转且不计尝试次数;每条记录都带详情(本次上报的类别与项目/分支,失败时附失败原因)
 - 单一本地数据: 战绩累计, 云端快照, 待发送队列与上报记录只有一份,与凭证无关,更换凭证不丢数据,也不再按凭证拆分多份缓存
 - Token 统计: 精确记录每次 Agent 调用的输入 Token(未命中缓存的部分)与输出 Token 数量, 缓存命中单列统计
 - Agent 协作战绩: 全局汇总提示词字符总量,模型思考总时长,输出 TOKEN 总量,有效 TOKEN 消耗量,缓存命中 TOKEN 总量与平均输出速度等表现指标,在 Web 界面随时查看;战绩表支持开关边框显示,数值可按千位或万位分隔
@@ -59,7 +59,7 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<版本>.tgz
 
 - dsh 版本: 支持区间 `>=0.2.1-rc.1 <0.2.3-rc.1`(0.2.2 整条预发布线与随后的 0.2.2 正式版都在区间内,已实测到 0.2.2-rc.5),共用同一份产物,无需按版本分别安装;dsh 0.2.2-rc.x 宿主自身要求 Node.js `>=24.9.0`,在该版本上运行以宿主要求为准.
 - Node 版本: 插件自身要求 Node.js `>=22`(随 dsh 宿主实际为 24.x),单独运行产物或脚本时以该下限为准.
-- 安装校验: 包清单以 `engines.dsh` 声明区间 `>=0.2.1-rc.1 <0.2.3-rc.1`,七个宿主包的对等依赖用等价的分段写法 `>=0.2.1-rc.1 <0.2.2-rc.0 || >=0.2.2-rc.0 <0.2.3-rc.0`(包管理器默认语义下按 0.2.2 线分段,段内版本与 `engines.dsh` 区间一致,但比分段外的字面区间少放行 `0.2.3-rc.0` 这一个预发布;只写前一段会拒绝 0.2.2-rc.x 这类同主次修订的预发布);若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本落在区间之外.
+- 安装校验: 包清单以 `engines.dsh` 声明区间 `>=0.2.1-rc.1 <0.2.3-rc.1`,七个宿主包的对等依赖用等价的分段写法 `>=0.2.1-rc.1 <0.2.2-rc.0 || >=0.2.2-rc.0 <0.2.3-rc.1`(包管理器默认语义下按 0.2.2 线分段,段内版本与 `engines.dsh` 区间一致;只写前一段会拒绝 0.2.2-rc.x 这类同主次修订的预发布);若安装或启动时报插件与当前 dsh 版本不兼容,说明当前 dsh 版本落在区间之外.
 - 后续版本: `0.2.3-rc.1` 及之后的 dsh 版本(含 0.3.x)都会被本插件拒绝,需要等待插件实测并推进上界;区间内 0.2.2 的后续预发布(如 rc.6)由同一份产物直接放行.
 - 只读运行: 配置文件结构版本高于本插件支持版本时插件只读运行(界面出只读横幅,凭证与设置禁用);数据文件结构版本更高或当前读不出时本次运行不写盘(界面出「本地数据只读」横幅),战绩与待发送队列会在退出时丢失;文件恢复为可识别结构后写盘能力自动恢复,无需重启.
 - 从 0.3.0 升级: 凭证在首次启动自动迁移(凭证列表转换为双槽: 插件密钥进写入槽, OAuth 令牌进读取槽;只存过插件密钥的用户还需再补一个个人 OAuth 令牌到读取槽); 本地数据改为在 Web 界面上确认后迁移: 检测到 0.3.0 旧版数据时插件只读运行(不覆盖旧文件),在上报记录标题下方显示一行红字「存在旧版数据, 点击迁移」,点击后把分凭证的多份数据合并为一份(战绩逐项求和, 待发送队列按心跳身份计数归并(同秒同身份(含项目与分支)的重复心跳计数相加, 不再丢弃其中一条), 云端快照取最新;0.3.0 的失败列表不继承,迁移后为空,只保留批次级上报记录),更早版本的 `stats.json` 与 `heartbeats.json` 在数据文件缺失时并入,迁移成功后红字消失;确认迁移之前本进程的战绩只留在内存,重启会丢,看到红字后请尽快点击; 迁移后本地数据与凭证解耦,此后更换凭证不再影响战绩;`statsScope` 配置项与 `WAKATIME_API_KEY` 环境变量在 0.4.0 移除(0.5.0 起该变量重新启用, 语义改为写入槽 API Key 的临时凭证, 详见「使用」一节),旧 `cordis.yml` 里的残留项不会被拒绝,但插件不再读取,其余默认值不变(`tableBorders` 默认开启,`digitGrouping` 默认 `thousand`).
@@ -92,7 +92,7 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<版本>.tgz
 | 工具 | 用途 |
 |:---:|:---:|
 | `wakatime_config` | 查看/修改插件配置(op=get/set);凭证操作: `set_credential` 需带 `slot`(`write` 收 API Key,`read` 收 OAuth 访问令牌)与 `secret`(凭证原文),仅覆盖不可查看;op=get 的 `sameAccount` 字段输出原始枚举 `same`/`different`/`unknown` |
-| `wakatime_logout` | 清除两槽本地凭证(本地战绩保留) |
+| `wakatime_logout` | 清除两槽本地凭证(本地战绩保留);被环境变量占住的槽位跳过并点名 |
 | `wakatime_status` | 查看两槽认证状态,同账号结论,上报运行态(积压条数,失败数,最近成功时刻,凭证被拒原因)与数据侧是否只读(只读时本次运行不写盘,战绩退出即丢);不回显明文 |
 | `wakatime_stats` | 查看 Agent 协作战绩(提示词字符总量,提示词 Token 估算,模型思考总时长,输出 TOKEN 总量,有效 TOKEN 消耗量,缓存命中 TOKEN 总量,输入 TOKEN 总量,平均输出速度;与界面战绩表同源) |
 
@@ -108,7 +108,7 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<版本>.tgz
   name: dsh-wakatime-plugin
   config:
     enabled: true          # 总开关: 关闭后新心跳直接丢弃, 队列里的旧心跳保留
-    locale: zh-CN          # 界面语言(host 工具文案;Web UI 语言跟随 dsh web)
+    locale: zh-CN          # host 工具文案语言(zh-CN | en-US;Web UI 语言跟随 dsh web)
     reportInterval: 60     # 定时上报间隔(秒, 取值 1 到 3600),启动时上报一次后循环
     reportEnabled: true    # 是否开启定时上报
     includeTokens: true    # 是否上报 TOKEN 用量
@@ -125,7 +125,7 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<版本>.tgz
 | `WAKATIME_OAUTH_TOKEN` | WakaTime OAuth 访问令牌(读取槽临时凭证, 作为临时凭证优先于文件配置) |
 | `WAKATIME_API_KEY` | WakaTime API Key(写入槽临时凭证, 同样优先于文件配置) |
 | `WAKATIME_DEBUG` | 启用调试日志 |
-| `WAKATIME_CONFIG_DIR` | 覆盖凭证配置存放目录(默认 `$DSH_HOME/plugins/wakatime`,即 `~/.dsh/plugins/wakatime`) |
+| `WAKATIME_CONFIG_DIR` | 覆盖配置与数据目录(默认 `$DSH_HOME/plugins/wakatime`,即 `~/.dsh/plugins/wakatime`;凭证与 `buckets.json` 都在此;空串视为未设置) |
 | `DSH_HOME` | dsh home 目录,影响凭证配置目录的默认位置(默认 `~/.dsh`) |
 | `NODE_USE_ENV_PROXY` | 置为 `1` 时让插件请求走环境代理变量 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`(需 Node 24 及以上) |
 
@@ -143,8 +143,9 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<版本>.tgz
 标准分发流程(在仓库根目录手动执行):
 
 ```bash
-# 1. 检查类型并构建产物
+# 1. 检查类型与中英文案并构建产物
 pnpm typecheck
+pnpm check:i18n
 pnpm build
 
 # 2. 打包标准 npm tarball(含构建产物,cordis.patch.yml,scripts/ 构建与打包脚本,LICENSE/COPYRIGHT,中英 README;不含 src/ 源码目录与依赖)
@@ -160,7 +161,7 @@ pnpm run pack
 | `dsh-wakatime-plugin-latest.tgz` | 同上的别名,始终指向最新一次打包产物,便于脚本固定路径安装 |
 
 > 产物为预构建形态,安装无需构建权限.从 GitHub 源码安装依赖 `prepare` 构建,从 tarball 安装则可离线使用.
-> tag 与 Release 的命名规则见 [docs/repo-spec/tag-release-spec.md](https://github.com/JularDepick/dsh-wakatime-plugin/blob/main/docs/repo-spec/tag-release-spec.md).
+> tag 与 Release 的命名规则见 [docs/repo-spec/tag-release-spec.md](https://github.com/JularDepick/dsh-wakatime-plugin/blob/main/docs/repo-spec/tag-release-spec.md)(该文档仅中文).
 
 
 ## 相关链接

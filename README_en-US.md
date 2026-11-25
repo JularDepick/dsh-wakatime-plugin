@@ -6,7 +6,7 @@
 [![Copyright](https://img.shields.io/badge/Copyright-JularDepick-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
-[English]
+**English**
 | [简体中文](./README.md)
 
 </div>
@@ -21,7 +21,7 @@ A plugin for dsh: quantify every dsh Agent interaction as a visualized performan
 - Automatically track, quantify, and report AI Agent work data in DSH to WakaTime
 - Credentials (two slots): the write slot takes a WakaTime API key (prefix `waka_`) and reports heartbeats, while the read slot takes a personal OAuth access token (prefix `waka_tok_`) and reads the account plus cloud stats; a missing slot counts as unconfigured, the two slots must belong to the same WakaTime user (verified automatically on save), each slot can be saved or replaced on its own, "Clear credentials" clears both, and changing credentials never touches local stats; credentials are stored on disk by the host-side config module (`plugins/wakatime/config.json`) and the mini-backend only proxies routes, so the frontend never touches plaintext, and every read surface only echoes the first and last 8 characters with a fixed run of 8 stars in between (strings of 16 characters or fewer are masked as a whole)
 - Scheduled batch reporting: pushes once at startup, then loops by a configurable interval (default 60 seconds); when the backlog reaches 20 entries it merges about a tenth of the backlog into one bulk request (capped at WakaTime's limit of 25 per request), keeping each heartbeat's own timestamp
-- Push queue with retries: unsent heartbeats are persisted and survive a restart (except while legacy data waits for the migration you confirm in the Web UI, when the plugin runs read-only); failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a payload error (400/404/422) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; each bulk response is settled per heartbeat, so only the entries the server rejected go back to the queue or into the report log while the rest count as delivered, and one bad heartbeat no longer drags the whole batch along; a rejected credential (401, plus any 403 whose message indicates a permission problem) never drops heartbeats, the whole batch rotates to the queue tail until the credential works again, while other 403 responses count as retryable failures; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
+- Push queue with retries: unsent heartbeats are persisted and survive a restart (except while legacy data waits for the migration you confirm in the Web UI, when the plugin runs read-only); failures return to the tail of the queue and are retried up to 3 times per heartbeat, and once attempts are exhausted or a payload error (400/404/422) occurs the entry shows up in the report log, where the failed row can be clicked to requeue it; each bulk response is settled per heartbeat, so only the entries the server rejected go back to the queue or into the report log while the rest count as delivered, and one bad heartbeat no longer drags the whole batch along; a rejected credential (401, plus any 403 whose message indicates a permission problem) never drops heartbeats, the whole batch rotates to the queue tail until the credential works again, while other 403 responses count as retryable failures; 429 rate limiting rotates the whole batch without consuming attempts; every record carries a detail summary (the categories plus project/branch of that push, and the failure reason when it failed)
 - Single local dataset: stats totals, cloud snapshot, pending queue, and report log exist as one set, independent of the credential, so changing credentials loses nothing and there is no longer a per-credential cache to manage
 - Token statistics: precisely record the input (uncached part) and output Token count of each Agent call, with cache hits tracked separately
 - Agent collaboration battle stats: globally aggregated prompt characters, model thinking time, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, and average output speed, viewable anytime in the Web interface; the stats table can toggle its cell borders, and numbers can be grouped by thousands or ten thousands
@@ -59,7 +59,7 @@ dsh plugin --profile <name> add ./dsh-wakatime-plugin-<version>.tgz
 
 - dsh versions: supports the range `>=0.2.1-rc.1 <0.2.3-rc.1` (the whole 0.2.2 prerelease line plus the 0.2.2 release itself; tested up to 0.2.2-rc.5); all share one artifact, so no per-version install is needed. dsh 0.2.2-rc.x hosts themselves require Node.js `>=24.9.0`, which prevails when running on that version.
 - Node.js version: the plugin itself requires Node.js `>=22` (24.x in practice alongside a dsh host), which is the floor when running the artifact or scripts standalone.
-- Install check: `engines.dsh` declares `>=0.2.1-rc.1 <0.2.3-rc.1`, and the peer ranges of the seven host packages use the equivalent split-line spelling `>=0.2.1-rc.1 <0.2.2-rc.0 || >=0.2.2-rc.0 <0.2.3-rc.0` (same versions as `engines.dsh` within each line, minus the single `0.2.3-rc.0` prerelease the literal upper bound would still admit; splitting at 0.2.2 keeps same-line prereleases matching, while the first part alone rejects 0.2.2-rc.x). If installation or startup reports the plugin as incompatible with the running dsh version, that dsh version is outside the range.
+- Install check: `engines.dsh` declares `>=0.2.1-rc.1 <0.2.3-rc.1`, and the peer ranges of the seven host packages use the equivalent split-line spelling `>=0.2.1-rc.1 <0.2.2-rc.0 || >=0.2.2-rc.0 <0.2.3-rc.1` (same versions as `engines.dsh`; splitting at 0.2.2 keeps same-line prereleases matching, while the first part alone rejects 0.2.2-rc.x). If installation or startup reports the plugin as incompatible with the running dsh version, that dsh version is outside the range.
 - Later versions: dsh `0.2.3-rc.1` and above (including 0.3.x) are rejected by this plugin until it is tested and the upper bound is raised; further 0.2.2 prereleases such as rc.6 stay inside the range and run on the same artifact.
 - Read-only runs: when the config file uses a newer structure than this plugin supports the plugin runs read-only (a banner appears and credentials and settings are disabled); when the data file is newer or currently unreadable this run never writes to disk (a "local data is read-only" banner appears) and stats plus the pending queue are lost on exit, writing resumes automatically once the file is readable again, so no restart is needed.
 - Upgrading from 0.3.0: the credential migrates automatically on the first start (the saved credential list is converted into the two slots: a plugin API key goes to the write slot and an OAuth token goes to the read slot, so a user who only saved an API key still needs a personal OAuth token in the read slot). The local dataset is migrated only after you confirm it in the Web UI: when 0.3.0 data is detected the plugin runs read-only (the old file is never overwritten) and shows a red line reading "Legacy data found, click to migrate" right below the report log title; clicking it merges the per-credential datasets into one (stats summed item by item, pending queue merged by heartbeat identity with counters summed (duplicates sharing the same identity and second (including project and branch) no longer lose one side), newest cloud snapshot kept; the 0.3.0 failed-task list is not inherited and comes out empty, keeping only batch-level report entries), merges the older `stats.json` and `heartbeats.json` in when the data file is missing, and the red line disappears once it succeeds. Until you confirm the migration, this run keeps new stats in memory only, so they are lost on restart; click the red line as soon as you see it. After the migration the local dataset is decoupled from the credential, so later credential changes no longer affect stats. The `statsScope` config field and the `WAKATIME_API_KEY` environment variable were removed in 0.4.0 (that variable is back since 0.5.0 as a temporary write-slot API key, see Usage below); leftover entries in an existing `cordis.yml` are not rejected but no longer read, and other defaults are unchanged (`tableBorders` on, `digitGrouping` `thousand`).
@@ -92,7 +92,7 @@ The plugin then tracks AI interactions in DSH and reports them to WakaTime on a 
 | Tool | Purpose |
 |:---:|:---:|
 | `wakatime_config` | Read/update plugin config (op=get/set); credentials: `set_credential` requires `slot` (`write` takes an API key, `read` takes an OAuth access token) and `secret` (the credential itself); overwrite only, never shown; the `sameAccount` field of op=get prints the raw enum `same`/`different`/`unknown` |
-| `wakatime_logout` | Clear both local credential slots (local stats are kept) |
+| `wakatime_logout` | Clear both local credential slots (local stats are kept); slots supplied by environment variables are skipped and named |
 | `wakatime_status` | Show both slot statuses, the same-account verdict, the transmission state (queued count, failed count, last success time, credential rejection reason) and whether local data is read-only (then this run never writes to disk and stats are lost on exit); never echoes any plaintext |
 | `wakatime_stats` | Show Agent collaboration battle stats (prompt characters, estimated prompt Token, model thinking duration, output TOKEN total, effective TOKEN usage, cache hit TOKEN total, input TOKEN total, average output speed; same source as the UI stats table) |
 
@@ -108,7 +108,7 @@ Precedence: `cordis.yml` is the configuration source; values changed in the Web 
   name: dsh-wakatime-plugin
   config:
     enabled: true          # master switch: when off, new heartbeats are dropped while queued ones are kept
-    locale: zh-CN          # Host tool copy language (Web UI follows the dsh web language)
+    locale: zh-CN          # Host tool copy language (zh-CN | en-US; the Web UI follows the dsh web language)
     reportInterval: 60     # Scheduled report interval (seconds, 1..3600); reports once at startup, then loops
     reportEnabled: true    # Whether to enable scheduled reporting
     includeTokens: true    # Whether to report Token usage
@@ -125,7 +125,7 @@ Environment variables:
 | `WAKATIME_OAUTH_TOKEN` | WakaTime OAuth access token (temporary read-slot credential taking precedence over the file) |
 | `WAKATIME_API_KEY` | WakaTime API key (temporary write-slot credential, also taking precedence over the file) |
 | `WAKATIME_DEBUG` | Enable debug logging |
-| `WAKATIME_CONFIG_DIR` | Override the credential config directory (default `$DSH_HOME/plugins/wakatime`, that is `~/.dsh/plugins/wakatime`) |
+| `WAKATIME_CONFIG_DIR` | Override the config and data directory (default `$DSH_HOME/plugins/wakatime`, that is `~/.dsh/plugins/wakatime`; credentials and `buckets.json` both live there; an empty value counts as unset) |
 | `DSH_HOME` | dsh home directory, affects the default credential config location (default `~/.dsh`) |
 | `NODE_USE_ENV_PROXY` | Set to `1` to route plugin requests through the environment proxy variables `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (requires Node 24 or later) |
 
@@ -143,8 +143,9 @@ Environment variables:
 Standard distribution workflow (run manually at the repository root):
 
 ```bash
-# 1. Type-check and build artifacts
+# 1. Type-check, check i18n keys, then build artifacts
 pnpm typecheck
+pnpm check:i18n
 pnpm build
 
 # 2. Pack the standard npm tarball (contains build artifacts, cordis.patch.yml, the scripts/ build and pack helpers, LICENSE/COPYRIGHT, and the zh/en READMEs; no src/ source tree or dependencies)
