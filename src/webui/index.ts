@@ -204,8 +204,6 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, deps: Web
     /* 超限是独立的 413, 不能被宽 catch 吞成"JSON 非法" */
     if (error instanceof PayloadTooLargeError) {
       writeJson(res, 413, { ok: false, error: 'payload too large' })
-      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
-      req.destroy()
       return
     }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
@@ -250,8 +248,6 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       writeJson(res, 413, { ok: false, error: 'payload too large' })
-      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
-      req.destroy()
       return
     }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
@@ -287,7 +283,9 @@ async function handleCredential(req: IncomingMessage, res: ServerResponse, deps:
     /* 格式不合法给稳定错误码(前端按码翻译);其余一律折叠成固定错误码,
        不把落盘失败或内部异常原文回给浏览器 */
     if (error instanceof CredentialInputError) {
-      writeJson(res, 400, { ok: false, error: error.code })
+      /* 槽位被环境变量占住属于"状态冲突"而不是请求格式错误, 与清除路由统一回 409 */
+      const status = error.code === 'env_locked' ? 409 : 400
+      writeJson(res, status, { ok: false, error: error.code })
       return
     }
     /* 只读运行与落盘失败必须与"凭证无效"区分开: 前者重填多少次都不会成功 */
@@ -311,13 +309,16 @@ async function handleCredentialClear(req: IncomingMessage, res: ServerResponse, 
   let payload: WebCredentialClearPayload = {}
   try {
     const raw = await readBody(req)
-    const parsed = raw.trim() === '' ? {} : JSON.parse(raw) as WebCredentialClearPayload
-    if (typeof parsed === 'object' && parsed !== null) payload = parsed
+    const parsed = raw.trim() === '' ? {} : JSON.parse(raw) as unknown
+    /* 只有对象才是合法请求体: null/数组不能被当成"清两槽"静默接受 */
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      writeJson(res, 400, { ok: false, error: 'invalid json body' })
+      return
+    }
+    payload = parsed as WebCredentialClearPayload
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       writeJson(res, 413, { ok: false, error: 'payload too large' })
-      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
-      req.destroy()
       return
     }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
@@ -403,8 +404,6 @@ async function handleRetry(req: IncomingMessage, res: ServerResponse, deps: WebU
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       writeJson(res, 413, { ok: false, error: 'payload too large' })
-      /* 请求体没读完: 响应写完后主动断开, 避免连接悬挂 */
-      req.destroy()
       return
     }
     writeJson(res, 400, { ok: false, error: 'invalid json body' })
@@ -570,8 +569,10 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('data', (chunk: Buffer) => {
       data += chunk.toString('utf8')
       if (data.length > BODY_LIMIT) {
-        /* 先暂停而不是销毁: 销毁 socket 会让 413 响应写不回去; 回完响应后由调用方断开 */
-        req.pause()
+        /* 超限后停止收集但继续把剩余数据读掉丢弃: 直接 destroy 会让 413 响应写不回去,
+           客户端只能看到 ECONNRESET; 边读边丢则响应能正常送达, 连接也不会悬挂 */
+        req.removeAllListeners('data')
+        req.resume()
         settle(() => reject(new PayloadTooLargeError('request body too large')))
       }
     })

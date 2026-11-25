@@ -174,7 +174,9 @@ export function apply(ctx: Context, config: ConfigType) {
   const restoreStore = async (): Promise<void> => {
     await store.load()
     stats.seed(store.stats())
-    heartbeat.restorePending(store.pending())
+    /* 只读运行(高版本文件/待迁移/读不出)时磁盘上的队列不该被本进程重新推送,
+       否则每次启动都会把这批重复上报一次; 图表展示仍走 diskView */
+    if (store.canRestorePending()) heartbeat.restorePending(store.pending())
     /* 把载入窗口内已经产生的实时数据写回存储, 避免启动竞态造成丢数 */
     store.setStats(stats.totals())
     store.setPending(heartbeat.pendingState())

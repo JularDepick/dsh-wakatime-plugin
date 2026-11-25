@@ -24,9 +24,16 @@ function parseIni(text, file, section) {
     const line = raw.trim()
     if (line === '' || line.startsWith(';') || line.startsWith('#')) continue
     const head = line.match(/^\[([^\]]+)\]$/)
-    if (head) { current = head[1]; continue }
+    if (head) {
+      current = head[1]
+      if (current !== 'meta' && current !== 'translation') problems.push(file + ': unknown section [' + current + ']')
+      continue
+    }
     const eq = line.indexOf('=')
-    if (eq < 0) continue
+    if (eq < 0) {
+      problems.push(file + ': malformed line without "=": ' + line)
+      continue
+    }
     const key = line.slice(0, eq).trim()
     const value = line.slice(eq + 1).trim()
     if (current === 'meta') {
@@ -89,6 +96,7 @@ diffKeys(zh.entries, en.entries, 'zh-CN.ini', 'en-US.ini')
 diffKeys(zh.entries, example.entries, 'zh-CN.ini', '.example_zh-CN.ini')
 if (zhText !== exampleText) problems.push('.example_zh-CN.ini differs from zh-CN.ini')
 
+const META_KEYS = ['for', 'lang', 'name', 'endtime']
 const version = JSON.parse(readFileSync('package.json', 'utf8')).version
 for (const [file, parsed, lang] of [['zh-CN.ini', zh, 'zh-CN'], ['en-US.ini', en, 'en-US'], ['.example_zh-CN.ini', example, 'zh-CN']]) {
   if (parsed.meta.get('for') !== 'v' + version) problems.push(file + ': for=' + (parsed.meta.get('for') ?? '<missing>') + ', expected v' + version)
@@ -96,7 +104,12 @@ for (const [file, parsed, lang] of [['zh-CN.ini', zh, 'zh-CN'], ['en-US.ini', en
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\+\d{2}:\d{2}$/.test(parsed.meta.get('endtime') ?? '')) {
     problems.push(file + ': endtime is not yyyy-MM-dd HH:mm:ss+HH:mm')
   }
+  diffKeys(new Set(META_KEYS), new Set(parsed.meta.keys()), file + ' meta', file + ' meta')
 }
+
+/* 英文侧残留中文是最容易漏的错译形态: 值里出现 CJK 即报 */
+const CJK = /[\u4e00-\u9fff]/
+for (const [key, value] of en.entries) if (CJK.test(value)) problems.push('en-US.ini: CJK text in value of ' + key)
 
 for (const [key, value] of zh.entries) {
   const other = en.entries.get(key)
@@ -131,6 +144,8 @@ for (const file of walk('src')) {
   }
 }
 for (const key of clientUsed) if (!declared.has(key)) problems.push('client t() key missing from WakatimeKey: ' + key)
+for (const key of declared) if (!clientUsed.has(key)) problems.push('client key declared but never used by t(): ' + key)
+for (const [key, value] of dictEn) if (CJK.test(value)) problems.push('locales.en: CJK text in value of ' + key)
 for (const key of used) if (!zh.entries.has(key)) problems.push('translate key missing from zh-CN.ini: ' + key)
 for (const key of zh.entries.keys()) if (!used.has(key)) problems.push('unused host key in zh-CN.ini: ' + key)
 

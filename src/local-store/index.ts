@@ -77,6 +77,8 @@ export class LocalStore {
   /* 只读是否由"暂时读不出"引起: 这种只读可以靠重试自愈, 需要继续排落盘重试;
      未来版本与待迁移则是终态, 重试也不会成功 */
   private blockedTransient = false
+  /* 磁盘文件是本插件不认识的更高结构版本: 只读展示, 队列也不该被本进程重推 */
+  private futureVersion = false
   /* 检测到旧版数据(0.3.0 的分凭证数据桶或更早的独立快照): 不自动转换, 等界面确认后迁移 */
   private legacy: LegacySource | null = null
   /* 在途迁移: 同一进程内并发点击复用同一次, 避免第二次把已转换的文件再归档一遍 */
@@ -118,6 +120,7 @@ export class LocalStore {
     const futureVersion = isFutureVersion(file.value)
     if (data === null && futureVersion) {
       this.writeBlocked = true
+      this.futureVersion = true
       try {
         const shim = { ...(file.value as Record<string, unknown>), version: STORE_FILE_VERSION }
         futureView = normalizeStore(shim)
@@ -183,14 +186,17 @@ export class LocalStore {
     }
     if (mtime === this.mtime) return false
     const file = await readJsonFileState(path)
-    this.mtime = mtime
+    /* 读不出时不记 mtime: 否则同一 mtime 不再重读, diskView 会一直陈旧到下次写盘 */
     if (file.state === 'unreadable') return false
+    this.mtime = mtime
     /* 运行期出现更高版本的文件(其它进程降级写入): 不认识, 只读并停止写盘, 绝不归档 */
     if (isFutureVersion(file.value)) {
       if (!this.writeBlocked) this.options.logger?.warn?.('[wakatime] data file is newer than supported, persistence disabled')
       this.writeBlocked = true
+      this.futureVersion = true
       return false
     }
+    this.futureVersion = false
     const disk = normalizeStore(file.value)
     if (disk === null) {
       /* 其它进程写回了旧结构(0.3.0 共存): 不自动转换, 转为待迁移状态并停止写盘 */
@@ -265,6 +271,12 @@ export class LocalStore {
 
   /* 数据侧是否只读运行(结构版本更高/读不出/待迁移时禁止写盘): 界面据此提示,
      否则"数字照常增长但退出即丢"对用户完全不可见 */
+  /* 只读原因是否属于"结构不认识/待迁移"(这类不该把磁盘队列重新推出去);
+     暂时读不出属于可自愈的只读, 队列照常恢复, 等写盘恢复后继续推送 */
+  canRestorePending(): boolean {
+    return this.legacy === null && !this.futureVersion
+  }
+
   isWriteBlocked(): boolean {
     return this.writeBlocked
   }

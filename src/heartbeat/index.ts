@@ -10,7 +10,7 @@
  * - 成功:整批出队并记一条 batch 上报记录;
  * - 可重试失败(429/5xx/网络):整批回队尾,逐条累加尝试次数,达到 PUSH_TASK_MAX_ATTEMPTS
  *   的进入失败列表并各记一条 task 失败记录;
- * - 载荷类终态失败(400/404/422):不重试,直接进失败列表并记录;凭证被拒(401/403)
+ * - 载荷类终态失败(400/404/413/422):不重试,直接进失败列表并记录(413 批量超限先拆成单条);凭证被拒(401/403)
  *   视同未配置凭证,整批移到队尾轮转且不计尝试次数;
  * - 未配置凭证:不算失败、不计尝试次数,整批移到队尾轮转并结束本轮(配置凭证后自然续推);
  *   轮转而非放回队首, 是为了让整条队列都能轮到, 避免队尾新心跳永久饥饿。
@@ -100,6 +100,8 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private lastSuccessAt: number | null = null
   /* 凭证被拒的运行态: 凭证一直无效时界面与工具面据此提示, 而不是只留一条节流日志 */
   private credentialRejected: { message: string; at: number } | null = null
+  /* 批量载荷超限后改为逐条发送: 413 可能是"这一批太大", 不能整批判死 */
+  private singleBatch = false
 
   constructor(http: HttpClient, tokenProvider: TokenProvider, options: HeartbeatEngineOptions) {
     this.http = http
@@ -199,6 +201,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         this.lastSuccessAt = Date.now()
       }
       if (failures.length === 0) {
+        this.singleBatch = false
         /* 全部送达才说明凭证可用: 下一次被拒重新记一条 */
         this.lastRejectLoggedAt = 0
         this.credentialRejected = null
@@ -266,6 +269,14 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
         return
       }
       const message = (error as Error).message
+      /* 批量载荷超限(413): 可能只是这一批太大, 不整批判死; 下轮改逐条发送,
+         单条仍 413 才按终态进失败列表 */
+      if (error instanceof WakaTimeError && error.status === 413 && batch.length > 1) {
+        this.singleBatch = true
+        this.queue.push(...batch)
+        this.log('warn', `[wakatime] batch payload too large (${batch.length} heartbeats), retrying one by one`)
+        return
+      }
       /* 429 限流不是心跳本身的问题: 与凭证不可用同样整批轮转且不计尝试次数,
          否则持续限流时整条积压会被逐轮推进失败列表, 恢复后也回不来 */
       if (error instanceof WakaTimeError && error.status === 429) {
@@ -415,6 +426,7 @@ export class HeartbeatEngineImpl implements HeartbeatEngine {
   private batchSize(): number {
     const backlog = this.queue.length
     if (backlog === 0) return 0
+    if (this.singleBatch) return 1
     if (backlog < PUSH_BATCH_THRESHOLD) return 1
     return Math.max(1, Math.min(BULK_HEARTBEAT_LIMIT, Math.floor(backlog / PUSH_BATCH_DIVISOR)))
   }
